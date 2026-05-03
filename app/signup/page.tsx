@@ -73,7 +73,7 @@ function SignupForm() {
                 placeholder="Rahul Sharma"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                className={`w-full bg-white/5 border ${error && !fullName ? "border-red-500" : "border-white/10"} focus:border-purple-500 rounded-xl px-4 py-3 text-white text-sm outline-none transition-colors placeholder:text-slate-500`}
+                className={w-full bg-white/5 border ${error && !fullName ? "border-red-500" : "border-white/10"} focus:border-purple-500 rounded-xl px-4 py-3 text-white text-sm outline-none transition-colors placeholder:text-slate-500}
               />
             </div>
             <div>
@@ -83,7 +83,7 @@ function SignupForm() {
                 placeholder="you@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className={`w-full bg-white/5 border ${error && !email ? "border-red-500" : "border-white/10"} focus:border-purple-500 rounded-xl px-4 py-3 text-white text-sm outline-none transition-colors placeholder:text-slate-500`}
+                className={w-full bg-white/5 border ${error && !email ? "border-red-500" : "border-white/10"} focus:border-purple-500 rounded-xl px-4 py-3 text-white text-sm outline-none transition-colors placeholder:text-slate-500}
               />
             </div>
             <div>
@@ -93,7 +93,7 @@ function SignupForm() {
                 placeholder="+91 98765 43210"
                 value={mobile}
                 onChange={(e) => setMobile(e.target.value)}
-                className={`w-full bg-white/5 border ${error && !mobile ? "border-red-500" : "border-white/10"} focus:border-purple-500 rounded-xl px-4 py-3 text-white text-sm outline-none transition-colors placeholder:text-slate-500`}
+                className={w-full bg-white/5 border ${error && !mobile ? "border-red-500" : "border-white/10"} focus:border-purple-500 rounded-xl px-4 py-3 text-white text-sm outline-none transition-colors placeholder:text-slate-500}
               />
             </div>
             <div>
@@ -103,7 +103,7 @@ function SignupForm() {
                 placeholder="Min. 8 characters"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className={`w-full bg-white/5 border ${error && !password ? "border-red-500" : "border-white/10"} focus:border-purple-500 rounded-xl px-4 py-3 text-white text-sm outline-none transition-colors placeholder:text-slate-500`}
+                className={w-full bg-white/5 border ${error && !password ? "border-red-500" : "border-white/10"} focus:border-purple-500 rounded-xl px-4 py-3 text-white text-sm outline-none transition-colors placeholder:text-slate-500}
               />
             </div>
             <button

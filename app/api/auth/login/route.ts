@@ -1,19 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
+import bcrypt from "bcryptjs";
+import { prisma } from "@/app/lib/prisma";
+import { signToken } from "@/app/lib/auth";
 
 export async function POST(req: NextRequest) {
   try {
     const { email, password } = await req.json();
 
-    if (!email || !password)
-      return NextResponse.json({ message: "Email and password are required." }, { status: 400 });
+    if (!email || !password) {
+      return NextResponse.json(
+        { success: false, message: "Email and password are required." },
+        { status: 400 }
+      );
+    }
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
-      return NextResponse.json({ message: "Invalid email address." }, { status: 400 });
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      return NextResponse.json(
+        { success: false, message: "Invalid credentials." },
+        { status: 401 }
+      );
+    }
 
-    // TODO: verify credentials against database
-    // Mock: accept any valid email/password for now
-    return NextResponse.json({ message: "Login successful.", user: { email } }, { status: 200 });
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return NextResponse.json(
+        { success: false, message: "Invalid credentials." },
+        { status: 401 }
+      );
+    }
+
+    const token = signToken({ userId: user.id, email: user.email, role: user.role });
+
+    return NextResponse.json({
+      success: true,
+      message: `Logged in as ${user.role}.`,
+      token,
+      user: { id: user.id, email: user.email, role: user.role },
+    });
   } catch {
-    return NextResponse.json({ message: "Something went wrong." }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Internal server error." },
+      { status: 500 }
+    );
   }
 }
