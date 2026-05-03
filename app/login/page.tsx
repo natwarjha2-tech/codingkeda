@@ -1,7 +1,57 @@
+"use client";
+
+import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 export default function Login() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const router = useRouter();
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+
+    try {
+      // ── CALL THE BACKEND ──────────────────────────────────────────
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await res.json();
+      // ─────────────────────────────────────────────────────────────
+
+      if (!data.success) {
+        // e.g. "Invalid credentials."
+        setError(data.message);
+        return;
+      }
+
+      // ✅ Save token — every future API call will send this
+      localStorage.setItem("token", data.token);
+
+      // Redirect based on role
+      if (data.user.role === "admin") {
+        router.push("/admin"); // build this page later
+      } else {
+        router.push("/");
+      }
+
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <main className="min-h-screen flex items-center justify-center bg-[radial-gradient(ellipse_at_top,#1a0533_0%,#0f0f1a_60%)] px-6 py-12">
       <div className="w-full max-w-md">
@@ -27,19 +77,45 @@ export default function Login() {
             <div className="flex-1 h-px bg-white/8" />
           </div>
 
-          <form className="space-y-4">
+          {/* ── ERROR MESSAGE ── */}
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-xl px-4 py-3 mb-4">
+              {error}
+            </div>
+          )}
+
+          <form className="space-y-4" onSubmit={handleSubmit}>
             <div>
               <label className="text-sm font-semibold text-slate-300 block mb-1.5">Email</label>
-              <input type="email" placeholder="you@example.com" className="w-full bg-white/5 border border-white/10 focus:border-purple-500 rounded-xl px-4 py-3 text-white text-sm outline-none transition-colors placeholder:text-slate-500" />
+              <input
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                className="w-full bg-white/5 border border-white/10 focus:border-purple-500 rounded-xl px-4 py-3 text-white text-sm outline-none transition-colors placeholder:text-slate-500"
+              />
             </div>
             <div>
               <label className="flex justify-between text-sm font-semibold text-slate-300 mb-1.5">
                 Password <a href="#" className="text-purple-400 font-medium">Forgot password?</a>
               </label>
-              <input type="password" placeholder="••••••••" className="w-full bg-white/5 border border-white/10 focus:border-purple-500 rounded-xl px-4 py-3 text-white text-sm outline-none transition-colors placeholder:text-slate-500" />
+              <input
+                type="password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                className="w-full bg-white/5 border border-white/10 focus:border-purple-500 rounded-xl px-4 py-3 text-white text-sm outline-none transition-colors placeholder:text-slate-500"
+              />
             </div>
-            <button type="submit" className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 rounded-xl transition-colors">
-              Log In
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-xl transition-colors"
+            >
+              {loading ? "Logging in..." : "Log In"}
             </button>
           </form>
 
