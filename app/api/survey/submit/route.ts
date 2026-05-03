@@ -9,7 +9,6 @@ export async function POST(req: NextRequest) {
   try {
     const { email, answers } = await req.json();
 
-    // Validation
     if (!email?.trim()) {
       return NextResponse.json(
         { success: false, message: "Email is required." },
@@ -32,39 +31,21 @@ export async function POST(req: NextRequest) {
     }
 
     const normalizedEmail = email.trim().toLowerCase();
+    const recommended = recommendCourse(answers as Record<string, string>);
 
-    // Recommendation
-    const recommended = recommendCourse(
-      answers as Record<string, string>
-    );
-
-    // Save response
     const response = await prisma.surveyResponse.create({
-      data: {
-        email: normalizedEmail,
-        answers,
-        result: recommended.id,
-      },
+      data: { email: normalizedEmail, answers, result: recommended.id },
     });
 
-    // ✅ Send email (fire-and-forget)
     Promise.resolve(
       sendEmail(
         normalizedEmail,
         "Your Recommended Course 🎯",
-        `
-          <h2>Your Recommended Course: ${recommended.title}</h2>
-          <p>${recommended.description}</p>
-          <p><b>Level:</b> ${recommended.level}</p>
-          <a href="${process.env.BASE_URL || "http://localhost:3000"}/login"
-             style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">
-             Login Now
-          </a>
-        `
+        `<h2>Your Recommended Course: ${recommended.title}</h2>
+         <p>${recommended.description}</p>
+         <p><b>Level:</b> ${recommended.level}</p>`
       )
-    ).catch((err) => {
-      console.error("Email send failed:", err);
-    });
+    ).catch((err) => console.error("Email send failed:", err));
 
     return NextResponse.json({
       success: true,
