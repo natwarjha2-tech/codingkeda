@@ -189,12 +189,12 @@ describe("POST /api/auth/signup", () => {
     const res = await signupPOST(req({ email: "arjun@test.com", password: "abc" }));
     const body = await res.json();
     expect(res.status).toBe(400);
-    expect(body.message).toMatch(/at least 6/i);
+    expect(body.message).toMatch(/at least 8/i);
   });
 
-  it("400 — password exactly 5 characters (boundary)", async () => {
+  it("400 — password exactly 7 characters (boundary)", async () => {
     mockUserFindUnique.mockResolvedValue(null);
-    const res = await signupPOST(req({ email: "arjun@test.com", password: "12345" }));
+    const res = await signupPOST(req({ email: "arjun@test.com", password: "1234567" }));
     const body = await res.json();
     expect(res.status).toBe(400);
   });

@@ -1,4 +1,3 @@
-
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/app/lib/prisma";
@@ -6,7 +5,7 @@ import { signToken } from "@/app/lib/auth";
 
 export async function POST(req: NextRequest) {
   try {
-    const { email, password, role } = await req.json();
+    const { name, email, password, role } = await req.json();
 
     if (!email || !password) {
       return NextResponse.json(
@@ -23,9 +22,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (password.length < 6) {
+    // Match frontend validation (8 characters)
+    if (password.length < 8) {
       return NextResponse.json(
-        { success: false, message: "Password must be at least 6 characters." },
+        { success: false, message: "Password must be at least 8 characters." },
         { status: 400 }
       );
     }
@@ -42,7 +42,12 @@ export async function POST(req: NextRequest) {
     const assignedRole = role === "admin" ? "admin" : "user";
 
     const user = await prisma.user.create({
-      data: { email, password: hashedPassword, role: assignedRole },
+      data: {
+        name: name?.trim() || "",
+        email,
+        password: hashedPassword,
+        role: assignedRole,
+      },
     });
 
     const token = signToken({ userId: user.id, email: user.email, role: user.role });
@@ -52,7 +57,7 @@ export async function POST(req: NextRequest) {
         success: true,
         message: "Account created successfully.",
         token,
-        user: { id: user.id, email: user.email, role: user.role },
+        user: { id: user.id, name: user.name, email: user.email, role: user.role },
       },
       { status: 201 }
     );

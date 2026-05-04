@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
       success: true,
       message: `Logged in as ${user.role}.`,
       token,
-      user: { id: user.id, email: user.email, role: user.role },
+      user: { id: user.id, name: user.name, email: user.email, role: user.role },
     });
   } catch {
     return NextResponse.json(

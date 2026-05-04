@@ -152,12 +152,17 @@ function SurveyModal({ onClose }: { onClose: () => void }) {
   const showResult = () => {
     setAnalyzing(true);
     setTimeout(async () => {
-      const rec = form.classGroup === "4-8" ? COURSES.zenz : COURSES.zenalpha;
-      // Submit survey to API
+      // Submit survey to backend — sends email + name + all answers
       await fetch("/api/survey/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, recommendedCourse: rec.name }),
+        body: JSON.stringify({
+          email: form.email,
+          name: form.name,
+          classGroup: form.classGroup,
+          experience: form.experience,
+          interest: form.interest,
+        }),
       }).catch(() => {}); // non-blocking — UI continues regardless
       localStorage.setItem("surveyCompleted", "true");
       setAnalyzing(false);
