@@ -6,9 +6,9 @@ import { Menu, X, ChevronDown, User, ShieldCheck } from "lucide-react";
 
 const links = [
   { label: "Find My Course 🔥", scrollId: "survey" },
-  { label: "Courses",      scrollId: "courses" },
-  { label: "Free Lesson",  scrollId: "free-video" },
-  { label: "Pricing",      scrollId: "pricing" },
+  { label: "Courses",        scrollId: "courses" },
+  { label: "Watch Demo",     scrollId: "free-video" },
+  { label: "Pricing",        scrollId: "pricing" },
 ];
 
 export default function Navbar() {

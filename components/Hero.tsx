@@ -18,7 +18,7 @@ export default function Hero() {
       </h1>
 
       <p className="text-slate-400 text-lg max-w-2xl mb-8 text-center">
-        Join <strong className="text-white">5,000+ students</strong> learning Java, Python, Web Dev, DSA & AI through hands-on projects and expert mentorship.
+        Get a <strong className="text-white">structured roadmap</strong> + real projects from Day 1. No confusion, no overwhelm — just clear progress.
       </p>
 
       {/* CTA Buttons */}
@@ -35,9 +35,12 @@ export default function Hero() {
           onClick={(e) => { e.preventDefault(); document.getElementById("free-video")?.scrollIntoView({ behavior: "smooth" }); }}
           className="inline-flex items-center gap-2 bg-white/8 hover:bg-white/14 text-white font-semibold px-7 py-4 rounded-xl transition-all text-lg"
         >
-          <PlayCircle size={20} /> Watch Free Lesson
+          <PlayCircle size={20} /> Watch Demo
         </Link>
       </div>
+
+      {/* Find My Course hint */}
+      <p className="text-slate-500 text-sm mb-8">Answer 3 quick questions → Get your personalized roadmap ✨</p>
 
       {/* Trust Pills */}
       <div className="flex flex-wrap gap-3 justify-center mb-12">

@@ -484,8 +484,9 @@ export default function SurveySection() {
             className="inline-flex items-center gap-2 px-8 py-4 rounded-2xl font-bold text-white text-sm transition-all duration-300"
             style={{ background: "linear-gradient(135deg,#7c3aed,#ec4899)", boxShadow: "0 6px 24px rgba(124,58,237,0.35)" }}
           >
-            🚀 Start My Journey
+            🚀 Find My Course in 30 seconds ⚡
           </motion.button>
+          <p className="text-slate-500 text-xs mt-3">Answer 3 quick questions → Get your personalized roadmap ✨</p>
 
           <div className="flex items-center justify-center gap-8 mt-10">
             {[{ value: "60K+", label: "Students" }, { value: "4.9★", label: "Rating" }, { value: "2", label: "Programs" }].map((s, i) => (
