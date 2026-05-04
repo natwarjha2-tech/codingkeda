@@ -5,10 +5,9 @@ import Link from "next/link";
 import { Menu, X, ChevronDown, User, ShieldCheck } from "lucide-react";
 
 const links = [
-  { label: "Find My Course", scrollId: "survey" },
+  { label: "Find My Course 🔥", scrollId: "survey" },
   { label: "Courses",      scrollId: "courses" },
   { label: "Free Lesson",  scrollId: "free-video" },
-  { label: "Our Founders", scrollId: "founders" },
   { label: "Pricing",      scrollId: "pricing" },
 ];
 
