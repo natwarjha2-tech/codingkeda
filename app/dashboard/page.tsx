@@ -1,8 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { BookOpen, Zap, ArrowRight, Lock, Compass } from "lucide-react";
+import Navbar from "@/components/Navbar";
+import { getToken } from "@/services/auth";
 
 const COURSE_INFO: Record<string, { emoji: string; tag: string; desc: string }> = {
   "ZenZ Package":    { emoji: "🌟", tag: "Class 4–8",  desc: "Scratch & Python basics, games, animations, and more." },
@@ -23,13 +26,18 @@ const PREMIUM_FEATURES = [
 ];
 
 export default function Dashboard() {
+  const router = useRouter();
   const [course, setCourse] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    if (!getToken()) {
+      router.replace("/login");
+      return;
+    }
     setCourse(localStorage.getItem("recommendedCourse") || null);
     setReady(true);
-  }, []);
+  }, [router]);
 
   if (!ready) return null;
 
@@ -37,18 +45,14 @@ export default function Dashboard() {
   const info = course ? COURSE_INFO[course] : null;
 
   return (
-    <main className="min-h-screen bg-[#0f0f1a] px-6 py-10">
+    <>
+      <Navbar />
+      <main className="min-h-screen bg-[#0f0f1a] px-6 py-10 pt-24">
       <div className="max-w-4xl mx-auto">
 
         {/* Header */}
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4 }} className="mb-10">
-          <Link href="/" className="flex items-center gap-2 font-extrabold text-xl text-white mb-8">
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center text-white text-sm font-black"
-              style={{ background: "linear-gradient(135deg,#7c3aed,#ec4899)" }}>C</div>
-            CodingKeda
-          </Link>
-
           {isPersonalized ? (
             <>
               <h1 className="text-3xl font-extrabold text-white mb-1">Welcome back 👋</h1>
@@ -179,6 +183,7 @@ export default function Dashboard() {
         </motion.div>
 
       </div>
-    </main>
+      </main>
+    </>
   );
 }

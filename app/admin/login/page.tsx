@@ -3,6 +3,7 @@ import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import Navbar from "@/components/Navbar";
 
 export default function AdminLogin() {
   const router = useRouter();
@@ -37,14 +38,11 @@ export default function AdminLogin() {
   };
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-[radial-gradient(ellipse_at_top,#1a0533_0%,#0f0f1a_60%)] px-6 py-12">
-      <div className="w-full max-w-md">
-        <Link href="/" className="flex items-center justify-center gap-2 font-extrabold text-xl text-white mb-8">
-          <Image src="/logo.jpg" alt="CodingKeda" width={36} height={36} className="rounded-md" />
-          CodingKeda
-        </Link>
-
-        <div className="flex justify-center mb-6">
+    <>
+      <Navbar />
+      <main className="min-h-screen flex items-center justify-center bg-[radial-gradient(ellipse_at_top,#1a0533_0%,#0f0f1a_60%)] px-6 py-12 pt-28">
+        <div className="w-full max-w-md">
+          <div className="flex justify-center mb-6">
           <span className="bg-red-500/20 border border-red-500/30 text-red-400 text-sm font-semibold px-4 py-1.5 rounded-full">
             🔐 Admin Portal
           </span>
@@ -95,7 +93,8 @@ export default function AdminLogin() {
             <Link href="/login" className="text-purple-400 hover:underline">Go to User Login</Link>
           </p>
         </div>
-      </div>
-    </main>
+        </div>
+      </main>
+    </>
   );
 }

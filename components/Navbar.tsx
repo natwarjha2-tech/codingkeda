@@ -2,9 +2,12 @@
 import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Menu, X, ChevronDown, User, ShieldCheck } from "lucide-react";
+import { useRouter, usePathname } from "next/navigation";
+import { Menu, X, ChevronDown, User, ShieldCheck, LogOut } from "lucide-react";
+import { getToken, logoutUser } from "@/services/auth";
 
 const links = [
+  { label: "Home",            scrollId: "hero" },
   { label: "Find My Course 🔥", scrollId: "survey" },
   { label: "Courses",        scrollId: "courses" },
   { label: "Watch Demo",     scrollId: "free-video" },
@@ -15,7 +18,12 @@ export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
   const [loginDropdown, setLoginDropdown] = useState(false);
+  const [loggedIn, setLoggedIn] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setLoggedIn(!!getToken());
+  }, []);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 50);
@@ -33,11 +41,18 @@ export default function Navbar() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  const router = useRouter();
+  const pathname = usePathname();
+
   const scrollTo = (id: string) => {
     setOpen(false);
-    setTimeout(() => {
-      document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
-    }, 50);
+    if (pathname === "/") {
+      setTimeout(() => {
+        document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
+      }, 50);
+    } else {
+      router.push(`/#${id}`);
+    }
   };
 
   return (
@@ -48,7 +63,7 @@ export default function Navbar() {
           CodingKeda
         </Link>
 
-        <ul className="hidden md:flex items-center gap-7 ml-auto">
+        <ul className="hidden md:flex items-center gap-7 ml-auto mr-16">
           {links.map((l) => (
             <li key={l.label}>
               <button
@@ -62,6 +77,14 @@ export default function Navbar() {
         </ul>
 
         <div className="hidden md:flex items-center gap-3 ml-6">
+          {loggedIn ? (
+            <button
+              onClick={() => { logoutUser(); setLoggedIn(false); router.push("/"); }}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-slate-300 text-sm font-medium hover:bg-red-500/10 hover:border-red-500/40 hover:text-red-400 hover:scale-105 active:scale-95 transition-all duration-200"
+            >
+              <LogOut size={15} /> Logout
+            </button>
+          ) : (
           <div className="relative" ref={dropdownRef}>
             <button
               onClick={() => setLoginDropdown(!loginDropdown)}
@@ -83,9 +106,7 @@ export default function Navbar() {
               </div>
             )}
           </div>
-          <Link href="/signup?flow=free" className="text-sm font-semibold bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors">
-            Start Free
-          </Link>
+          )}
         </div>
 
         <button className="md:hidden ml-auto text-white" onClick={() => setOpen(!open)}>
@@ -103,15 +124,25 @@ export default function Navbar() {
             </button>
           ))}
           <div className="flex flex-col gap-2 pt-2">
-            <Link href="/login" onClick={() => setOpen(false)} className="flex items-center gap-2 text-sm font-semibold border border-white/10 text-white py-2 px-4 rounded-lg">
-              <User size={15} className="text-purple-400" /> Student Login
-            </Link>
-            <Link href="/admin/login" onClick={() => setOpen(false)} className="flex items-center gap-2 text-sm font-semibold border border-white/10 text-white py-2 px-4 rounded-lg">
-              <ShieldCheck size={15} className="text-red-400" /> Admin Login
-            </Link>
-            <Link href="/signup?flow=free" onClick={() => setOpen(false)} className="text-center text-sm font-semibold bg-purple-600 text-white py-2 rounded-lg">
-              Start Free
-            </Link>
+            {loggedIn ? (
+              <button
+                onClick={() => { logoutUser(); setLoggedIn(false); setOpen(false); router.push("/"); }}
+                className="flex items-center gap-2 text-sm font-semibold border border-white/10 text-red-400 py-2 px-4 rounded-lg">
+                <LogOut size={15} /> Logout
+              </button>
+            ) : (
+              <>
+                <Link href="/login" onClick={() => setOpen(false)} className="flex items-center gap-2 text-sm font-semibold border border-white/10 text-white py-2 px-4 rounded-lg">
+                  <User size={15} className="text-purple-400" /> Student Login
+                </Link>
+                <Link href="/admin/login" onClick={() => setOpen(false)} className="flex items-center gap-2 text-sm font-semibold border border-white/10 text-white py-2 px-4 rounded-lg">
+                  <ShieldCheck size={15} className="text-red-400" /> Admin Login
+                </Link>
+                <Link href="/signup?flow=free" onClick={() => setOpen(false)} className="text-center text-sm font-semibold bg-purple-600 text-white py-2 rounded-lg">
+                  Start Free
+                </Link>
+              </>
+            )}
           </div>
         </div>
       )}

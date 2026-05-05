@@ -420,21 +420,40 @@ function SurveyModal({ onClose }: { onClose: () => void }) {
                 </ul>
               </motion.div>
 
-              <motion.button
-                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
-                whileHover={{ scale: 1.05, boxShadow: "0 8px 28px rgba(124,58,237,0.5)" }}
-                whileTap={{ scale: 0.96 }}
-                onClick={() => {
-                  localStorage.setItem("surveyCompleted", "true");
-                  localStorage.setItem("recommendedCourse", recommended.name);
-                  router.push("/dashboard");
-                }}
-                className="w-full py-3.5 rounded-xl font-bold text-white text-sm mb-3"
-                style={{ background: "linear-gradient(135deg,#7c3aed,#ec4899)", boxShadow: "0 4px 16px rgba(124,58,237,0.35)" }}
-              >
-                Explore Dashboard 🚀
-              </motion.button>
+              <motion.div className="flex flex-col gap-2.5">
+                <motion.button
+                  initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.2 }}
+                  whileHover={{ scale: 1.05, boxShadow: "0 8px 28px rgba(124,58,237,0.5)" }}
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => {
+                    localStorage.setItem("surveyCompleted", "true");
+                    localStorage.setItem("recommendedCourse", recommended.name);
+                    const isLoggedIn = !!localStorage.getItem("token");
+                    router.push(isLoggedIn ? "/login?flow=survey" : "/signup?flow=survey");
+                  }}
+                  className="w-full py-3.5 rounded-xl font-bold text-white text-sm"
+                  style={{ background: "linear-gradient(135deg,#7c3aed,#ec4899)", boxShadow: "0 4px 16px rgba(124,58,237,0.35)" }}
+                >
+                  Buy Now 🚀
+                </motion.button>
+
+                <motion.button
+                  initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.25 }}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => {
+                    localStorage.setItem("surveyCompleted", "true");
+                    localStorage.setItem("recommendedCourse", recommended.name);
+                    onClose();
+                  }}
+                  className="w-full py-3 rounded-xl font-semibold text-sm transition-colors"
+                  style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#94a3b8" }}
+                >
+                  Skip for now
+                </motion.button>
+              </motion.div>
 
               <button
                 onClick={() => { setDone(false); setStep(1); setForm({ name: "", email: "", classGroup: "", experience: "", interest: "" }); }}

@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Loader2, CheckCircle, Mail } from "lucide-react";
+import Navbar from "@/components/Navbar";
+import { loginUser, saveToken } from "@/services/auth";
 
 /* ── Forgot Password Modal ── */
 function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
@@ -163,13 +165,8 @@ function LoginForm() {
     if (password.length < 8) return setError("Password must be at least 8 characters!");
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-      const data = await res.json();
-      if (!res.ok) return setError(data.message || "Login failed.");
+      const data = await loginUser({ email, password });
+      saveToken(data.token);
 
       const isNewUser = localStorage.getItem("isNewUser");
       const surveyDone = localStorage.getItem("surveyCompleted");
@@ -190,8 +187,8 @@ function LoginForm() {
       } else {
         router.replace("/dashboard");
       }
-    } catch {
-      setError("Something went wrong!");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong!");
     } finally {
       setLoading(false);
     }
@@ -199,12 +196,9 @@ function LoginForm() {
 
   return (
     <>
-      <main className="min-h-screen flex items-center justify-center bg-[radial-gradient(ellipse_at_top,#1a0533_0%,#0f0f1a_60%)] px-6 py-12">
+      <Navbar />
+      <main className="min-h-screen flex items-center justify-center bg-[radial-gradient(ellipse_at_top,#1a0533_0%,#0f0f1a_60%)] px-6 py-12 pt-28">
         <div className="w-full max-w-md">
-          <Link href="/" className="flex items-center justify-center gap-2 font-extrabold text-xl text-white mb-8">
-            <Image src="/logo.jpg" alt="CodingKeda" width={36} height={36} className="rounded-md" />
-            CodingKeda
-          </Link>
           <div className="bg-[#16213e] border border-white/8 rounded-2xl p-8">
             <h2 className="text-2xl font-extrabold text-white mb-1">Welcome back</h2>
             <p className="text-slate-400 text-sm mb-6">Log in to continue your learning journey</p>
@@ -249,7 +243,7 @@ function LoginForm() {
             </form>
 
             <p className="text-center text-slate-400 text-sm mt-5">
-              Don&apos;t have an account?{" "}
+              New user?{" "}
               <Link href="/signup" className="text-purple-400 font-semibold hover:underline">Sign up</Link>
             </p>
           </div>

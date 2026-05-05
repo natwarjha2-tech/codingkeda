@@ -3,6 +3,7 @@ import { useState, Suspense } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import Navbar from "@/components/Navbar";
 
 function SignupForm() {
   const router = useRouter();
@@ -48,12 +49,10 @@ function SignupForm() {
   };
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-[radial-gradient(ellipse_at_top,#1a0533_0%,#0f0f1a_60%)] px-6 py-12">
-      <div className="w-full max-w-md">
-        <Link href="/" className="flex items-center justify-center gap-2 font-extrabold text-xl text-white mb-8">
-          <Image src="/logo.jpg" alt="CodingKeda" width={36} height={36} className="rounded-md" />
-          CodingKeda
-        </Link>
+    <>
+      <Navbar />
+      <main className="min-h-screen flex items-center justify-center bg-[radial-gradient(ellipse_at_top,#1a0533_0%,#0f0f1a_60%)] px-6 py-12 pt-28">
+        <div className="w-full max-w-md">
 
         <div className="bg-[#16213e] border border-white/8 rounded-2xl p-8">
           <h2 className="text-2xl font-extrabold text-white mb-1">Start learning free 🚀</h2>
@@ -121,12 +120,13 @@ function SignupForm() {
           </form>
 
           <p className="text-center text-slate-400 text-sm mt-5">
-            Already have an account?{" "}
+            New user?{" "}
             <Link href="/login" className="text-purple-400 font-semibold hover:underline">Log in</Link>
           </p>
         </div>
-      </div>
-    </main>
+        </div>
+      </main>
+    </>
   );
 }
 

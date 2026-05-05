@@ -2,7 +2,7 @@
 import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Check, Shield, Lock, Loader2, CheckCircle, ArrowRight } from "lucide-react";
+import { Check, Shield, Loader2, CheckCircle, ArrowRight } from "lucide-react";
 import Link from "next/link";
 
 const PACKAGES: Record<string, {
@@ -88,74 +88,72 @@ function PaymentContent() {
           <motion.div key="payment"
             initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            className="w-full max-w-lg relative z-10"
+            className="w-full max-w-md relative z-10"
           >
-            {/* Logo */}
-            <Link href="/" className="flex items-center justify-center gap-2 font-extrabold text-xl text-white mb-8">
-              <div className="w-8 h-8 rounded-xl flex items-center justify-center text-white text-sm font-black"
-                style={{ background: "linear-gradient(135deg,#7c3aed,#ec4899)" }}>C</div>
-              CodingKeda
-            </Link>
+            {/* Header — matches recommendation page */}
+            <div className="flex items-center gap-2 mb-6">
+              <Shield size={16} className="text-purple-400" />
+              <p className="text-[10px] font-bold uppercase tracking-widest"
+                style={{ color: "rgba(167,139,250,0.8)" }}>
+                Your Personalized Recommendation 🎯
+              </p>
+            </div>
 
-            {/* Package card */}
-            <div className="rounded-3xl p-7 mb-5"
+            {/* Package card — same structure as recommendation page */}
+            <motion.div
+              initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15 }}
+              className="rounded-3xl p-7 mb-5"
               style={{
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid rgba(124,58,237,0.25)",
+                background: "linear-gradient(135deg,rgba(124,58,237,0.18),rgba(236,72,153,0.08))",
+                border: "1px solid rgba(124,58,237,0.3)",
                 backdropFilter: "blur(20px)",
                 boxShadow: `0 24px 80px rgba(0,0,0,0.5), 0 0 40px ${pkg.glow}`,
-              }}>
-
-              <p className="text-[10px] font-bold uppercase tracking-widest mb-5"
-                style={{ color: "rgba(167,139,250,0.8)" }}>✦ Order Summary</p>
-
-              {/* Package header */}
-              <div className="flex items-center gap-4 mb-5 pb-5 border-b border-white/8">
+              }}
+            >
+              {/* Course header */}
+              <div className="flex items-center gap-4 mb-4 pb-4 border-b border-white/8">
                 <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-3xl flex-shrink-0"
                   style={{ background: "rgba(124,58,237,0.15)", border: "1px solid rgba(124,58,237,0.25)" }}>
                   {pkg.emoji}
                 </div>
                 <div className="flex-1">
-                  <h2 className="text-xl font-extrabold text-white">{pkg.name}</h2>
+                  <h2 className="text-2xl font-extrabold text-white">{pkg.name}</h2>
                   <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
-                    style={{ background: "rgba(124,58,237,0.2)", color: "#c4b5fd" }}>{pkg.tag}</span>
+                    style={{ background: "rgba(124,58,237,0.2)", color: "#c4b5fd" }}>
+                    {pkg.tag}
+                  </span>
                 </div>
                 <div className="text-right">
-                  <p className="text-2xl font-extrabold text-white">{pkg.price}</p>
+                  <p className="text-xl font-extrabold text-white">{pkg.price}</p>
                   <p className="text-xs text-slate-500 line-through">{pkg.original}</p>
                   <span className="text-[10px] font-bold text-green-400">{pkg.discount}</span>
                 </div>
               </div>
 
+              <p className="text-slate-300 text-sm mb-5">{pkg.desc}</p>
+
               {/* Features */}
               <ul className="space-y-2.5 mb-6">
                 {pkg.features.map((f, i) => (
-                  <li key={i} className="flex items-center gap-3 text-sm text-slate-300">
+                  <motion.li key={i}
+                    initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.2 + i * 0.06 }}
+                    className="flex items-center gap-3 text-sm text-slate-300"
+                  >
                     <span className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0"
                       style={{ background: "rgba(124,58,237,0.25)" }}>
                       <Check size={10} strokeWidth={3} className="text-purple-300" />
                     </span>
                     {f}
-                  </li>
+                  </motion.li>
                 ))}
               </ul>
 
-              {/* Security badges */}
-              <div className="flex items-center justify-center gap-6 py-4 border-t border-white/8 mb-6">
-                {[
-                  { icon: <Shield size={13} />, label: "Secure Payment" },
-                  { icon: <Lock size={13} />,   label: "SSL Encrypted" },
-                  { icon: <Check size={13} />,  label: "Money-back Guarantee" },
-                ].map((b, i) => (
-                  <div key={i} className="flex items-center gap-1.5 text-slate-400 text-xs">
-                    <span className="text-purple-400">{b.icon}</span>
-                    {b.label}
-                  </div>
-                ))}
-              </div>
-
               {/* Pay button */}
               <motion.button
+                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.5 }}
                 whileHover={!paying ? { scale: 1.03, boxShadow: "0 12px 36px rgba(124,58,237,0.5)" } : {}}
                 whileTap={!paying ? { scale: 0.97 } : {}}
                 onClick={handlePayment}
@@ -166,21 +164,17 @@ function PaymentContent() {
                 {paying ? (
                   <><motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}>
                     <Loader2 size={16} />
-                  </motion.div> Processing Payment...</>
+                  </motion.div> Processing...</>
                 ) : (
                   <>Proceed to Payment {pkg.price} <ArrowRight size={15} /></>
                 )}
               </motion.button>
+            </motion.div>
 
-              <p className="text-center text-slate-600 text-xs mt-4">
-                By proceeding, you agree to our{" "}
-                <span className="text-purple-400 cursor-pointer hover:underline">Terms of Service</span>
-              </p>
-            </div>
-
+            {/* Footer — matches recommendation page */}
             <p className="text-center text-slate-600 text-xs">
-              Need help?{" "}
-              <span className="text-purple-400 cursor-pointer hover:underline">Contact Support</span>
+              Not the right fit?{" "}
+              <span onClick={() => router.back()} className="text-purple-400 cursor-pointer hover:underline">Go back</span>
             </p>
           </motion.div>
         )}

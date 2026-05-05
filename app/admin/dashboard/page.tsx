@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { Upload, FileVideo, FileText, LogOut, Check } from "lucide-react";
+import Navbar from "@/components/Navbar";
 
 export default function AdminDashboard() {
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -88,20 +89,16 @@ export default function AdminDashboard() {
         )}
       </AnimatePresence>
 
+      <Navbar />
       <motion.main
         animate={loggingOut ? { opacity: 0, scale: 0.97 } : { opacity: 1, scale: 1 }}
         transition={{ duration: 0.4 }}
-        className="min-h-screen bg-[#0f0f1a] px-6 py-8"
+        className="min-h-screen bg-[#0f0f1a] px-6 py-8 pt-24"
       >
       <div className="max-w-4xl mx-auto">
 
         {/* Header */}
         <div className="flex items-center justify-between mb-10">
-          <Link href="/" className="flex items-center gap-2 font-extrabold text-xl text-white">
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center text-white text-sm font-black"
-              style={{ background: "linear-gradient(135deg,#7c3aed,#ec4899)" }}>C</div>
-            CodingKeda
-          </Link>
           <div className="flex items-center gap-4">
             <span className="bg-red-500/20 border border-red-500/30 text-red-400 text-xs font-semibold px-3 py-1.5 rounded-full">
               🔐 Admin Panel
