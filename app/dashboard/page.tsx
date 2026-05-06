@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { Check, Zap, Lock, ArrowRight } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import { getToken } from "@/services/auth";
+import SearchBar from "@/components/SearchBar";
 
 const COURSES = [
   {
@@ -61,7 +62,7 @@ export default function Dashboard() {
             <h1 className="text-3xl font-extrabold text-white mb-1">
               {recommendedCourse ? "Welcome back 👋" : "Start Your Coding Journey 🚀"}
             </h1>
-            <p className="text-slate-400 text-sm">
+            <p className="text-slate-400 text-sm mb-5">
               {recommendedCourse
                 ? "Your recommended course is highlighted below."
                 : "Choose a course that fits you best."}

@@ -24,10 +24,7 @@ export default function Home() {
       {/* 2. Find My Course */}
       <SurveySection />
 
-      {/* 3. Popular Courses */}
-      <CoursesSection />
-
-      {/* 4. Learning Flow */}
+      {/* 3. Learning Flow */}
       <HowItWorks />
 
       {/* 5. Free Video */}
