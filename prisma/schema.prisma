@@ -41,3 +41,30 @@ model Student {
   phone     String?
   createdAt DateTime @default(now())
 }
+
+model Media {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  fileName    String
+  fileSize    Int
+  mimeType    String
+  type        MediaType
+  s3Key       String   @unique
+  s3Url       String
+  tags        String[]
+  uploadedBy  String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([type])
+  @@index([isActive])
+  @@index([createdAt])
+}
+
+enum MediaType {
+  VIDEO
+  PDF
+  IMAGE
+}
