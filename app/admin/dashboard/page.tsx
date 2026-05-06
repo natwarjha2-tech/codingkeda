@@ -15,6 +15,8 @@ export default function AdminDashboard() {
   const [pdfError, setPdfError] = useState("");
   const [videoDragging, setVideoDragging] = useState(false);
   const [pdfDragging, setPdfDragging] = useState(false);
+  const [videoUploading, setVideoUploading] = useState(false);
+  const [pdfUploading, setPdfUploading] = useState(false);
 
   const router = useRouter();
   const [loggingOut, setLoggingOut] = useState(false);
@@ -28,20 +30,46 @@ export default function AdminDashboard() {
     }, 1200);
   };
 
-  const handleVideoUpload = (e: React.FormEvent) => {
+  const handleVideoUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!videoFile) return setVideoError("Please select a video file.");
     setVideoError("");
-    setVideoSuccess(`"${videoFile.name}" uploaded successfully!`);
-    setVideoFile(null);
+    setVideoUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", videoFile);
+      formData.append("type", "video");
+      const res = await fetch("/api/admin/upload", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) return setVideoError(data.error || "Upload failed.");
+      setVideoSuccess(`"${videoFile.name}" uploaded! URL: ${data.url}`);
+      setVideoFile(null);
+    } catch {
+      setVideoError("Upload failed. Check your connection.");
+    } finally {
+      setVideoUploading(false);
+    }
   };
 
-  const handlePdfUpload = (e: React.FormEvent) => {
+  const handlePdfUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!pdfFile) return setPdfError("Please select a PDF file.");
     setPdfError("");
-    setPdfSuccess(`"${pdfFile.name}" uploaded successfully!`);
-    setPdfFile(null);
+    setPdfUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", pdfFile);
+      formData.append("type", "pdf");
+      const res = await fetch("/api/admin/upload", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) return setPdfError(data.error || "Upload failed.");
+      setPdfSuccess(`"${pdfFile.name}" uploaded! URL: ${data.url}`);
+      setPdfFile(null);
+    } catch {
+      setPdfError("Upload failed. Check your connection.");
+    } finally {
+      setPdfUploading(false);
+    }
   };
 
   const handleVideoDrop = (e: React.DragEvent) => {
@@ -161,12 +189,13 @@ export default function AdminDashboard() {
               </div>
               <motion.button
                 type="submit"
+                disabled={videoUploading}
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                className="w-full py-3 rounded-xl font-semibold text-white text-sm"
+                className="w-full py-3 rounded-xl font-semibold text-white text-sm disabled:opacity-50"
                 style={{ background: "linear-gradient(135deg,#7c3aed,#a855f7)" }}
               >
-                Upload Video
+                {videoUploading ? "Uploading..." : "Upload Video"}
               </motion.button>
             </form>
           </motion.div>
@@ -218,12 +247,13 @@ export default function AdminDashboard() {
               </div>
               <motion.button
                 type="submit"
+                disabled={pdfUploading}
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                className="w-full py-3 rounded-xl font-semibold text-white text-sm"
+                className="w-full py-3 rounded-xl font-semibold text-white text-sm disabled:opacity-50"
                 style={{ background: "linear-gradient(135deg,#ef4444,#dc2626)" }}
               >
-                Upload PDF
+                {pdfUploading ? "Uploading..." : "Upload PDF"}
               </motion.button>
             </form>
           </motion.div>
