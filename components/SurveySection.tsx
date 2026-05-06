@@ -512,14 +512,7 @@ export default function SurveySection() {
           </motion.button>
           <p className="text-slate-500 text-xs mt-3">Answer 3 quick questions → Get your personalized roadmap ✨</p>
 
-          <div className="flex items-center justify-center gap-8 mt-10">
-            {[{ value: "60K+", label: "Students" }, { value: "4.9★", label: "Rating" }, { value: "2", label: "Programs" }].map((s, i) => (
-              <div key={i} className="text-center">
-                <p className="text-xl font-extrabold text-white">{s.value}</p>
-                <p className="text-xs text-slate-500 mt-0.5">{s.label}</p>
-              </div>
-            ))}
-          </div>
+
         </motion.div>
       </div>
 

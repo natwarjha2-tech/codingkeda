@@ -7,6 +7,7 @@ import HowItWorks from "@/components/HowItWorks";
 import Pricing from "@/components/Pricing";
 import Founders from "@/components/Founders";
 import Footer from "@/components/Footer";
+import BrandText from "@/components/BrandText";
 import ScrollToHash from "@/components/ScrollToHash";
 import Link from "next/link";
 import { ArrowRight, Cpu, BookOpen, Monitor, Users } from "lucide-react";
@@ -69,6 +70,7 @@ export default function Home() {
         </Link>
       </section>
 
+      <BrandText />
       <Footer />
     </main>
   );

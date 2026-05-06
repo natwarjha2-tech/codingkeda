@@ -19,6 +19,8 @@ export default function Navbar() {
   const [open, setOpen] = useState(false);
   const [loginDropdown, setLoginDropdown] = useState(false);
   const [loggedIn, setLoggedIn] = useState(false);
+  const [hidden, setHidden] = useState(false);
+  const lastScrollY = useRef(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -26,7 +28,12 @@ export default function Navbar() {
   }, []);
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 50);
+    const onScroll = () => {
+      const current = window.scrollY;
+      setScrolled(current > 50);
+      setHidden(current > lastScrollY.current && current > 80);
+      lastScrollY.current = current;
+    };
     window.addEventListener("scroll", onScroll);
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
@@ -56,7 +63,7 @@ export default function Navbar() {
   };
 
   return (
-    <nav className={`fixed top-0 w-full z-50 border-b border-white/8 transition-all duration-300 ${scrolled ? "bg-[#0f0f1a]/98" : "bg-[#0f0f1a]/85"} backdrop-blur-xl`}>
+    <nav className={`fixed top-0 w-full z-50 border-b border-white/8 transition-all duration-300 ${scrolled ? "bg-[#0f0f1a]/98" : "bg-[#0f0f1a]/85"} backdrop-blur-xl ${hidden ? "-translate-y-full" : "translate-y-0"}`}>
       <div className="max-w-7xl mx-auto px-6 flex items-center h-16 gap-8">
         <Link href="/" className="flex items-center gap-2 font-extrabold text-xl text-white">
           <Image src="/logo.jpg" alt="CodingKeda" width={36} height={36} className="rounded-md object-contain" />
