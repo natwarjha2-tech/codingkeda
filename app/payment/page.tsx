@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, Shield, Loader2, CheckCircle, ArrowRight } from "lucide-react";
 import Link from "next/link";
+import Navbar from "@/components/Navbar";
 
 const PACKAGES: Record<string, {
   name: string; tag: string; emoji: string; price: string; original: string;
@@ -46,7 +47,9 @@ function PaymentContent() {
   };
 
   return (
-    <main className="min-h-screen flex items-center justify-center px-4 py-12 relative overflow-hidden"
+    <>
+      <Navbar />
+      <main className="min-h-screen flex items-center justify-center px-4 py-12 pt-24 relative overflow-hidden"
       style={{ background: "linear-gradient(135deg,#0a0118 0%,#0d0221 60%,#0f0f1a 100%)" }}>
 
       {/* Blobs */}
@@ -179,7 +182,8 @@ function PaymentContent() {
           </motion.div>
         )}
       </AnimatePresence>
-    </main>
+      </main>
+    </>
   );
 }
 

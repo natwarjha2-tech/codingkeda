@@ -1,6 +1,42 @@
 "use client";
 import Link from "next/link";
+import { useState, useEffect } from "react";
 import { Zap, CheckCircle, Users, Star, BookOpen, PlayCircle } from "lucide-react";
+
+const COMPANIES = ["TCS", "Google", "Amazon", "Infosys", "Wipro", "Microsoft", "Flipkart", "Volvo"];
+
+function TypewriterText() {
+  const [companyIndex, setCompanyIndex] = useState(0);
+  const [displayed, setDisplayed] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  useEffect(() => {
+    const current = COMPANIES[companyIndex];
+    let timeout: ReturnType<typeof setTimeout>;
+
+    if (!isDeleting && displayed.length < current.length) {
+      timeout = setTimeout(() => setDisplayed(current.slice(0, displayed.length + 1)), 100);
+    } else if (!isDeleting && displayed.length === current.length) {
+      timeout = setTimeout(() => setIsDeleting(true), 1500);
+    } else if (isDeleting && displayed.length > 0) {
+      timeout = setTimeout(() => setDisplayed(current.slice(0, displayed.length - 1)), 60);
+    } else if (isDeleting && displayed.length === 0) {
+      setIsDeleting(false);
+      setCompanyIndex((i) => (i + 1) % COMPANIES.length);
+    }
+
+    return () => clearTimeout(timeout);
+  }, [displayed, isDeleting, companyIndex]);
+
+  return (
+    <span className="gradient-text whitespace-nowrap">
+      Get Placed at{" "}
+      <span className="inline-block min-w-[3ch]">
+        {displayed}<span className="animate-pulse text-current">|</span>
+      </span>
+    </span>
+  );
+}
 
 export default function Hero() {
   return (
@@ -16,9 +52,10 @@ export default function Hero() {
           </div>
 
           {/* Heading */}
-          <h1 className="text-4xl md:text-5xl lg:text-6xl font-extrabold leading-tight mb-5">
+          <h1 className="text-4xl md:text-5xl lg:text-[3.2rem] font-extrabold leading-tight mb-5">
             Learn to Code.<br />
-            <span className="gradient-text">Build Real Projects. Get Placed.</span>
+            <span className="gradient-text">Build Real Projects.</span><br />
+            <TypewriterText />
           </h1>
 
           {/* Subtext */}

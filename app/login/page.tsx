@@ -167,6 +167,7 @@ function LoginForm() {
     try {
       const data = await loginUser({ email, password });
       saveToken(data.token);
+      localStorage.setItem("userEmail", email);
 
       const isNewUser = localStorage.getItem("isNewUser");
       const surveyDone = localStorage.getItem("surveyCompleted");

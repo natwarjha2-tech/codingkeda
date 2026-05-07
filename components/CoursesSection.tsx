@@ -1,5 +1,4 @@
 "use client";
-import { useState } from "react";
 import Link from "next/link";
 import { Star, Clock, Users } from "lucide-react";
 
@@ -8,13 +7,7 @@ const courses = [
   { id: 2, cat: "zenAlpha", icon: "🚀", gradient: "from-orange-500 to-pink-600", badge: "New", badgeColor: "bg-green-400 text-black", title: "ZEN-Alpha - Web Dev for Young Minds", desc: "Build your own websites with HTML, CSS & JavaScript. Designed for Class 8-12 students.", rating: "4.8", reviews: "620", hours: "35", students: "1.8K", instructor: "Sudhanshu Shekhar Pathak", college: "Sr. Faculty, Allen", avatar: "https://i.pravatar.cc/32?img=11", price: "₹599", original: "₹2,999", tags: ["HTML", "CSS", "JS"] },
 ];
 
-const tabs = ["All Courses"];
-const filterMap: Record<string, string> = { "All": "all", "Programming": "programming", "Web Dev": "web", "Data Science": "data", "DSA": "dsa" };
-
 export default function CoursesSection() {
-  const [active, setActive] = useState("All");
-  const filtered = courses;
-
   return (
     <section className="max-w-7xl mx-auto px-6 py-20" id="courses">
       <div className="text-center mb-12">
@@ -22,17 +15,8 @@ export default function CoursesSection() {
         <p className="text-slate-400">Specially designed for Class 6-12 students by industry experts</p>
       </div>
 
-      <div className="flex gap-2 justify-center flex-wrap mb-10">
-        {tabs.map(t => (
-          <button key={t} onClick={() => setActive(t)}
-            className={`px-5 py-2 rounded-full text-sm font-medium border transition-all ${active === t ? "bg-purple-600 border-purple-600 text-white" : "border-white/10 text-slate-400 hover:border-purple-500 hover:text-white"}`}>
-            {t}
-          </button>
-        ))}
-      </div>
-
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filtered.map(c => (
+        {courses.map(c => (
           <div key={c.id} className="bg-[#16213e] border border-white/8 rounded-2xl overflow-hidden hover:-translate-y-1.5 hover:shadow-2xl transition-all duration-300">
             <div className={`h-36 bg-gradient-to-br ${c.gradient} flex items-center justify-center text-5xl relative`}>
               {c.icon}
