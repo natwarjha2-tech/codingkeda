@@ -11,12 +11,87 @@ datasource db {
 }
 
 model User {
+  id           String       @id @default(uuid())
+  name         String       @default("")
+  email        String       @unique
+  password     String
+  role         String       @default("user")
+  createdAt    DateTime     @default(now())
+  enrollments  Enrollment[]
+  progress     Progress[]
+}
+
+model Course {
+  id          String       @id @default(uuid())
+  title       String
+  subtitle    String
+  category    String       // "Programming", "Web Dev", "Data Science", "DSA"
+  instructor  String
+  institute   String
+  students    Int          @default(0)
+  rating      Float        @default(0)
+  price       Int          // 0 = Free
+  isFree      Boolean      @default(false)
+  totalHours  Int
+  totalVideos Int
+  hasCert     Boolean      @default(true)
+  color       String       // gradient for thumbnail
+  icon        String       // font-awesome class
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  modules     Module[]
+  enrollments Enrollment[]
+}
+
+model Module {
   id        String   @id @default(uuid())
-  name      String   @default("")
-  email     String   @unique
-  password  String
-  role      String   @default("user")
+  courseId  String
+  title     String
+  order     Int
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons   Lesson[]
+
+  @@index([courseId])
+}
+
+model Lesson {
+  id          String     @id @default(uuid())
+  moduleId    String
+  title       String
+  duration    String     // "12:30"
+  videoUrl    String     @default("")
+  notes       String     @default("")
+  isFree      Boolean    @default(false)
+  order       Int
+  module      Module     @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  progress    Progress[]
+
+  @@index([moduleId])
+}
+
+model Enrollment {
+  id        String   @id @default(uuid())
+  userId    String
+  courseId  String
   createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId])
+  @@index([userId])
+}
+
+model Progress {
+  id         String   @id @default(uuid())
+  userId     String
+  lessonId   String
+  completed  Boolean  @default(false)
+  updatedAt  DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson     Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonId])
+  @@index([userId])
 }
 
 model SurveyLead {

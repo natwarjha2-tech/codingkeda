@@ -29,9 +29,28 @@ export default function AdminLogin() {
 
     setLoading(true);
     try {
+      const response = await fetch("/api/auth/admin-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return setError(data.message || "Login failed!");
+      }
+
+      // Store token in localStorage
+      if (data.token) {
+        localStorage.setItem("token", data.token);
+        localStorage.setItem("user", JSON.stringify(data.user));
+      }
+
+      // Redirect to admin dashboard
       router.push("/admin/dashboard");
     } catch (err) {
-      setError("Something went wrong!");
+      setError("Something went wrong! Please try again.");
     } finally {
       setLoading(false);
     }

@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { uploadToS3 } from "@/app/lib/s3";
 import { prisma } from "@/app/lib/prisma";
 import { MediaType } from "@prisma/client";
+import { requireAdmin } from "@/app/lib/middleware";
 
-export const config = { api: { bodyParser: false } };
+// bodyParser: false is not needed in Next.js App Router — formData() handles it natively
 
 const ALLOWED_TYPES: Record<string, string[]> = {
   video: ["video/mp4", "video/avi", "video/quicktime", "video/x-msvideo"],
@@ -25,6 +26,10 @@ const MEDIA_TYPE_MAP: Record<string, MediaType> = {
 
 export async function POST(req: NextRequest) {
   try {
+    // Admin authentication check
+    const { error, user } = requireAdmin(req);
+    if (error) return error;
+
     const formData = await req.formData();
     const file = formData.get("file") as File;
     const type = formData.get("type") as string;
@@ -64,6 +69,7 @@ export async function POST(req: NextRequest) {
         s3Key: key,
         s3Url: url,
         tags,
+        uploadedBy: user!.userId,
       },
     });
 

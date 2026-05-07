@@ -1,6 +1,48 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
+import { verifyToken } from "@/app/lib/auth";
 
+// ── GET /api/student — fetch logged-in user profile ──────────────────────────
+export async function GET(req: NextRequest) {
+  try {
+    const authHeader = req.headers.get("authorization");
+    const token = authHeader?.replace("Bearer ", "");
+
+    if (!token) {
+      return NextResponse.json(
+        { success: false, message: "Unauthorized." },
+        { status: 401 }
+      );
+    }
+
+    const payload = verifyToken(token);
+
+    const user = await prisma.user.findUnique({
+      where: { id: payload.userId },
+      select: { id: true, name: true, email: true, role: true, createdAt: true },
+    });
+
+    if (!user) {
+      return NextResponse.json(
+        { success: false, message: "User not found." },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      student: user,
+      user,
+    });
+  } catch {
+    return NextResponse.json(
+      { success: false, message: "Invalid or expired token." },
+      { status: 401 }
+    );
+  }
+}
+
+// ── POST /api/student — create student record ─────────────────────────────────
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function POST(req: NextRequest) {
@@ -34,7 +76,6 @@ export async function POST(req: NextRequest) {
       { status: 201 }
     );
   } catch (err: unknown) {
-    // Prisma unique constraint violation
     if (
       typeof err === "object" &&
       err !== null &&
@@ -46,7 +87,6 @@ export async function POST(req: NextRequest) {
         { status: 409 }
       );
     }
-
     return NextResponse.json(
       { success: false, message: "Internal server error." },
       { status: 500 }
