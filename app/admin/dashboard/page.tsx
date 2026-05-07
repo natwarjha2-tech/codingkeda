@@ -36,10 +36,11 @@ export default function AdminDashboard() {
     setVideoError("");
     setVideoUploading(true);
     try {
+      const token = localStorage.getItem("token");
       const formData = new FormData();
       formData.append("file", videoFile);
       formData.append("type", "video");
-      const res = await fetch("/api/admin/upload", { method: "POST", body: formData });
+      const res = await fetch("/api/admin/upload", { method: "POST", body: formData, headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       if (!res.ok) return setVideoError(data.error || "Upload failed.");
       setVideoSuccess(`"${videoFile.name}" uploaded! URL: ${data.url}`);
@@ -57,10 +58,11 @@ export default function AdminDashboard() {
     setPdfError("");
     setPdfUploading(true);
     try {
+      const token = localStorage.getItem("token");
       const formData = new FormData();
       formData.append("file", pdfFile);
       formData.append("type", "pdf");
-      const res = await fetch("/api/admin/upload", { method: "POST", body: formData });
+      const res = await fetch("/api/admin/upload", { method: "POST", body: formData, headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       if (!res.ok) return setPdfError(data.error || "Upload failed.");
       setPdfSuccess(`"${pdfFile.name}" uploaded! URL: ${data.url}`);
