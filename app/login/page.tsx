@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Loader2, CheckCircle, Mail } from "lucide-react";
+import { X, Loader2, CheckCircle, Mail, Eye, EyeOff } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import { loginUser, saveToken } from "@/services/auth";
 
@@ -156,6 +156,7 @@ function LoginForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showForgot, setShowForgot] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -229,13 +230,19 @@ function LoginForm() {
                     Forgot password?
                   </button>
                 </label>
-                <input
-                  type="password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  className={`w-full bg-white/5 border ${error && !password ? "border-red-500" : "border-white/10"} focus:border-purple-500 rounded-xl px-4 py-3 text-white text-sm outline-none transition-colors placeholder:text-slate-500`}
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    className={`w-full bg-white/5 border ${error && !password ? "border-red-500" : "border-white/10"} focus:border-purple-500 rounded-xl px-4 py-3 pr-11 text-white text-sm outline-none transition-colors placeholder:text-slate-500`}
+                  />
+                  <button type="button" onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-purple-400 hover:text-purple-300 transition-colors">
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
               </div>
               <button type="submit" disabled={loading}
                 className="w-full bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-semibold py-3 rounded-xl transition-colors">

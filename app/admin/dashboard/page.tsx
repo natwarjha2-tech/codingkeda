@@ -1,268 +1,259 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, FileVideo, FileText, LogOut, Check } from "lucide-react";
+import { LogOut, Plus, BookOpen, Users, Tag, DollarSign, X, Loader2 } from "lucide-react";
 import Navbar from "@/components/Navbar";
 
-export default function AdminDashboard() {
-  const [videoFile, setVideoFile] = useState<File | null>(null);
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
-  const [videoSuccess, setVideoSuccess] = useState("");
-  const [pdfSuccess, setPdfSuccess] = useState("");
-  const [videoError, setVideoError] = useState("");
-  const [pdfError, setPdfError] = useState("");
-  const [videoDragging, setVideoDragging] = useState(false);
-  const [pdfDragging, setPdfDragging] = useState(false);
-  const [videoUploading, setVideoUploading] = useState(false);
-  const [pdfUploading, setPdfUploading] = useState(false);
+interface Course {
+  id: string;
+  title: string;
+  subtitle: string;
+  category: string;
+  price: number;
+  isFree: boolean;
+  color: string;
+  icon: string;
+  instructor: string;
+  _count?: { modules: number; enrollments: number };
+}
 
+const CATEGORIES = ["Web Dev", "Programming", "Data Science", "DSA", "Design", "General"];
+
+export default function AdminDashboard() {
   const router = useRouter();
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [form, setForm] = useState({ title: "", subtitle: "", category: "Web Dev", instructor: "", price: "", color: "from-purple-500 to-pink-500" });
+  const [error, setError] = useState("");
+
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : "";
+
+  useEffect(() => {
+    fetchCourses();
+  }, []);
+
+  const fetchCourses = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/courses", { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (data.success) setCourses(data.courses);
+    } catch {}
+    setLoading(false);
+  };
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    if (!form.title.trim()) return setError("Course title is required.");
+    setCreating(true);
+    try {
+      const res = await fetch("/api/admin/courses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ...form, price: parseInt(form.price) || 0 }),
+      });
+      const data = await res.json();
+      if (!data.success) return setError(data.message || "Failed to create course.");
+      setCourses(prev => [data.course, ...prev]);
+      setShowModal(false);
+      setForm({ title: "", subtitle: "", category: "Web Dev", instructor: "", price: "", color: "from-purple-500 to-pink-500" });
+    } catch {
+      setError("Something went wrong.");
+    } finally {
+      setCreating(false);
+    }
+  };
 
   const handleLogout = () => {
     setLoggingOut(true);
     setTimeout(() => {
+      localStorage.removeItem("token");
       localStorage.removeItem("adminToken");
-      sessionStorage.clear();
+      localStorage.removeItem("user");
       router.push("/");
-    }, 1200);
-  };
-
-  const handleVideoUpload = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!videoFile) return setVideoError("Please select a video file.");
-    setVideoError("");
-    setVideoUploading(true);
-    try {
-      const token = localStorage.getItem("token");
-      const formData = new FormData();
-      formData.append("file", videoFile);
-      formData.append("type", "video");
-      const res = await fetch("/api/admin/upload", { method: "POST", body: formData, headers: { Authorization: `Bearer ${token}` } });
-      const data = await res.json();
-      if (!res.ok) return setVideoError(data.error || "Upload failed.");
-      setVideoSuccess(`"${videoFile.name}" uploaded! URL: ${data.url}`);
-      setVideoFile(null);
-    } catch {
-      setVideoError("Upload failed. Check your connection.");
-    } finally {
-      setVideoUploading(false);
-    }
-  };
-
-  const handlePdfUpload = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!pdfFile) return setPdfError("Please select a PDF file.");
-    setPdfError("");
-    setPdfUploading(true);
-    try {
-      const token = localStorage.getItem("token");
-      const formData = new FormData();
-      formData.append("file", pdfFile);
-      formData.append("type", "pdf");
-      const res = await fetch("/api/admin/upload", { method: "POST", body: formData, headers: { Authorization: `Bearer ${token}` } });
-      const data = await res.json();
-      if (!res.ok) return setPdfError(data.error || "Upload failed.");
-      setPdfSuccess(`"${pdfFile.name}" uploaded! URL: ${data.url}`);
-      setPdfFile(null);
-    } catch {
-      setPdfError("Upload failed. Check your connection.");
-    } finally {
-      setPdfUploading(false);
-    }
-  };
-
-  const handleVideoDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setVideoDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file && file.type.startsWith("video/")) { setVideoFile(file); setVideoError(""); }
-    else setVideoError("Please drop a valid video file.");
-  };
-
-  const handlePdfDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setPdfDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file && file.type === "application/pdf") { setPdfFile(file); setPdfError(""); }
-    else setPdfError("Please drop a valid PDF file.");
+    }, 1000);
   };
 
   return (
     <>
-      {/* Logout overlay */}
       <AnimatePresence>
         {loggingOut && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="fixed inset-0 z-50 flex flex-col items-center justify-center"
-            style={{ background: "rgba(10,1,24,0.92)", backdropFilter: "blur(10px)" }}
-          >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ delay: 0.1 }}
-              className="flex flex-col items-center gap-4"
-            >
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-              >
-                <LogOut size={32} className="text-purple-400" />
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+            className="fixed inset-0 z-50 flex items-center justify-center"
+            style={{ background: "rgba(10,1,24,0.95)", backdropFilter: "blur(10px)" }}>
+            <div className="flex flex-col items-center gap-3">
+              <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}>
+                <LogOut size={28} className="text-purple-400" />
               </motion.div>
-              <p className="text-white font-semibold text-sm">Logging out...</p>
-            </motion.div>
+              <p className="text-white text-sm font-semibold">Logging out...</p>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
 
       <Navbar />
-      <motion.main
-        animate={loggingOut ? { opacity: 0, scale: 0.97 } : { opacity: 1, scale: 1 }}
-        transition={{ duration: 0.4 }}
-        className="min-h-screen bg-[#0f0f1a] px-6 py-8 pt-24"
-      >
-      <div className="max-w-4xl mx-auto">
 
-        {/* Header */}
-        <div className="flex items-center justify-between mb-10">
-          <div className="flex items-center gap-4">
-            <span className="bg-red-500/20 border border-red-500/30 text-red-400 text-xs font-semibold px-3 py-1.5 rounded-full">
-              🔐 Admin Panel
-            </span>
-            <button onClick={handleLogout} className="flex items-center gap-2 text-slate-400 hover:text-white text-sm transition-colors">
+      <motion.main animate={loggingOut ? { opacity: 0 } : { opacity: 1 }}
+        className="min-h-screen bg-[#0f0f1a] px-6 py-8 pt-24">
+        <div className="max-w-6xl mx-auto">
+
+          {/* Header */}
+          <div className="flex items-center justify-between mb-10">
+            <div>
+              <div className="flex items-center gap-3 mb-2">
+                <span className="bg-red-500/20 border border-red-500/30 text-red-400 text-xs font-semibold px-3 py-1 rounded-full">🔐 Admin Panel</span>
+              </div>
+              <h1 className="text-3xl font-extrabold text-white">Course Management</h1>
+              <p className="text-slate-400 text-sm mt-1">Create and manage your learning content</p>
+            </div>
+            <button onClick={handleLogout}
+              className="flex items-center gap-2 text-slate-400 hover:text-white text-sm transition-colors px-4 py-2 rounded-xl hover:bg-white/5">
               <LogOut size={15} /> Logout
             </button>
           </div>
-        </div>
 
-        <h1 className="text-3xl font-extrabold text-white mb-1">Admin Dashboard</h1>
-        <p className="text-slate-400 text-sm mb-8">Upload course content for students</p>
+          {/* Create Button */}
+          <motion.button
+            whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+            onClick={() => setShowModal(true)}
+            className="flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-white text-sm mb-8"
+            style={{ background: "linear-gradient(135deg,#7c3aed,#ec4899)", boxShadow: "0 4px 20px rgba(124,58,237,0.35)" }}>
+            <Plus size={18} /> Create New Course
+          </motion.button>
 
-        <div className="grid md:grid-cols-2 gap-6">
-
-          {/* Video Upload */}
-          <motion.div
-            initial={{ opacity: 0, y: 40 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4 }}
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.98 }}
-            className="bg-[#16213e] border border-white/10 rounded-2xl p-6"
-          >
-            <div className="flex items-center gap-3 mb-6">
-              <div className="bg-purple-500/20 p-2.5 rounded-xl">
-                <FileVideo size={20} className="text-purple-400" />
-              </div>
-              <div>
-                <h2 className="text-white font-bold">Video Upload</h2>
-                <p className="text-slate-500 text-xs">MP4, AVI, MOV supported</p>
-              </div>
+          {/* Courses Grid */}
+          {loading ? (
+            <div className="flex items-center justify-center py-20">
+              <Loader2 size={28} className="text-purple-400 animate-spin" />
             </div>
-
-            {videoError && (
-              <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm px-4 py-3 rounded-xl mb-4">
-                {videoError}
-              </div>
-            )}
-            {videoSuccess && (
-              <div className="bg-green-500/10 border border-green-500/30 text-green-400 text-sm px-4 py-3 rounded-xl mb-4 flex items-center gap-2">
-                <Check size={14} /> {videoSuccess}
-              </div>
-            )}
-
-            <form onSubmit={handleVideoUpload} className="space-y-4">
-              <div
-                onDragOver={(e) => { e.preventDefault(); setVideoDragging(true); }}
-                onDragLeave={() => setVideoDragging(false)}
-                onDrop={handleVideoDrop}
-                onClick={() => document.getElementById("videoInput")?.click()}
-                className="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all duration-300 hover:border-purple-400 hover:shadow-lg"
-                style={{ borderColor: videoDragging ? "#7c3aed" : "rgba(255,255,255,0.1)", background: videoDragging ? "rgba(124,58,237,0.08)" : "transparent" }}
-              >
-                <Upload size={26} className="mx-auto mb-2 text-slate-500" />
-                <p className="text-slate-400 text-sm">{videoFile ? videoFile.name : "Click or drag & drop video"}</p>
-                <p className="text-slate-600 text-xs mt-1">MP4, AVI, MOV</p>
-                <input id="videoInput" type="file" accept="video/*" className="hidden"
-                  onChange={(e) => { setVideoFile(e.target.files?.[0] || null); setVideoError(""); setVideoSuccess(""); }} />
-              </div>
-              <motion.button
-                type="submit"
-                disabled={videoUploading}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="w-full py-3 rounded-xl font-semibold text-white text-sm disabled:opacity-50"
-                style={{ background: "linear-gradient(135deg,#7c3aed,#a855f7)" }}
-              >
-                {videoUploading ? "Uploading..." : "Upload Video"}
-              </motion.button>
-            </form>
-          </motion.div>
-
-          {/* PDF Upload */}
-          <motion.div
-            initial={{ opacity: 0, y: 40 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, delay: 0.1 }}
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.98 }}
-            className="bg-[#16213e] border border-white/10 rounded-2xl p-6"
-          >
-            <div className="flex items-center gap-3 mb-6">
-              <div className="bg-red-500/20 p-2.5 rounded-xl">
-                <FileText size={20} className="text-red-400" />
-              </div>
-              <div>
-                <h2 className="text-white font-bold">PDF Upload</h2>
-                <p className="text-slate-500 text-xs">PDF files only</p>
-              </div>
+          ) : courses.length === 0 ? (
+            <div className="text-center py-20">
+              <BookOpen size={48} className="text-slate-600 mx-auto mb-4" />
+              <p className="text-slate-400 text-lg font-semibold">No courses yet</p>
+              <p className="text-slate-600 text-sm mt-1">Click &quot;Create New Course&quot; to get started</p>
             </div>
+          ) : (
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {courses.map((course, i) => (
+                <motion.div key={course.id}
+                  initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.05 }}
+                  className="bg-[#16213e] border border-white/10 rounded-2xl overflow-hidden hover:border-purple-500/30 transition-all group">
+                  {/* Thumbnail */}
+                  <div className={`h-36 bg-gradient-to-br ${course.color} flex items-center justify-center relative`}>
+                    <span className="text-4xl">📚</span>
+                    <div className="absolute top-3 right-3">
+                      <span className={`text-xs font-bold px-2 py-1 rounded-full ${course.isFree ? "bg-green-500/20 text-green-400 border border-green-500/30" : "bg-purple-500/20 text-purple-300 border border-purple-500/30"}`}>
+                        {course.isFree ? "FREE" : `₹${course.price}`}
+                      </span>
+                    </div>
+                  </div>
 
-            {pdfError && (
-              <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm px-4 py-3 rounded-xl mb-4">
-                {pdfError}
-              </div>
-            )}
-            {pdfSuccess && (
-              <div className="bg-green-500/10 border border-green-500/30 text-green-400 text-sm px-4 py-3 rounded-xl mb-4 flex items-center gap-2">
-                <Check size={14} /> {pdfSuccess}
-              </div>
-            )}
+                  <div className="p-5">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-xs text-purple-400 bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <Tag size={10} /> {course.category}
+                      </span>
+                    </div>
+                    <h3 className="text-white font-bold text-base mb-1 line-clamp-1">{course.title}</h3>
+                    <p className="text-slate-400 text-xs mb-4 line-clamp-2">{course.subtitle || "No description"}</p>
 
-            <form onSubmit={handlePdfUpload} className="space-y-4">
-              <div
-                onDragOver={(e) => { e.preventDefault(); setPdfDragging(true); }}
-                onDragLeave={() => setPdfDragging(false)}
-                onDrop={handlePdfDrop}
-                onClick={() => document.getElementById("pdfInput")?.click()}
-                className="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all duration-300 hover:border-red-400 hover:shadow-lg"
-                style={{ borderColor: pdfDragging ? "#ef4444" : "rgba(255,255,255,0.1)", background: pdfDragging ? "rgba(239,68,68,0.08)" : "transparent" }}
-              >
-                <Upload size={26} className="mx-auto mb-2 text-slate-500" />
-                <p className="text-slate-400 text-sm">{pdfFile ? pdfFile.name : "Click or drag & drop PDF"}</p>
-                <p className="text-slate-600 text-xs mt-1">PDF only</p>
-                <input id="pdfInput" type="file" accept=".pdf" className="hidden"
-                  onChange={(e) => { setPdfFile(e.target.files?.[0] || null); setPdfError(""); setPdfSuccess(""); }} />
-              </div>
-              <motion.button
-                type="submit"
-                disabled={pdfUploading}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="w-full py-3 rounded-xl font-semibold text-white text-sm disabled:opacity-50"
-                style={{ background: "linear-gradient(135deg,#ef4444,#dc2626)" }}
-              >
-                {pdfUploading ? "Uploading..." : "Upload PDF"}
-              </motion.button>
-            </form>
-          </motion.div>
+                    <div className="flex items-center justify-between text-xs text-slate-500 mb-4">
+                      <span className="flex items-center gap-1"><BookOpen size={11} /> {course._count?.modules || 0} modules</span>
+                      <span className="flex items-center gap-1"><Users size={11} /> {course._count?.enrollments || 0} enrolled</span>
+                    </div>
 
+                    <motion.button
+                      whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+                      onClick={() => router.push(`/admin/course/${course.id}`)}
+                      className="w-full py-2.5 rounded-xl text-sm font-semibold text-white transition-all"
+                      style={{ background: "linear-gradient(135deg,#7c3aed,#ec4899)" }}>
+                      Manage Course
+                    </motion.button>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          )}
         </div>
-      </div>
       </motion.main>
+
+      {/* Create Course Modal */}
+      <AnimatePresence>
+        {showModal && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center px-4"
+            style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(10px)" }}
+            onClick={e => e.target === e.currentTarget && setShowModal(false)}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.92, y: 20 }}
+              transition={{ type: "spring", stiffness: 300, damping: 28 }}
+              className="w-full max-w-md rounded-2xl p-7 relative"
+              style={{ background: "linear-gradient(145deg,#0f0a1e,#16213e)", border: "1px solid rgba(124,58,237,0.25)", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" }}>
+
+              <button onClick={() => setShowModal(false)}
+                className="absolute top-4 right-4 w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-all">
+                <X size={14} />
+              </button>
+
+              <h3 className="text-xl font-extrabold text-white mb-1">Create New Course</h3>
+              <p className="text-slate-400 text-sm mb-6">Fill in the details to create a course</p>
+
+              {error && (
+                <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-xs px-4 py-3 rounded-xl mb-4">⚠️ {error}</div>
+              )}
+
+              <form onSubmit={handleCreate} className="space-y-4">
+                {[
+                  { label: "Course Title *", key: "title", placeholder: "e.g. Complete React Course" },
+                  { label: "Short Description", key: "subtitle", placeholder: "e.g. Learn React from scratch" },
+                  { label: "Instructor Name", key: "instructor", placeholder: "e.g. John Doe" },
+                  { label: "Price (₹)", key: "price", placeholder: "0 for free" },
+                ].map(({ label, key, placeholder }) => (
+                  <div key={key}>
+                    <label className="text-xs font-semibold text-slate-300 block mb-1.5">{label}</label>
+                    <input
+                      type={key === "price" ? "number" : "text"}
+                      placeholder={placeholder}
+                      value={form[key as keyof typeof form]}
+                      onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))}
+                      className="w-full bg-white/5 border border-white/10 focus:border-purple-500 rounded-xl px-4 py-2.5 text-white text-sm outline-none transition-colors placeholder:text-slate-500"
+                    />
+                  </div>
+                ))}
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">Category</label>
+                  <select value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))}
+                    className="w-full bg-[#0f0a1e] border border-white/10 focus:border-purple-500 rounded-xl px-4 py-2.5 text-white text-sm outline-none transition-colors">
+                    {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button type="button" onClick={() => setShowModal(false)}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-slate-300 bg-white/5 hover:bg-white/10 transition-colors">
+                    Cancel
+                  </button>
+                  <motion.button type="submit" disabled={creating}
+                    whileHover={!creating ? { scale: 1.02 } : {}} whileTap={!creating ? { scale: 0.97 } : {}}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-60 flex items-center justify-center gap-2"
+                    style={{ background: "linear-gradient(135deg,#7c3aed,#ec4899)" }}>
+                    {creating ? <><Loader2 size={14} className="animate-spin" /> Creating...</> : "Create Course"}
+                  </motion.button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 }
