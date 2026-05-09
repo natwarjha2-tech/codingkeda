@@ -13,7 +13,7 @@ import { NextRequest } from "next/server";
 
 jest.mock("@/app/lib/prisma", () => ({
   prisma: {
-    course: { create: jest.fn(), findUnique: jest.fn() },
+    course: { create: jest.fn(), findUnique: jest.fn(), findMany: jest.fn() },
     module: { create: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn() },
     lesson: { create: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn() },
   },
@@ -27,7 +27,7 @@ jest.mock("@/app/lib/middleware", () => ({
 
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
-import { POST as createCourse } from "@/app/api/admin/courses/route";
+import { GET as getCourses, POST as createCourse } from "@/app/api/admin/courses/route";
 import { POST as createModule } from "@/app/api/admin/modules/route";
 import { POST as createLesson } from "@/app/api/admin/lessons/route";
 
@@ -36,6 +36,7 @@ import { POST as createLesson } from "@/app/api/admin/lessons/route";
 const mockRequireAdmin = requireAdmin as jest.MockedFunction<typeof requireAdmin>;
 const mockCourseCreate = prisma.course.create as jest.MockedFunction<typeof prisma.course.create>;
 const mockCourseFindUnique = prisma.course.findUnique as jest.MockedFunction<typeof prisma.course.findUnique>;
+const mockCourseFindMany = prisma.course.findMany as jest.MockedFunction<typeof prisma.course.findMany>;
 const mockModuleCreate = prisma.module.create as jest.MockedFunction<typeof prisma.module.create>;
 const mockModuleFindUnique = prisma.module.findUnique as jest.MockedFunction<typeof prisma.module.findUnique>;
 const mockModuleFindFirst = prisma.module.findFirst as jest.MockedFunction<typeof prisma.module.findFirst>;
@@ -98,6 +99,50 @@ beforeEach(() => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
+// GET /api/admin/courses
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe("GET /api/admin/courses", () => {
+  it("200 — returns all courses for admin", async () => {
+    mockCourseFindMany.mockResolvedValue([MOCK_COURSE] as never);
+
+    const res = await getCourses(req({}));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.courses).toHaveLength(1);
+  });
+
+  it("200 — returns empty array when no courses", async () => {
+    mockCourseFindMany.mockResolvedValue([] as never);
+
+    const res = await getCourses(req({}));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.courses).toHaveLength(0);
+  });
+
+  it("401 — no token returns unauthorized", async () => {
+    mockRequireAdmin.mockReturnValue({
+      error: new Response(JSON.stringify({ success: false, message: "Unauthorized." }), { status: 401 }) as never,
+    });
+
+    const res = await getCourses(req({}));
+    expect(res.status).toBe(401);
+  });
+
+  it("500 — DB crash returns 500", async () => {
+    mockCourseFindMany.mockRejectedValue(new Error("DB down") as never);
+
+    const res = await getCourses(req({}));
+    const body = await res.json();
+    expect(res.status).toBe(500);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
 // POST /api/admin/courses
 // ═════════════════════════════════════════════════════════════════════════════
 
@@ -124,6 +169,39 @@ describe("POST /api/admin/courses", () => {
     expect(res.status).toBe(201);
     expect(body.success).toBe(true);
     expect(body.course.title).toBe("Python Basics");
+  });
+
+  it("201 — institute defaults to empty string when not provided", async () => {
+    mockCourseCreate.mockResolvedValue(MOCK_COURSE as never);
+    const { institute: _, ...bodyWithoutInstitute } = validBody;
+
+    await createCourse(req(bodyWithoutInstitute));
+
+    expect(mockCourseCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ institute: "" }) })
+    );
+  });
+
+  it("201 — color defaults when not provided", async () => {
+    mockCourseCreate.mockResolvedValue(MOCK_COURSE as never);
+    const { color: _, ...bodyWithoutColor } = validBody;
+
+    await createCourse(req(bodyWithoutColor));
+
+    expect(mockCourseCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ color: "from-purple-500 to-pink-500" }) })
+    );
+  });
+
+  it("201 — icon defaults when not provided", async () => {
+    mockCourseCreate.mockResolvedValue(MOCK_COURSE as never);
+    const { icon: _, ...bodyWithoutIcon } = validBody;
+
+    await createCourse(req(bodyWithoutIcon));
+
+    expect(mockCourseCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ icon: "fa-book" }) })
+    );
   });
 
   it("201 — isFree is true when price is 0", async () => {

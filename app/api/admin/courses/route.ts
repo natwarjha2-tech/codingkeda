@@ -3,6 +3,33 @@ import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
 
 /**
+ * GET /api/admin/courses
+ * Fetch all courses for admin dashboard
+ * Requires admin authentication
+ */
+export async function GET(req: NextRequest) {
+  try {
+    const { error } = requireAdmin(req);
+    if (error) return error;
+
+    const courses = await prisma.course.findMany({
+      orderBy: { createdAt: "desc" },
+      include: {
+        _count: { select: { modules: true, enrollments: true } },
+      },
+    });
+
+    return NextResponse.json({ success: true, courses });
+  } catch (err) {
+    console.error("Fetch admin courses error:", err);
+    return NextResponse.json(
+      { success: false, message: "Internal server error." },
+      { status: 500 }
+    );
+  }
+}
+
+/**
  * POST /api/admin/courses
  * Create a new course
  * Requires admin authentication
@@ -28,9 +55,9 @@ export async function POST(req: NextRequest) {
     } = body;
 
     // Required fields validation
-    if (!title?.trim() || !subtitle?.trim() || !category?.trim() || !instructor?.trim() || !institute?.trim() || !color?.trim() || !icon?.trim()) {
+    if (!title?.trim() || !subtitle?.trim() || !category?.trim() || !instructor?.trim()) {
       return NextResponse.json(
-        { success: false, message: "title, subtitle, category, instructor, institute, color and icon are required." },
+        { success: false, message: "title, subtitle, category and instructor are required." },
         { status: 400 }
       );
     }
@@ -59,14 +86,14 @@ export async function POST(req: NextRequest) {
         subtitle: subtitle.trim(),
         category: category.trim(),
         instructor: instructor.trim(),
-        institute: institute.trim(),
+        institute: institute?.trim() || "",
         price: parsedPrice,
         isFree: parsedPrice === 0,
         totalHours: parsedHours,
         totalVideos: parsedVideos,
         hasCert: hasCert !== undefined ? Boolean(hasCert) : true,
-        color: color.trim(),
-        icon: icon.trim(),
+        color: color?.trim() || "from-purple-500 to-pink-500",
+        icon: icon?.trim() || "fa-book",
         isActive: true,
       },
     });
