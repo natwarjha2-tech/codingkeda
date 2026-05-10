@@ -52,7 +52,19 @@ export default function ManageCoursePage() {
   const [showLessonModal, setShowLessonModal] = useState(false);
   const [activeModuleId, setActiveModuleId] = useState("");
   const [lessonTitle, setLessonTitle] = useState("");
+  const [lessonIsFree, setLessonIsFree] = useState(false);
   const [creatingLesson, setCreatingLesson] = useState(false);
+
+  // Edit lesson modal
+  const [editLesson, setEditLesson] = useState<Lesson | null>(null);
+  const [editVideoFile, setEditVideoFile] = useState<File | null>(null);
+  const [editPdfFile, setEditPdfFile] = useState<File | null>(null);
+  const [editVideoUploading, setEditVideoUploading] = useState(false);
+  const [editPdfUploading, setEditPdfUploading] = useState(false);
+  const [editVideoSuccess, setEditVideoSuccess] = useState(false);
+  const [editPdfSuccess, setEditPdfSuccess] = useState(false);
+  const [editVideoError, setEditVideoError] = useState("");
+  const [editPdfError, setEditPdfError] = useState("");
 
   // Upload states (reusing existing upload logic)
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -188,7 +200,7 @@ export default function ManageCoursePage() {
       const res = await fetch("/api/admin/lessons", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ moduleId: activeModuleId, title: lessonTitle, videoUrl, pdfUrl }),
+        body: JSON.stringify({ moduleId: activeModuleId, title: lessonTitle, isFree: lessonIsFree, videoUrl, notes: pdfUrl }),
       });
       const data = await res.json();
       if (data.success) {
@@ -214,12 +226,77 @@ export default function ManageCoursePage() {
   const resetLessonModal = () => {
     setShowLessonModal(false);
     setLessonTitle("");
+    setLessonIsFree(false);
     setVideoFile(null); setPdfFile(null);
     setVideoUrl(""); setPdfUrl("");
     setVideoUploadSuccess(false); setPdfUploadSuccess(false);
     setVideoError(""); setPdfError("");
     setError("");
     setActiveModuleId("");
+  };
+
+  // ── Edit Lesson — upload video/pdf to existing lesson ──
+  const handleEditVideoUpload = async () => {
+    if (!editVideoFile || !editLesson) return setEditVideoError("Please select a video file.");
+    setEditVideoError(""); setEditVideoUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", editVideoFile);
+      formData.append("type", "video");
+      const uploadRes = await fetch("/api/admin/upload", { method: "POST", body: formData, headers: { Authorization: `Bearer ${getToken()}` } });
+      const uploadData = await uploadRes.json();
+      if (!uploadRes.ok) return setEditVideoError(uploadData.error || "Upload failed.");
+      const updateRes = await fetch(`/api/admin/lessons/${editLesson.id}/update-video`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ videoUrl: uploadData.media.url }),
+      });
+      const updateData = await updateRes.json();
+      if (!updateRes.ok) return setEditVideoError(updateData.message || "Update failed.");
+      setCourse(prev => prev ? {
+        ...prev,
+        modules: prev.modules.map(m => ({
+          ...m, lessons: m.lessons.map(l => l.id === editLesson.id ? { ...l, videoUrl: uploadData.media.url } : l)
+        }))
+      } : prev);
+      setEditVideoSuccess(true); setEditVideoFile(null);
+    } catch { setEditVideoError("Upload failed. Check your connection."); }
+    finally { setEditVideoUploading(false); }
+  };
+
+  const handleEditPdfUpload = async () => {
+    if (!editPdfFile || !editLesson) return setEditPdfError("Please select a PDF file.");
+    setEditPdfError(""); setEditPdfUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", editPdfFile);
+      formData.append("type", "pdf");
+      const uploadRes = await fetch("/api/admin/upload", { method: "POST", body: formData, headers: { Authorization: `Bearer ${getToken()}` } });
+      const uploadData = await uploadRes.json();
+      if (!uploadRes.ok) return setEditPdfError(uploadData.error || "Upload failed.");
+      const updateRes = await fetch(`/api/admin/lessons/${editLesson.id}/update-pdf`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ pdfUrl: uploadData.media.url }),
+      });
+      const updateData = await updateRes.json();
+      if (!updateRes.ok) return setEditPdfError(updateData.message || "Update failed.");
+      setCourse(prev => prev ? {
+        ...prev,
+        modules: prev.modules.map(m => ({
+          ...m, lessons: m.lessons.map(l => l.id === editLesson.id ? { ...l, notes: uploadData.media.url } : l)
+        }))
+      } : prev);
+      setEditPdfSuccess(true); setEditPdfFile(null);
+    } catch { setEditPdfError("Upload failed. Check your connection."); }
+    finally { setEditPdfUploading(false); }
+  };
+
+  const resetEditModal = () => {
+    setEditLesson(null);
+    setEditVideoFile(null); setEditPdfFile(null);
+    setEditVideoSuccess(false); setEditPdfSuccess(false);
+    setEditVideoError(""); setEditPdfError("");
   };
 
   if (loading) return (
@@ -333,6 +410,10 @@ export default function ManageCoursePage() {
                                         <Eye size={11} /> PDF
                                       </button>
                                     )}
+                                    <button onClick={() => { setEditLesson(lesson); setEditVideoSuccess(false); setEditPdfSuccess(false); setEditVideoError(""); setEditPdfError(""); }}
+                                      className="flex items-center gap-1 text-xs text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 px-2 py-1 rounded-lg transition-colors">
+                                      <Upload size={11} /> Edit
+                                    </button>
                                   </div>
                                 </div>
                               ))}
@@ -432,6 +513,18 @@ export default function ManageCoursePage() {
                   />
                 </div>
 
+                {/* isFree Toggle */}
+                <div className="flex items-center justify-between bg-white/5 border border-white/10 rounded-xl px-4 py-3">
+                  <div>
+                    <p className="text-sm font-semibold text-white">Free Lesson</p>
+                    <p className="text-xs text-slate-400">Toggle on to make this lesson free for all users</p>
+                  </div>
+                  <button type="button" onClick={() => setLessonIsFree(p => !p)}
+                    className={`w-11 h-6 rounded-full transition-colors relative ${lessonIsFree ? "bg-purple-500" : "bg-white/10"}`}>
+                    <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${lessonIsFree ? "left-5" : "left-0.5"}`} />
+                  </button>
+                </div>
+
                 {/* Video Upload */}
                 <div>
                   <label className="text-xs font-semibold text-slate-300 block mb-1.5 flex items-center gap-1.5">
@@ -502,7 +595,7 @@ export default function ManageCoursePage() {
                     className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-slate-300 bg-white/5 hover:bg-white/10 transition-colors">
                     Cancel
                   </button>
-                  <motion.button type="submit" disabled={creatingLesson || !lessonTitle.trim() || (!videoUploadSuccess && !pdfUploadSuccess)}
+                  <motion.button type="submit" disabled={creatingLesson || !lessonTitle.trim()}
                     whileHover={!creatingLesson ? { scale: 1.02 } : {}}
                     className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-60 flex items-center justify-center gap-2"
                     style={{ background: "linear-gradient(135deg,#7c3aed,#ec4899)" }}>
@@ -550,6 +643,97 @@ export default function ManageCoursePage() {
                 <X size={14} />
               </button>
               <iframe src={previewPdf} className="w-full h-full" title="PDF Preview" />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Edit Lesson Modal */}
+      <AnimatePresence>
+        {editLesson && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6 overflow-y-auto"
+            style={{ background: "rgba(0,0,0,0.8)", backdropFilter: "blur(10px)" }}
+            onClick={e => e.target === e.currentTarget && resetEditModal()}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.92, y: 20 }}
+              className="w-full max-w-lg rounded-2xl p-7 relative my-auto"
+              style={{ background: "linear-gradient(145deg,#0f0a1e,#16213e)", border: "1px solid rgba(124,58,237,0.25)", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" }}>
+              <button onClick={resetEditModal}
+                className="absolute top-4 right-4 w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-all">
+                <X size={14} />
+              </button>
+              <h3 className="text-xl font-extrabold text-white mb-1">Edit Lesson</h3>
+              <p className="text-slate-400 text-sm mb-6">{editLesson.title}</p>
+
+              <div className="space-y-5">
+                {/* Update Video */}
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1.5 flex items-center gap-1.5">
+                    <FileVideo size={13} className="text-purple-400" /> Update Video
+                    {editLesson.videoUrl && <span className="text-green-400 text-xs">(already uploaded)</span>}
+                  </label>
+                  <div
+                    onClick={() => document.getElementById("editVideoInput")?.click()}
+                    className="border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all"
+                    style={{ borderColor: editVideoSuccess ? "#22c55e" : "rgba(255,255,255,0.1)" }}>
+                    {editVideoSuccess
+                      ? <p className="text-green-400 text-sm flex items-center justify-center gap-2"><Check size={14} /> Video updated!</p>
+                      : <><Upload size={20} className="mx-auto mb-1.5 text-slate-500" />
+                        <p className="text-slate-400 text-xs">{editVideoFile ? editVideoFile.name : "Click to select video"}</p>
+                        <p className="text-slate-600 text-xs mt-0.5">MP4, AVI, MOV</p></>
+                    }
+                    <input id="editVideoInput" type="file" accept="video/*" className="hidden"
+                      onChange={e => { setEditVideoFile(e.target.files?.[0] || null); setEditVideoSuccess(false); setEditVideoError(""); }} />
+                  </div>
+                  {editVideoError && <p className="text-red-400 text-xs mt-1.5">⚠️ {editVideoError}</p>}
+                  {!editVideoSuccess && (
+                    <motion.button type="button" onClick={handleEditVideoUpload} disabled={editVideoUploading}
+                      whileHover={{ scale: 1.02 }}
+                      className="w-full mt-2 py-2 rounded-xl text-xs font-semibold text-white disabled:opacity-60 flex items-center justify-center gap-2"
+                      style={{ background: "linear-gradient(135deg,#7c3aed,#a855f7)" }}>
+                      {editVideoUploading ? <><Loader2 size={12} className="animate-spin" /> Uploading...</> : "Upload Video"}
+                    </motion.button>
+                  )}
+                </div>
+
+                {/* Update PDF */}
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1.5 flex items-center gap-1.5">
+                    <FileText size={13} className="text-pink-400" /> Update PDF Notes
+                    {editLesson.notes && <span className="text-green-400 text-xs">(already uploaded)</span>}
+                  </label>
+                  <div
+                    onClick={() => document.getElementById("editPdfInput")?.click()}
+                    className="border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all"
+                    style={{ borderColor: editPdfSuccess ? "#22c55e" : "rgba(255,255,255,0.1)" }}>
+                    {editPdfSuccess
+                      ? <p className="text-green-400 text-sm flex items-center justify-center gap-2"><Check size={14} /> PDF updated!</p>
+                      : <><Upload size={20} className="mx-auto mb-1.5 text-slate-500" />
+                        <p className="text-slate-400 text-xs">{editPdfFile ? editPdfFile.name : "Click to select PDF"}</p>
+                        <p className="text-slate-600 text-xs mt-0.5">PDF only</p></>
+                    }
+                    <input id="editPdfInput" type="file" accept=".pdf" className="hidden"
+                      onChange={e => { setEditPdfFile(e.target.files?.[0] || null); setEditPdfSuccess(false); setEditPdfError(""); }} />
+                  </div>
+                  {editPdfError && <p className="text-red-400 text-xs mt-1.5">⚠️ {editPdfError}</p>}
+                  {!editPdfSuccess && (
+                    <motion.button type="button" onClick={handleEditPdfUpload} disabled={editPdfUploading}
+                      whileHover={{ scale: 1.02 }}
+                      className="w-full mt-2 py-2 rounded-xl text-xs font-semibold text-white disabled:opacity-60 flex items-center justify-center gap-2"
+                      style={{ background: "linear-gradient(135deg,#ec4899,#f43f5e)" }}>
+                      {editPdfUploading ? <><Loader2 size={12} className="animate-spin" /> Uploading...</> : "Upload PDF"}
+                    </motion.button>
+                  )}
+                </div>
+
+                <button type="button" onClick={resetEditModal}
+                  className="w-full py-2.5 rounded-xl text-sm font-semibold text-slate-300 bg-white/5 hover:bg-white/10 transition-colors">
+                  Done
+                </button>
+              </div>
             </motion.div>
           </motion.div>
         )}
