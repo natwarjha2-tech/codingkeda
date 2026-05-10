@@ -38,8 +38,6 @@ export async function POST(
       category,
       instructor,
       institute,
-      price,
-      isFree,
       totalHours,
       totalVideos,
       hasCert,
@@ -58,18 +56,6 @@ export async function POST(
     if (category !== undefined) updateData.category = category.trim();
     if (instructor !== undefined) updateData.instructor = instructor.trim();
     if (institute !== undefined) updateData.institute = institute.trim();
-    if (price !== undefined) {
-      const parsedPrice = parseInt(price);
-      if (isNaN(parsedPrice) || parsedPrice < 0) {
-        return NextResponse.json(
-          { success: false, message: "Invalid price value." },
-          { status: 400 }
-        );
-      }
-      updateData.price = parsedPrice;
-      updateData.isFree = parsedPrice === 0;
-    }
-    if (isFree !== undefined) updateData.isFree = Boolean(isFree);
     if (totalHours !== undefined) {
       const parsedHours = parseInt(totalHours);
       if (isNaN(parsedHours) || parsedHours < 0) {
@@ -154,8 +140,6 @@ export async function POST(
         category: updatedCourse.category,
         instructor: updatedCourse.instructor,
         institute: updatedCourse.institute,
-        price: updatedCourse.price,
-        isFree: updatedCourse.isFree,
         totalHours: updatedCourse.totalHours,
         totalVideos: updatedCourse.totalVideos,
         hasCert: updatedCourse.hasCert,

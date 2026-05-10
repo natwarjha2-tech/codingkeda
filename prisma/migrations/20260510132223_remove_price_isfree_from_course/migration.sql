@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Course" DROP COLUMN IF EXISTS "isFree",
+DROP COLUMN IF EXISTS "price";

@@ -4,7 +4,12 @@ import { prisma } from "@/app/lib/prisma";
 import { MediaType } from "@prisma/client";
 import { requireAdmin } from "@/app/lib/middleware";
 
-// bodyParser: false is not needed in Next.js App Router — formData() handles it natively
+export const config = {
+  api: {
+    bodyParser: false,
+    responseLimit: false,
+  },
+};
 
 const ALLOWED_TYPES: Record<string, string[]> = {
   video: ["video/mp4", "video/avi", "video/quicktime", "video/x-msvideo"],

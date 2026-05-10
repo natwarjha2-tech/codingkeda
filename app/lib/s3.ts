@@ -27,6 +27,13 @@ export async function getSignedFileUrl(key: string, expiresIn = 3600) {
   return getSignedUrl(s3, command, { expiresIn });
 }
 
+export async function getPresignedUploadUrl(key: string, contentType: string, expiresIn = 3600) {
+  const command = new PutObjectCommand({ Bucket: BUCKET, Key: key, ContentType: contentType });
+  const uploadUrl = await getSignedUrl(s3, command, { expiresIn });
+  const publicUrl = `https://${BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+  return { uploadUrl, publicUrl };
+}
+
 export function getPublicUrl(key: string) {
   return `https://${BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
 }

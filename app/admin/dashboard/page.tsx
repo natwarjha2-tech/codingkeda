@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { LogOut, Plus, BookOpen, Users, Tag, DollarSign, X, Loader2 } from "lucide-react";
+import { LogOut, Plus, BookOpen, Users, Tag, X, Loader2 } from "lucide-react";
 import Navbar from "@/components/Navbar";
 
 interface Course {
@@ -10,8 +10,6 @@ interface Course {
   title: string;
   subtitle: string;
   category: string;
-  price: number;
-  isFree: boolean;
   color: string;
   icon: string;
   instructor: string;
@@ -27,7 +25,7 @@ export default function AdminDashboard() {
   const [showModal, setShowModal] = useState(false);
   const [creating, setCreating] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
-  const [form, setForm] = useState({ title: "", subtitle: "", category: "Web Dev", instructor: "", price: "", color: "from-purple-500 to-pink-500" });
+  const [form, setForm] = useState({ title: "", subtitle: "", category: "Web Dev", instructor: "", color: "from-purple-500 to-pink-500" });
   const [error, setError] = useState("");
 
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : "";
@@ -55,13 +53,13 @@ export default function AdminDashboard() {
       const res = await fetch("/api/admin/courses", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ ...form, price: parseInt(form.price) || 0 }),
+        body: JSON.stringify({ ...form }),
       });
       const data = await res.json();
       if (!data.success) return setError(data.message || "Failed to create course.");
       setCourses(prev => [data.course, ...prev]);
       setShowModal(false);
-      setForm({ title: "", subtitle: "", category: "Web Dev", instructor: "", price: "", color: "from-purple-500 to-pink-500" });
+      setForm({ title: "", subtitle: "", category: "Web Dev", instructor: "", color: "from-purple-500 to-pink-500" });
     } catch {
       setError("Something went wrong.");
     } finally {
@@ -145,13 +143,8 @@ export default function AdminDashboard() {
                   transition={{ delay: i * 0.05 }}
                   className="bg-[#16213e] border border-white/10 rounded-2xl overflow-hidden hover:border-purple-500/30 transition-all group">
                   {/* Thumbnail */}
-                  <div className={`h-36 bg-gradient-to-br ${course.color} flex items-center justify-center relative`}>
+                    <div className={`h-36 bg-gradient-to-br ${course.color} flex items-center justify-center relative`}>
                     <span className="text-4xl">📚</span>
-                    <div className="absolute top-3 right-3">
-                      <span className={`text-xs font-bold px-2 py-1 rounded-full ${course.isFree ? "bg-green-500/20 text-green-400 border border-green-500/30" : "bg-purple-500/20 text-purple-300 border border-purple-500/30"}`}>
-                        {course.isFree ? "FREE" : `₹${course.price}`}
-                      </span>
-                    </div>
                   </div>
 
                   <div className="p-5">
@@ -215,12 +208,11 @@ export default function AdminDashboard() {
                   { label: "Course Title *", key: "title", placeholder: "e.g. Complete React Course" },
                   { label: "Short Description", key: "subtitle", placeholder: "e.g. Learn React from scratch" },
                   { label: "Instructor Name", key: "instructor", placeholder: "e.g. John Doe" },
-                  { label: "Price (₹)", key: "price", placeholder: "0 for free" },
                 ].map(({ label, key, placeholder }) => (
                   <div key={key}>
                     <label className="text-xs font-semibold text-slate-300 block mb-1.5">{label}</label>
                     <input
-                      type={key === "price" ? "number" : "text"}
+                      type="text"
                       placeholder={placeholder}
                       value={form[key as keyof typeof form]}
                       onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))}

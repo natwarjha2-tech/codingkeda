@@ -33,8 +33,6 @@ export async function GET(req: NextRequest) {
         institute: true,
         students: true,
         rating: true,
-        price: true,
-        isFree: true,
         totalHours: true,
         totalVideos: true,
         hasCert: true,

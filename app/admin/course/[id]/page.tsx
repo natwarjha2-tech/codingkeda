@@ -28,8 +28,6 @@ interface Course {
   title: string;
   subtitle: string;
   category: string;
-  price: number;
-  isFree: boolean;
   color: string;
   modules: Module[];
 }
@@ -112,20 +110,25 @@ export default function ManageCoursePage() {
     });
   };
 
-  // ── Upload handlers (exact same as old working dashboard) ──
+  // ── Upload handlers ──
   const handleVideoUpload = async () => {
     if (!videoFile) return setVideoError("Please select a video file.");
     setVideoError("");
     setVideoUploading(true);
     try {
       const token = localStorage.getItem("token");
-      const formData = new FormData();
-      formData.append("file", videoFile);
-      formData.append("type", "video");
-      const res = await fetch("/api/admin/upload", { method: "POST", body: formData, headers: { Authorization: `Bearer ${token}` } });
-      const data = await res.json();
-      if (!res.ok) return setVideoError(data.error || "Upload failed.");
-      setVideoUrl(data.media.url);
+      // Step 1: get presigned URL
+      const presignRes = await fetch("/api/admin/upload/presigned", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ fileName: videoFile.name, fileType: videoFile.type, fileSize: videoFile.size, type: "video" }),
+      });
+      const presignData = await presignRes.json();
+      if (!presignRes.ok) return setVideoError(presignData.error || "Failed to get upload URL.");
+      // Step 2: upload directly to S3
+      const s3Res = await fetch(presignData.uploadUrl, { method: "PUT", body: videoFile, headers: { "Content-Type": videoFile.type } });
+      if (!s3Res.ok) return setVideoError("S3 upload failed.");
+      setVideoUrl(presignData.publicUrl);
       setVideoUploadSuccess(true);
       setVideoFile(null);
     } catch {
@@ -240,23 +243,28 @@ export default function ManageCoursePage() {
     if (!editVideoFile || !editLesson) return setEditVideoError("Please select a video file.");
     setEditVideoError(""); setEditVideoUploading(true);
     try {
-      const formData = new FormData();
-      formData.append("file", editVideoFile);
-      formData.append("type", "video");
-      const uploadRes = await fetch("/api/admin/upload", { method: "POST", body: formData, headers: { Authorization: `Bearer ${getToken()}` } });
-      const uploadData = await uploadRes.json();
-      if (!uploadRes.ok) return setEditVideoError(uploadData.error || "Upload failed.");
+      // Step 1: get presigned URL
+      const presignRes = await fetch("/api/admin/upload/presigned", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ fileName: editVideoFile.name, fileType: editVideoFile.type, fileSize: editVideoFile.size, type: "video" }),
+      });
+      const presignData = await presignRes.json();
+      if (!presignRes.ok) return setEditVideoError(presignData.error || "Failed to get upload URL.");
+      // Step 2: upload directly to S3
+      const s3Res = await fetch(presignData.uploadUrl, { method: "PUT", body: editVideoFile, headers: { "Content-Type": editVideoFile.type } });
+      if (!s3Res.ok) return setEditVideoError("S3 upload failed.");
       const updateRes = await fetch(`/api/admin/lessons/${editLesson.id}/update-video`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ videoUrl: uploadData.media.url }),
+        body: JSON.stringify({ videoUrl: presignData.publicUrl }),
       });
       const updateData = await updateRes.json();
       if (!updateRes.ok) return setEditVideoError(updateData.message || "Update failed.");
       setCourse(prev => prev ? {
         ...prev,
         modules: prev.modules.map(m => ({
-          ...m, lessons: m.lessons.map(l => l.id === editLesson.id ? { ...l, videoUrl: uploadData.media.url } : l)
+          ...m, lessons: m.lessons.map(l => l.id === editLesson.id ? { ...l, videoUrl: presignData.publicUrl } : l)
         }))
       } : prev);
       setEditVideoSuccess(true); setEditVideoFile(null);
@@ -335,7 +343,6 @@ export default function ManageCoursePage() {
               <div className="flex items-center gap-4 mt-3 text-white/60 text-xs">
                 <span>{course.modules.length} modules</span>
                 <span>{course.modules.reduce((a, m) => a + m.lessons.length, 0)} lessons</span>
-                <span>{course.isFree ? "Free" : `₹${course.price}`}</span>
               </div>
             </div>
           </div>

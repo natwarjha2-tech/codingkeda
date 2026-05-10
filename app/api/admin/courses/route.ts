@@ -46,7 +46,6 @@ export async function POST(req: NextRequest) {
       category,
       instructor,
       institute,
-      price,
       totalHours,
       totalVideos,
       hasCert,
@@ -58,14 +57,6 @@ export async function POST(req: NextRequest) {
     if (!title?.trim() || !subtitle?.trim() || !category?.trim() || !instructor?.trim()) {
       return NextResponse.json(
         { success: false, message: "title, subtitle, category and instructor are required." },
-        { status: 400 }
-      );
-    }
-
-    const parsedPrice = parseInt(price ?? "0");
-    if (isNaN(parsedPrice) || parsedPrice < 0) {
-      return NextResponse.json(
-        { success: false, message: "Invalid price value." },
         { status: 400 }
       );
     }
@@ -87,8 +78,6 @@ export async function POST(req: NextRequest) {
         category: category.trim(),
         instructor: instructor.trim(),
         institute: institute?.trim() || "",
-        price: parsedPrice,
-        isFree: parsedPrice === 0,
         totalHours: parsedHours,
         totalVideos: parsedVideos,
         hasCert: hasCert !== undefined ? Boolean(hasCert) : true,
