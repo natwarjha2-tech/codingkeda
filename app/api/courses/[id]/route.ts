@@ -80,13 +80,7 @@ export async function GET(
 
     let signedCourse = course;
     if (signed) {
-      if (!isEnrolled) {
-        return NextResponse.json(
-          { success: false, message: "Unauthorized." },
-          { status: 401 }
-        );
-      }
-
+      // Sign video URLs for enrolled users OR free lessons
       signedCourse = {
         ...course,
         modules: await Promise.all(
@@ -94,16 +88,22 @@ export async function GET(
             ...mod,
             lessons: await Promise.all(
               mod.lessons.map(async (lesson) => {
-                const signedVideoUrl = getS3KeyFromUrl(lesson.videoUrl)
-                  ? await getSignedFileUrlFromUrl(lesson.videoUrl)
-                  : lesson.videoUrl;
-                const signedNotesUrl = getS3KeyFromUrl(lesson.notes)
-                  ? await getSignedFileUrlFromUrl(lesson.notes)
-                  : lesson.notes;
+                // Sign video URL if user is enrolled OR lesson is free
+                if (isEnrolled || lesson.isFree) {
+                  const signedVideoUrl = getS3KeyFromUrl(lesson.videoUrl)
+                    ? await getSignedFileUrlFromUrl(lesson.videoUrl)
+                    : lesson.videoUrl;
+                  return {
+                    ...lesson,
+                    videoUrl: signedVideoUrl,
+                    notes: lesson.notes,
+                  };
+                }
+                // For locked lessons, return empty URLs
                 return {
                   ...lesson,
-                  videoUrl: signedVideoUrl,
-                  notes: signedNotesUrl,
+                  videoUrl: "",
+                  notes: "",
                 };
               })
             ),

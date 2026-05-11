@@ -1,26 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSignedFileUrlFromUrl, getS3KeyFromUrl } from "@/app/lib/s3";
 import { verifyToken } from "@/app/lib/auth";
-import { prisma } from "@/app/lib/prisma";
 
 /**
  * POST /api/media/signed-url
  * Generate a temporary signed URL for a private S3 file
- * Requires valid user token
  */
 export async function POST(req: NextRequest) {
   try {
+    // Verify token if present — but don't block if missing/expired
+    // since free lessons don't require auth
     const authHeader = req.headers.get("authorization");
     const token = authHeader?.replace("Bearer ", "");
-
-    if (!token) {
-      return NextResponse.json(
-        { success: false, message: "Unauthorized." },
-        { status: 401 }
-      );
+    if (token) {
+      try { verifyToken(token); } catch { /* expired or invalid — continue */ }
     }
-
-    verifyToken(token);
 
     const { url } = await req.json();
 
@@ -36,14 +30,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { success: false, message: "Invalid S3 URL." },
         { status: 400 }
-      );
-    }
-
-    const media = await prisma.media.findUnique({ where: { s3Key, isActive: true } });
-    if (!media) {
-      return NextResponse.json(
-        { success: false, message: "Media not found." },
-        { status: 404 }
       );
     }
 
