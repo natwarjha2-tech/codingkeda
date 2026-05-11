@@ -173,8 +173,14 @@ function LoginForm() {
       const isNewUser = localStorage.getItem("isNewUser");
       const surveyDone = localStorage.getItem("surveyCompleted");
       const flow = searchParams.get("flow");
+      const redirect = searchParams.get("redirect");
 
-      if (flow === "free") {
+      // Save token with both keys for cross-page compatibility
+      localStorage.setItem("ck_token", data.token);
+
+      if (redirect) {
+        router.replace(decodeURIComponent(redirect));
+      } else if (flow === "free") {
         localStorage.removeItem("isNewUser");
         router.replace("/dashboard");
       } else if (flow === "survey") {

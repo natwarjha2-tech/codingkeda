@@ -133,6 +133,18 @@ model Media {
   @@index([createdAt])
 }
 
+model EnrollToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  courseId  String
+  used      Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([token])
+}
+
 enum MediaType {
   VIDEO
   PDF

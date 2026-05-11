@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { uploadToS3 } from "@/app/lib/s3";
+import { uploadToS3, getSignedFileUrl } from "@/app/lib/s3";
 import { prisma } from "@/app/lib/prisma";
 import { MediaType } from "@prisma/client";
 import { requireAdmin } from "@/app/lib/middleware";
@@ -78,12 +78,15 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    // Generate presigned URL for immediate use
+    const presignedUrl = await getSignedFileUrl(key, 3600);
+
     return NextResponse.json({
       success: true,
       media: {
         id: media.id,
         title: media.title,
-        url: media.s3Url,
+        url: presignedUrl,
         key: media.s3Key,
         type: media.type,
         tags: media.tags,

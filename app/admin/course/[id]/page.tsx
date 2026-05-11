@@ -144,13 +144,17 @@ export default function ManageCoursePage() {
     setPdfUploading(true);
     try {
       const token = localStorage.getItem("token");
-      const formData = new FormData();
-      formData.append("file", pdfFile);
-      formData.append("type", "pdf");
-      const res = await fetch("/api/admin/upload", { method: "POST", body: formData, headers: { Authorization: `Bearer ${token}` } });
-      const data = await res.json();
-      if (!res.ok) return setPdfError(data.error || "Upload failed.");
-      setPdfUrl(data.media.url);
+      // Use presigned upload for PDF too — saves permanent S3 URL
+      const presignRes = await fetch("/api/admin/upload/presigned", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ fileName: pdfFile.name, fileType: pdfFile.type, fileSize: pdfFile.size, type: "pdf" }),
+      });
+      const presignData = await presignRes.json();
+      if (!presignRes.ok) return setPdfError(presignData.error || "Failed to get upload URL.");
+      const s3Res = await fetch(presignData.uploadUrl, { method: "PUT", body: pdfFile, headers: { "Content-Type": pdfFile.type } });
+      if (!s3Res.ok) return setPdfError("S3 upload failed.");
+      setPdfUrl(presignData.publicUrl);
       setPdfUploadSuccess(true);
       setPdfFile(null);
     } catch {
@@ -276,23 +280,26 @@ export default function ManageCoursePage() {
     if (!editPdfFile || !editLesson) return setEditPdfError("Please select a PDF file.");
     setEditPdfError(""); setEditPdfUploading(true);
     try {
-      const formData = new FormData();
-      formData.append("file", editPdfFile);
-      formData.append("type", "pdf");
-      const uploadRes = await fetch("/api/admin/upload", { method: "POST", body: formData, headers: { Authorization: `Bearer ${getToken()}` } });
-      const uploadData = await uploadRes.json();
-      if (!uploadRes.ok) return setEditPdfError(uploadData.error || "Upload failed.");
+      const presignRes = await fetch("/api/admin/upload/presigned", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ fileName: editPdfFile.name, fileType: editPdfFile.type, fileSize: editPdfFile.size, type: "pdf" }),
+      });
+      const presignData = await presignRes.json();
+      if (!presignRes.ok) return setEditPdfError(presignData.error || "Failed to get upload URL.");
+      const s3Res = await fetch(presignData.uploadUrl, { method: "PUT", body: editPdfFile, headers: { "Content-Type": editPdfFile.type } });
+      if (!s3Res.ok) return setEditPdfError("S3 upload failed.");
       const updateRes = await fetch(`/api/admin/lessons/${editLesson.id}/update-pdf`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ pdfUrl: uploadData.media.url }),
+        body: JSON.stringify({ pdfUrl: presignData.publicUrl }),
       });
       const updateData = await updateRes.json();
       if (!updateRes.ok) return setEditPdfError(updateData.message || "Update failed.");
       setCourse(prev => prev ? {
         ...prev,
         modules: prev.modules.map(m => ({
-          ...m, lessons: m.lessons.map(l => l.id === editLesson.id ? { ...l, notes: uploadData.media.url } : l)
+          ...m, lessons: m.lessons.map(l => l.id === editLesson.id ? { ...l, notes: presignData.publicUrl } : l)
         }))
       } : prev);
       setEditPdfSuccess(true); setEditPdfFile(null);

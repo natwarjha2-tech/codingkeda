@@ -52,8 +52,6 @@ const MOCK_COURSE = {
   category: "Programming",
   instructor: "Rahul Sharma",
   institute: "IIT Delhi",
-  price: 999,
-  isFree: false,
   totalHours: 20,
   totalVideos: 40,
   hasCert: true,
@@ -153,7 +151,6 @@ describe("POST /api/admin/courses", () => {
     category: "Programming",
     instructor: "Rahul Sharma",
     institute: "IIT Delhi",
-    price: "999",
     totalHours: "20",
     totalVideos: "40",
     color: "linear-gradient(135deg,#8b5cf6,#6d28d9)",
@@ -204,18 +201,6 @@ describe("POST /api/admin/courses", () => {
     );
   });
 
-  it("201 — isFree is true when price is 0", async () => {
-    mockCourseCreate.mockResolvedValue({ ...MOCK_COURSE, price: 0, isFree: true } as never);
-
-    const res = await createCourse(req({ ...validBody, price: "0" }));
-    const body = await res.json();
-
-    expect(res.status).toBe(201);
-    expect(mockCourseCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ isFree: true, price: 0 }) })
-    );
-  });
-
   it("201 — hasCert defaults to true when not provided", async () => {
     mockCourseCreate.mockResolvedValue(MOCK_COURSE as never);
 
@@ -246,13 +231,6 @@ describe("POST /api/admin/courses", () => {
     const res = await createCourse(req({ ...validBody, category: "" }));
     const body = await res.json();
     expect(res.status).toBe(400);
-  });
-
-  it("400 — negative price", async () => {
-    const res = await createCourse(req({ ...validBody, price: "-100" }));
-    const body = await res.json();
-    expect(res.status).toBe(400);
-    expect(body.message).toMatch(/invalid price/i);
   });
 
   it("400 — negative totalHours", async () => {
@@ -401,6 +379,18 @@ describe("POST /api/admin/lessons", () => {
 
     expect(mockLessonCreate).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ order: 6 }) })
+    );
+  });
+
+  it("201 — videoUrl and notes saved when provided", async () => {
+    mockModuleFindUnique.mockResolvedValue(MOCK_MODULE as never);
+    mockLessonFindFirst.mockResolvedValue(null);
+    mockLessonCreate.mockResolvedValue({ ...MOCK_LESSON, videoUrl: "https://s3.amazonaws.com/video.mp4", notes: "https://s3.amazonaws.com/notes.pdf" } as never);
+
+    await createLesson(req({ ...validBody, videoUrl: "https://s3.amazonaws.com/video.mp4", notes: "https://s3.amazonaws.com/notes.pdf" }));
+
+    expect(mockLessonCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ videoUrl: "https://s3.amazonaws.com/video.mp4", notes: "https://s3.amazonaws.com/notes.pdf" }) })
     );
   });
 

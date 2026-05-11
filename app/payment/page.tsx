@@ -1,9 +1,8 @@
 "use client";
-import { useState, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, Shield, Loader2, CheckCircle, ArrowRight } from "lucide-react";
-import Link from "next/link";
 import Navbar from "@/components/Navbar";
 
 const PACKAGES: Record<string, {
@@ -28,19 +27,79 @@ const PACKAGES: Record<string, {
 
 const DEFAULT_PKG = "ZenAlpha Package";
 
+function getToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return (
+    localStorage.getItem("token") ||
+    localStorage.getItem("ck_token") ||
+    sessionStorage.getItem("ck_token") ||
+    null
+  );
+}
+
 function PaymentContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const pkgName = searchParams.get("package") || DEFAULT_PKG;
+  const courseId = searchParams.get("courseId") || null;
   const pkg = PACKAGES[pkgName] ?? PACKAGES[DEFAULT_PKG];
 
   const [paying, setPaying] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
+  const [enrollError, setEnrollError] = useState("");
+
+  useEffect(() => {
+    setToken(getToken());
+  }, []);
 
   const handlePayment = async () => {
+    setEnrollError("");
+    const currentToken = getToken();
+
+    if (!currentToken) {
+      const returnUrl = encodeURIComponent(window.location.href);
+      router.push(`/login?redirect=${returnUrl}`);
+      return;
+    }
+
     setPaying(true);
     // Mock payment — replace with Razorpay/Stripe integration
     await new Promise(r => setTimeout(r, 2000));
+
+    // Enroll user directly + trigger deep link for desktop notification
+    if (courseId) {
+      try {
+        // Step 1: Direct enrollment
+        await fetch(`/api/courses/${courseId}/enroll`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${currentToken}`,
+          },
+          body: JSON.stringify({}),
+        });
+
+        // Step 2: Generate deep link token for desktop notification
+        const tokenRes = await fetch("/api/enroll-token", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${currentToken}`,
+          },
+          body: JSON.stringify({ courseId }),
+        });
+        const tokenData = await tokenRes.json();
+        if (tokenData.success && tokenData.enrollToken) {
+          window.location.href = `codingkida://enroll?token=${tokenData.enrollToken}`;
+          // Wait briefly for deep link then redirect
+          await new Promise(r => setTimeout(r, 800));
+        }
+      } catch {
+        // Enrollment failed silently — don't block success screen
+      }
+    }
+
     setPaying(false);
     setSuccess(true);
     setTimeout(() => router.replace("/dashboard"), 2500);
@@ -153,6 +212,16 @@ function PaymentContent() {
                 ))}
               </ul>
 
+              {enrollError && (
+                <p className="text-red-400 text-xs text-center mb-3">⚠️ {enrollError}</p>
+              )}
+
+              {!token && (
+                <p className="text-amber-400 text-xs text-center mb-3">
+                  🔒 You need to <span className="underline cursor-pointer" onClick={() => router.push(`/login?redirect=${encodeURIComponent(typeof window !== 'undefined' ? window.location.href : '/payment')}`)}> log in</span> to purchase this course.
+                </p>
+              )}
+
               {/* Pay button */}
               <motion.button
                 initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
@@ -168,8 +237,10 @@ function PaymentContent() {
                   <><motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}>
                     <Loader2 size={16} />
                   </motion.div> Processing...</>
-                ) : (
+                ) : token ? (
                   <>Proceed to Payment {pkg.price} <ArrowRight size={15} /></>
+                ) : (
+                  <>Login to Purchase <ArrowRight size={15} /></>
                 )}
               </motion.button>
             </motion.div>

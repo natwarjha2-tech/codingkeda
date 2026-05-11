@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
     if (error) return error;
 
     const body = await req.json();
-    const { moduleId, title, duration, isFree, order } = body;
+    const { moduleId, title, duration, isFree, order, videoUrl, notes } = body;
 
     if (!moduleId?.trim() || !title?.trim()) {
       return NextResponse.json(
@@ -47,8 +47,8 @@ export async function POST(req: NextRequest) {
         duration: duration?.trim() || "00:00",
         isFree: isFree !== undefined ? Boolean(isFree) : false,
         order: lessonOrder,
-        videoUrl: "",
-        notes: "",
+        videoUrl: videoUrl?.trim() || "",
+        notes: notes?.trim() || "",
       },
     });
 

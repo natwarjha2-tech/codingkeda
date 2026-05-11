@@ -29,6 +29,9 @@ describe("Admin API Routes", () => {
   let testLessonId: string;
 
   beforeAll(async () => {
+    // Cleanup any leftover test data from previous runs
+    await prisma.user.deleteMany({ where: { email: "testadmin@codingkeda.com" } });
+
     // Create admin user
     const hashedPassword = await bcrypt.hash("admin12345", 10);
     const adminUser = await prisma.user.create({
@@ -54,7 +57,6 @@ describe("Admin API Routes", () => {
         category: "Programming",
         instructor: "Test Instructor",
         institute: "Test Institute",
-        price: 999,
         totalHours: 10,
         totalVideos: 20,
         color: "from-blue-500 to-purple-500",
@@ -276,7 +278,6 @@ describe("Admin API Routes", () => {
       const req = createMockRequest(
         {
           title: "Updated Course Title",
-          price: 1999,
           rating: 4.8,
         },
         adminToken
@@ -290,7 +291,6 @@ describe("Admin API Routes", () => {
       expect(response.status).toBe(200);
       expect(data.success).toBe(true);
       expect(data.course.title).toBe("Updated Course Title");
-      expect(data.course.price).toBe(1999);
       expect(data.course.rating).toBe(4.8);
     });
 
@@ -305,23 +305,6 @@ describe("Admin API Routes", () => {
       const data = await response.json();
 
       expect(response.status).toBe(401);
-      expect(data.success).toBe(false);
-    });
-
-    it("should validate price value", async () => {
-      const req = createMockRequest(
-        {
-          price: -100,
-        },
-        adminToken
-      );
-
-      const response = await updateCourse(req, {
-        params: Promise.resolve({ id: testCourseId }),
-      });
-      const data = await response.json();
-
-      expect(response.status).toBe(400);
       expect(data.success).toBe(false);
     });
 

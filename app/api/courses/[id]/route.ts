@@ -1,6 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { verifyToken } from "@/app/lib/auth";
+import { getSignedFileUrl } from "@/app/lib/s3";
+
+const S3_DOMAIN = ".amazonaws.com/";
+
+async function toSignedUrl(url: string): Promise<string> {
+  if (!url || !url.includes(S3_DOMAIN)) return url;
+  const key = url.split(S3_DOMAIN).pop();
+  if (!key) return url;
+  try {
+    return await getSignedFileUrl(key, 900);
+  } catch {
+    return url;
+  }
+}
 
 export async function GET(
   req: NextRequest,
@@ -75,10 +89,25 @@ export async function GET(
     const progressPercent =
       totalLessons > 0 ? Math.round((completedCount / totalLessons) * 100) : 0;
 
+    // Sign all video and PDF URLs before returning
+    const signedModules = await Promise.all(
+      course.modules.map(async (mod) => ({
+        ...mod,
+        lessons: await Promise.all(
+          mod.lessons.map(async (lesson) => ({
+            ...lesson,
+            videoUrl: lesson.videoUrl ? await toSignedUrl(lesson.videoUrl) : "",
+            notes: lesson.notes ? await toSignedUrl(lesson.notes) : "",
+          }))
+        ),
+      }))
+    );
+
     return NextResponse.json({
       success: true,
       course: {
         ...course,
+        modules: signedModules,
         isEnrolled,
         progressPercent,
         completedLessons: userProgress,
