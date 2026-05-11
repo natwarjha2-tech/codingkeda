@@ -27,6 +27,24 @@ export async function getSignedFileUrl(key: string, expiresIn = 3600) {
   return getSignedUrl(s3, command, { expiresIn });
 }
 
+export function getS3KeyFromUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    const marker = ".amazonaws.com/";
+    const index = parsed.href.indexOf(marker);
+    if (index === -1) return null;
+    return parsed.href.substring(index + marker.length);
+  } catch {
+    return null;
+  }
+}
+
+export async function getSignedFileUrlFromUrl(url: string, expiresIn = 3600) {
+  const key = getS3KeyFromUrl(url);
+  if (!key) throw new Error("Invalid S3 URL.");
+  return getSignedFileUrl(key, expiresIn);
+}
+
 export async function getPresignedUploadUrl(key: string, contentType: string, expiresIn = 3600) {
   const command = new PutObjectCommand({ Bucket: BUCKET, Key: key, ContentType: contentType });
   const uploadUrl = await getSignedUrl(s3, command, { expiresIn });

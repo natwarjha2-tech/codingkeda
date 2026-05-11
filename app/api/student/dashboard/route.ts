@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { verifyToken } from "@/app/lib/auth";
+import { getSignedFileUrlFromUrl, getS3KeyFromUrl } from "@/app/lib/s3";
 
 /**
  * GET /api/student/dashboard
@@ -20,6 +21,7 @@ export async function GET(req: NextRequest) {
     }
 
     const payload = verifyToken(token);
+    const signed = new URL(req.url).searchParams.get("signed") === "true";
 
     // Get all enrollments with course + modules + lessons
     const enrollments = await prisma.enrollment.findMany({
@@ -79,6 +81,10 @@ export async function GET(req: NextRequest) {
         for (const mod of enrollment.course.modules) {
           const lesson = mod.lessons.find((l) => l.id === lastLessonId);
           if (lesson) {
+            let videoUrl = lesson.videoUrl;
+            if (signed && getS3KeyFromUrl(videoUrl)) {
+              videoUrl = await getSignedFileUrlFromUrl(videoUrl);
+            }
             lastWatched = {
               courseId: enrollment.course.id,
               courseTitle: enrollment.course.title,
@@ -86,7 +92,7 @@ export async function GET(req: NextRequest) {
               moduleTitle: mod.title,
               lessonId: lesson.id,
               lessonTitle: lesson.title,
-              videoUrl: lesson.videoUrl,
+              videoUrl,
               progressPercent: enrolledCourses.find((c) => c.id === enrollment.course.id)?.progressPercent || 0,
             };
             break;

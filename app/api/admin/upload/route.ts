@@ -41,6 +41,9 @@ export async function POST(req: NextRequest) {
     const title = ((formData.get("title") as string)?.trim()) || file?.name || "Untitled";
     const description = (formData.get("description") as string)?.trim() || null;
     const tagsRaw = (formData.get("tags") as string)?.trim() || "";
+    const courseId = formData.get("courseId") as string;
+    const categoryId = formData.get("categoryId") as string;
+    const moduleId = formData.get("moduleId") as string;
 
     if (!file) return NextResponse.json({ error: "No file provided" }, { status: 400 });
     if (!type || !ALLOWED_TYPES[type]) return NextResponse.json({ error: "Invalid type" }, { status: 400 });
@@ -58,7 +61,12 @@ export async function POST(req: NextRequest) {
     const ext = file.name.split(".").pop();
     const timestamp = Date.now();
     const cleanName = file.name.replace(/[^a-zA-Z0-9.-]/g, "-").toLowerCase();
-    const key = `${type}s/${timestamp}-${cleanName}`;
+    
+    // Generate S3 key with metadata (course-cat-module)
+    let key = `${type}s/${timestamp}-${cleanName}`;
+    if (courseId && categoryId && moduleId) {
+      key = `${type}s/course-${courseId}-cat-${categoryId}-module-${moduleId}-${timestamp}-${cleanName}`;
+    }
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const url = await uploadToS3(buffer, key, file.type);

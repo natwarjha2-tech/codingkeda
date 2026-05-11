@@ -86,6 +86,38 @@ export default function ManageCoursePage() {
 
   const getToken = () => localStorage.getItem("token") || "";
 
+  const requestSignedUrl = async (url: string) => {
+    if (!url) return "";
+
+    try {
+      const res = await fetch("/api/media/signed-url", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${getToken()}`,
+        },
+        body: JSON.stringify({ url }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.signedUrl) return data.signedUrl;
+    } catch {
+      // fallback to raw URL if signed request fails
+    }
+
+    return url;
+  };
+
+  const handlePreviewVideo = async (url: string) => {
+    const signedUrl = await requestSignedUrl(url);
+    setPreviewVideo(signedUrl);
+  };
+
+  const handlePreviewPdf = async (url: string) => {
+    const signedUrl = await requestSignedUrl(url);
+    setPreviewPdf(signedUrl);
+  };
+
   useEffect(() => {
     fetchCourse();
   }, [courseId]);
@@ -413,13 +445,13 @@ export default function ManageCoursePage() {
                                   </div>
                                   <div className="flex items-center gap-2">
                                     {lesson.videoUrl && (
-                                      <button onClick={() => setPreviewVideo(lesson.videoUrl)}
+                                      <button onClick={() => handlePreviewVideo(lesson.videoUrl)}
                                         className="flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300 bg-purple-500/10 px-2 py-1 rounded-lg transition-colors">
                                         <Play size={11} /> Preview
                                       </button>
                                     )}
                                     {lesson.notes && (
-                                      <button onClick={() => setPreviewPdf(lesson.notes)}
+                                      <button onClick={() => handlePreviewPdf(lesson.notes)}
                                         className="flex items-center gap-1 text-xs text-pink-400 hover:text-pink-300 bg-pink-500/10 px-2 py-1 rounded-lg transition-colors">
                                         <Eye size={11} /> PDF
                                       </button>

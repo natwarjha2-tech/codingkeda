@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
   const { error, user } = requireAdmin(req);
   if (error) return error;
 
-  const { fileName, fileType, fileSize, type, title, description, tags } = await req.json();
+  const { fileName, fileType, fileSize, type, title, description, tags, courseId, categoryId, moduleId } = await req.json();
 
   if (!type || !ALLOWED_TYPES[type])
     return NextResponse.json({ error: "Invalid type" }, { status: 400 });
@@ -31,7 +31,12 @@ export async function POST(req: NextRequest) {
 
   const timestamp = Date.now();
   const cleanName = fileName.replace(/[^a-zA-Z0-9.-]/g, "-").toLowerCase();
-  const key = `${type}s/${timestamp}-${cleanName}`;
+  
+  // Generate S3 key with metadata (course-cat-module)
+  let key = `${type}s/${timestamp}-${cleanName}`;
+  if (courseId && categoryId && moduleId) {
+    key = `${type}s/course-${courseId}-cat-${categoryId}-module-${moduleId}-${timestamp}-${cleanName}`;
+  }
 
   const { uploadUrl, publicUrl } = await getPresignedUploadUrl(key, fileType);
 

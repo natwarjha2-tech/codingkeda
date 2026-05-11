@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSignedFileUrl } from "@/app/lib/s3";
+import { getSignedFileUrlFromUrl, getS3KeyFromUrl } from "@/app/lib/s3";
 import { verifyToken } from "@/app/lib/auth";
+import { prisma } from "@/app/lib/prisma";
 
 /**
  * POST /api/media/signed-url
@@ -30,10 +31,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Extract S3 key from full S3 URL
-    // e.g. https://bucket.s3.region.amazonaws.com/media/file.pdf → media/file.pdf
-    const s3Key = url.split(".amazonaws.com/").pop();
-
+    const s3Key = getS3KeyFromUrl(url);
     if (!s3Key) {
       return NextResponse.json(
         { success: false, message: "Invalid S3 URL." },
@@ -41,10 +39,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const signedUrl = await getSignedFileUrl(s3Key, 900); // 15 minutes
+    const media = await prisma.media.findUnique({ where: { s3Key, isActive: true } });
+    if (!media) {
+      return NextResponse.json(
+        { success: false, message: "Media not found." },
+        { status: 404 }
+      );
+    }
+
+    const signedUrl = await getSignedFileUrlFromUrl(url, 900); // 15 minutes
 
     return NextResponse.json({ success: true, signedUrl });
-  } catch {
+  } catch (err) {
+    console.error("Signed URL error:", err);
     return NextResponse.json(
       { success: false, message: "Failed to generate signed URL." },
       { status: 500 }
