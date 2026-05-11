@@ -90,7 +90,9 @@ export async function GET(
               mod.lessons.map(async (lesson) => {
                 // Sign video URL if user is enrolled OR lesson is free
                 if (isEnrolled || lesson.isFree) {
-                  const signedVideoUrl = getS3KeyFromUrl(lesson.videoUrl)
+                  // Skip signing if already a signed URL
+                  const alreadySigned = lesson.videoUrl?.includes('X-Amz-Signature');
+                  const signedVideoUrl = (!alreadySigned && getS3KeyFromUrl(lesson.videoUrl))
                     ? await getSignedFileUrlFromUrl(lesson.videoUrl)
                     : lesson.videoUrl;
                   return {

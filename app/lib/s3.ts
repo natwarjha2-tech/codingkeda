@@ -33,7 +33,8 @@ export function getS3KeyFromUrl(url: string) {
     const marker = ".amazonaws.com/";
     const index = parsed.href.indexOf(marker);
     if (index === -1) return null;
-    return parsed.href.substring(index + marker.length);
+    // Use pathname only — strip query params (signed URL params)
+    return decodeURIComponent(parsed.pathname.substring(1));
   } catch {
     return null;
   }
