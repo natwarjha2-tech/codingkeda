@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
-import { Menu, X, ChevronDown, User, ShieldCheck, LogOut, Search } from "lucide-react";
+import { Menu, X, ChevronDown, User, ShieldCheck, LogOut, Search, BookOpen, Heart, Settings } from "lucide-react";
 import { getToken, logoutUser } from "@/services/auth";
 import SearchBar from "@/components/SearchBar";
 
@@ -29,8 +29,8 @@ export default function Navbar() {
     const token = getToken();
     setLoggedIn(!!token);
     if (token) {
-      const email = localStorage.getItem("userEmail") || "U";
-      setUserInitial(email.charAt(0).toUpperCase());
+      const email = localStorage.getItem("userEmail") || "";
+      setUserInitial(email ? email.charAt(0).toUpperCase() : "U");
     }
   }, []);
 
@@ -74,7 +74,7 @@ export default function Navbar() {
 
   return (
     <nav className={`fixed top-0 w-full z-50 border-b border-white/8 transition-all duration-300 ${scrolled ? "bg-[#0f0f1a]/98" : "bg-[#0f0f1a]/85"} backdrop-blur-xl ${hidden ? "-translate-y-full" : "translate-y-0"}`}>
-      <div className="max-w-7xl mx-auto px-6 flex items-center h-16 gap-4">
+      <div className="px-6 md:px-10 flex items-center h-16 gap-4 relative">
         {/* Left: Logo */}
         <Link href="/" className="flex items-center gap-2 font-extrabold text-xl text-white flex-shrink-0">
           <Image src="/logo.jpg" alt="CodingKeda" width={36} height={36} className="rounded-md object-contain" />
@@ -86,21 +86,21 @@ export default function Navbar() {
           <SearchBar placeholder="Search for courses..." className="max-w-xs w-64" />
         </div>
 
-        {/* Nav links + Login - right side */}
-        <div className="hidden md:flex items-center gap-96 ml-auto">
-          <div className="flex items-center gap-6">
-            {links.map((l) => (
-              <button key={l.label}
-                onClick={() => scrollTo(l.scrollId)}
-                className="text-slate-400 hover:text-white text-sm font-medium transition-colors cursor-pointer whitespace-nowrap"
-              >
-                {l.label}
-              </button>
-            ))}
-          </div>
-          {/* Fixed width container prevents layout shift on login/logout */}
-          <div className="w-24 flex justify-end flex-shrink-0">
-            <div className="transition-opacity duration-300">
+        {/* Nav links - centered */}
+        <div className="hidden md:flex items-center gap-6 absolute left-1/2 -translate-x-1/2">
+          {links.map((l) => (
+            <button key={l.label}
+              onClick={() => scrollTo(l.scrollId)}
+              className="text-slate-400 hover:text-white text-sm font-medium transition-colors cursor-pointer whitespace-nowrap"
+            >
+              {l.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Profile/Login - always at extreme right end */}
+        <div className="hidden md:flex ml-auto flex-shrink-0">
+          <div className="transition-opacity duration-300">
             {loggedIn === null ? (
               <div className="w-9 h-9" />
             ) : loggedIn ? (
@@ -113,10 +113,29 @@ export default function Navbar() {
                   {userInitial}
                 </button>
                 {profileDropdown && (
-                  <div className="absolute right-0 mt-2 w-48 bg-[#16213e] border border-white/10 rounded-xl shadow-xl overflow-hidden z-50">
+                  <div className="absolute right-0 mt-2 w-56 bg-[#16213e] border border-white/10 rounded-xl shadow-xl overflow-hidden z-50">
+                    {/* User Info Header */}
+                    <div className="px-4 py-3 border-b border-white/8">
+                      <p className="text-sm font-semibold text-white truncate">{userInitial === "U" ? "User" : `${userInitial}...`}</p>
+                      <p className="text-xs text-slate-400 truncate">{localStorage.getItem("userEmail") || ""}</p>
+                    </div>
+                    {/* Navigation Items */}
+                    <Link href="/my-courses" onClick={() => setProfileDropdown(false)}
+                      className="flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors">
+                      <BookOpen size={15} className="text-purple-400" /> My Courses
+                    </Link>
                     <Link href="/dashboard" onClick={() => setProfileDropdown(false)}
                       className="flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors">
                       <User size={15} className="text-purple-400" /> Dashboard
+                    </Link>
+                    <Link href="/wishlist" onClick={() => setProfileDropdown(false)}
+                      className="flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors">
+                      <Heart size={15} className="text-pink-400" /> Wishlist
+                    </Link>
+                    <div className="h-px bg-white/8" />
+                    <Link href="/profile" onClick={() => setProfileDropdown(false)}
+                      className="flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors">
+                      <Settings size={15} className="text-slate-400" /> Edit Profile
                     </Link>
                     <div className="h-px bg-white/8" />
                     <button
@@ -153,7 +172,6 @@ export default function Navbar() {
             )}
             </div>
           </div>
-        </div>
         <div className="md:hidden ml-auto flex items-center gap-3">
           <button onClick={() => setSearchOpen(!searchOpen)} className="text-slate-400 hover:text-white transition-colors">
             <Search size={20} />
@@ -180,6 +198,22 @@ export default function Navbar() {
               {l.label}
             </button>
           ))}
+          {loggedIn && (
+            <>
+              <Link href="/my-courses" onClick={() => setOpen(false)}
+                className="text-slate-300 text-sm font-medium text-left cursor-pointer flex items-center gap-2">
+                <BookOpen size={14} className="text-purple-400" /> My Courses
+              </Link>
+              <Link href="/wishlist" onClick={() => setOpen(false)}
+                className="text-slate-300 text-sm font-medium text-left cursor-pointer flex items-center gap-2">
+                <Heart size={14} className="text-pink-400" /> Wishlist
+              </Link>
+              <Link href="/profile" onClick={() => setOpen(false)}
+                className="text-slate-300 text-sm font-medium text-left cursor-pointer flex items-center gap-2">
+                <Settings size={14} className="text-slate-400" /> Edit Profile
+              </Link>
+            </>
+          )}
           <div className="flex flex-col gap-2 pt-2">
             {loggedIn ? (
               <button
