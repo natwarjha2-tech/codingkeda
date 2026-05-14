@@ -29,9 +29,17 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // Also fetch student record if exists
+    const student = await prisma.student.findUnique({
+      where: { userId: payload.userId },
+      select: { id: true, enrolledCourses: true, createdAt: true },
+    });
+
     return NextResponse.json({
       success: true,
-      student: user,
+      student: student
+        ? { ...user, studentId: student.id, enrolledCourses: student.enrolledCourses, enrolledSince: student.createdAt }
+        : user,
       user,
     });
   } catch {
@@ -42,11 +50,14 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// ── POST /api/student — create student record ─────────────────────────────────
+// ── POST /api/student — create student record (manual registration) ───────────
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function POST(req: NextRequest) {
   try {
+    const authHeader = req.headers.get("authorization");
+    const token = authHeader?.replace("Bearer ", "");
+
     const { name, email, phone } = await req.json();
 
     if (!name?.trim() || !email?.trim()) {
@@ -63,11 +74,64 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const student = await prisma.student.create({
-      data: {
+    // If authenticated, link to user
+    let userId: string | undefined;
+    if (token) {
+      try {
+        const payload = verifyToken(token);
+        userId = payload.userId;
+      } catch {
+        // Invalid token — continue without linking
+      }
+    }
+
+    // If userId available, use upsert to avoid duplicates
+    if (userId) {
+      const student = await prisma.student.upsert({
+        where: { userId },
+        update: {
+          name: name.trim(),
+          phone: phone?.trim() ?? null,
+        },
+        create: {
+          userId,
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          phone: phone?.trim() ?? null,
+          enrolledCourses: 0,
+        },
+      });
+
+      return NextResponse.json(
+        { success: true, message: "Student created.", student },
+        { status: 201 }
+      );
+    }
+
+    // Fallback: find user by email and link
+    const user = await prisma.user.findUnique({
+      where: { email: email.trim().toLowerCase() },
+    });
+
+    if (!user) {
+      return NextResponse.json(
+        { success: false, message: "No registered user found with this email. Please sign up first." },
+        { status: 400 }
+      );
+    }
+
+    const student = await prisma.student.upsert({
+      where: { userId: user.id },
+      update: {
         name: name.trim(),
-        email: email.trim().toLowerCase(),
         phone: phone?.trim() ?? null,
+      },
+      create: {
+        userId: user.id,
+        name: name.trim(),
+        email: user.email,
+        phone: phone?.trim() ?? null,
+        enrolledCourses: 0,
       },
     });
 
@@ -83,7 +147,7 @@ export async function POST(req: NextRequest) {
       (err as { code: string }).code === "P2002"
     ) {
       return NextResponse.json(
-        { success: false, message: "Email already registered." },
+        { success: false, message: "Student record already exists." },
         { status: 409 }
       );
     }

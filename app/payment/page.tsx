@@ -2,8 +2,14 @@
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Check, Shield, Loader2, CheckCircle, ArrowRight } from "lucide-react";
+import { Check, Shield, Loader2, CheckCircle, ArrowRight, AlertCircle } from "lucide-react";
 import Navbar from "@/components/Navbar";
+
+declare global {
+  interface Window {
+    Razorpay: any;
+  }
+}
 
 const PACKAGES: Record<string, {
   name: string; tag: string; emoji: string; price: string; original: string;
@@ -41,17 +47,38 @@ function PaymentContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const pkgName = searchParams.get("package") || DEFAULT_PKG;
-  const courseId = searchParams.get("courseId") || null;
+  const courseIdParam = searchParams.get("courseId") || null;
   const pkg = PACKAGES[pkgName] ?? PACKAGES[DEFAULT_PKG];
 
   const [paying, setPaying] = useState(false);
   const [success, setSuccess] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const [enrollError, setEnrollError] = useState("");
+  const [resolvedCourseId, setResolvedCourseId] = useState<string | null>(courseIdParam);
+  const [resolving, setResolving] = useState(!courseIdParam);
 
   useEffect(() => {
     setToken(getToken());
-  }, []);
+
+    // If courseId not in URL, resolve it from package name via API
+    if (!courseIdParam && pkgName) {
+      setResolving(true);
+      fetch(`/api/courses/resolve?package=${encodeURIComponent(pkgName)}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.courseId) {
+            setResolvedCourseId(data.courseId);
+          }
+        })
+        .catch(() => {})
+        .finally(() => setResolving(false));
+    } else if (courseIdParam) {
+      setResolvedCourseId(courseIdParam);
+      setResolving(false);
+    } else {
+      setResolving(false);
+    }
+  }, [courseIdParam, pkgName]);
 
   const handlePayment = async () => {
     setEnrollError("");
@@ -63,46 +90,76 @@ function PaymentContent() {
       return;
     }
 
-    setPaying(true);
-    // Mock payment — replace with Razorpay/Stripe integration
-    await new Promise(r => setTimeout(r, 2000));
-
-    // Enroll user directly + trigger deep link for desktop notification
-    if (courseId) {
-      try {
-        // Step 1: Direct enrollment
-        await fetch(`/api/courses/${courseId}/enroll`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${currentToken}`,
-          },
-          body: JSON.stringify({}),
-        });
-
-        // Step 2: Generate deep link token for desktop notification
-        const tokenRes = await fetch("/api/enroll-token", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${currentToken}`,
-          },
-          body: JSON.stringify({ courseId }),
-        });
-        const tokenData = await tokenRes.json();
-        if (tokenData.success && tokenData.enrollToken) {
-          window.location.href = `codingkida://enroll?token=${tokenData.enrollToken}`;
-          // Wait briefly for deep link then redirect
-          await new Promise(r => setTimeout(r, 800));
-        }
-      } catch {
-        // Enrollment failed silently — don't block success screen
-      }
+    if (!resolvedCourseId) {
+      setEnrollError("Course not found. Please go back and try again.");
+      return;
     }
 
-    setPaying(false);
-    setSuccess(true);
-    setTimeout(() => router.replace("/dashboard"), 2500);
+    setPaying(true);
+
+    try {
+      // Step 1: Create Razorpay order via backend
+      const orderRes = await fetch("/api/payment/create-order", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${currentToken}`,
+        },
+        body: JSON.stringify({ courseId: resolvedCourseId, amount: parseInt(pkg.price.replace("₹", "")) }),
+      });
+
+      if (!orderRes.ok) {
+        const errorData = await orderRes.json().catch(() => null);
+        throw new Error(errorData?.message || "Failed to create payment order");
+      }
+
+      const orderData = await orderRes.json();
+      if (!orderData.success) {
+        throw new Error(orderData.message || "Order creation failed");
+      }
+
+      // Step 2: Open Razorpay Checkout Modal
+      if (!window.Razorpay) {
+        throw new Error("Razorpay script not loaded");
+      }
+
+      const razorpayOptions = {
+        key: orderData.keyId,
+        amount: orderData.amount * 100, // Convert to paisa
+        currency: orderData.currency,
+        name: "CodingKeda",
+        description: `Payment for ${pkg.name}`,
+        order_id: orderData.orderId,
+        handler: async (response: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) => {
+          // Payment successful - webhook will handle enrollment
+          setPaying(false);
+          setSuccess(true);
+          setTimeout(() => router.replace("/dashboard"), 2500);
+        },
+        prefill: {
+          name: orderData.userName,
+          email: orderData.userEmail,
+        },
+        theme: {
+          color: "#7c3aed",
+        },
+        modal: {
+          ondismiss: () => {
+            setPaying(false);
+            setEnrollError("Payment cancelled. Please try again.");
+          },
+        },
+      };
+
+      const razorpay = new window.Razorpay(razorpayOptions);
+      razorpay.open();
+    } catch (error) {
+      setPaying(false);
+      setEnrollError(
+        error instanceof Error ? error.message : "Payment failed. Please try again."
+      );
+      console.error("Payment error:", error);
+    }
   };
 
   return (
@@ -213,7 +270,14 @@ function PaymentContent() {
               </ul>
 
               {enrollError && (
-                <p className="text-red-400 text-xs text-center mb-3">⚠️ {enrollError}</p>
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex items-center gap-2 bg-red-500/10 border border-red-500/30 text-red-400 text-xs px-3 py-2 rounded-lg mb-4"
+                >
+                  <AlertCircle size={14} />
+                  {enrollError}
+                </motion.div>
               )}
 
               {!token && (
@@ -226,10 +290,10 @@ function PaymentContent() {
               <motion.button
                 initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.5 }}
-                whileHover={!paying ? { scale: 1.03, boxShadow: "0 12px 36px rgba(124,58,237,0.5)" } : {}}
-                whileTap={!paying ? { scale: 0.97 } : {}}
+                whileHover={!paying && !resolving ? { scale: 1.03, boxShadow: "0 12px 36px rgba(124,58,237,0.5)" } : {}}
+                whileTap={!paying && !resolving ? { scale: 0.97 } : {}}
                 onClick={handlePayment}
-                disabled={paying}
+                disabled={paying || resolving}
                 className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl font-bold text-white text-sm transition-all duration-200 disabled:opacity-70"
                 style={{ background: "linear-gradient(135deg,#7c3aed,#ec4899)", boxShadow: "0 6px 24px rgba(124,58,237,0.35)" }}
               >
@@ -237,6 +301,8 @@ function PaymentContent() {
                   <><motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}>
                     <Loader2 size={16} />
                   </motion.div> Processing...</>
+                ) : resolving ? (
+                  <><Loader2 size={16} className="animate-spin" /> Loading...</>
                 ) : token ? (
                   <>Proceed to Payment {pkg.price} <ArrowRight size={15} /></>
                 ) : (

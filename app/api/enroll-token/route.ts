@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { verifyToken } from "@/app/lib/auth";
+import { syncStudentOnEnroll } from "@/app/lib/sync-student";
 import { randomBytes } from "crypto";
 
 /**
@@ -111,6 +112,9 @@ export async function GET(req: NextRequest) {
       update: {},
       create: { userId: record.userId, courseId: record.courseId },
     });
+
+    // Sync Student record
+    await syncStudentOnEnroll(record.userId);
 
     return NextResponse.json({
       success: true,

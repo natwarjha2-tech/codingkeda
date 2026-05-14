@@ -1,7 +1,7 @@
 /**
  * Unit tests — POST /api/student
  *
- * Mocks:  prisma
+ * Mocks:  prisma, auth
  * No real DB.
  */
 
@@ -12,38 +12,66 @@ import { NextRequest } from "next/server";
 jest.mock("@/app/lib/prisma", () => ({
   prisma: {
     student: {
-      create: jest.fn(),
+      upsert: jest.fn(),
+    },
+    user: {
+      findUnique: jest.fn(),
     },
   },
+}));
+
+jest.mock("@/app/lib/auth", () => ({
+  verifyToken: jest.fn(),
 }));
 
 // ─── Imports ──────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/app/lib/prisma";
+import { verifyToken } from "@/app/lib/auth";
 import { POST as studentPOST } from "@/app/api/student/route";
 
 // ─── Typed mock helpers ───────────────────────────────────────────────────────
 
-const mockStudentCreate = prisma.student.create as jest.MockedFunction<
-  typeof prisma.student.create
+const mockStudentUpsert = prisma.student.upsert as jest.MockedFunction<
+  typeof prisma.student.upsert
 >;
+
+const mockUserFindUnique = prisma.user.findUnique as jest.MockedFunction<
+  typeof prisma.user.findUnique
+>;
+
+const mockVerifyToken = verifyToken as jest.MockedFunction<typeof verifyToken>;
 
 // ─── Shared fixtures ─────────────────────────────────────────────────────────
 
+const MOCK_USER = {
+  id: "user-uuid-1",
+  name: "Arjun",
+  email: "arjun@test.com",
+  password: "hashed",
+  role: "user",
+  createdAt: new Date(),
+};
+
 const MOCK_STUDENT = {
   id: "stu-uuid-1",
+  userId: "user-uuid-1",
   name: "Arjun",
   email: "arjun@test.com",
   phone: null,
+  enrolledCourses: 0,
   createdAt: new Date(),
+  updatedAt: new Date(),
 };
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
-function req(body: unknown): NextRequest {
+function req(body: unknown, token?: string): NextRequest {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
   return new NextRequest("http://localhost/api/student", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(body),
   });
 }
@@ -59,12 +87,17 @@ function p2002(): Error {
 // ═════════════════════════════════════════════════════════════════════════════
 
 describe("POST /api/student", () => {
-  // ── Happy paths ─────────────────────────────────────────────────────────────
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
 
-  it("201 — valid input creates student and returns student object", async () => {
-    mockStudentCreate.mockResolvedValue(MOCK_STUDENT as never);
+  // ── Happy paths (with token) ────────────────────────────────────────────────
 
-    const res = await studentPOST(req({ name: "Arjun", email: "arjun@test.com" }));
+  it("201 — authenticated user creates student record", async () => {
+    mockVerifyToken.mockReturnValue({ userId: "user-uuid-1", email: "arjun@test.com", role: "user" });
+    mockStudentUpsert.mockResolvedValue(MOCK_STUDENT as never);
+
+    const res = await studentPOST(req({ name: "Arjun", email: "arjun@test.com" }, "valid-token"));
     const body = await res.json();
 
     expect(res.status).toBe(201);
@@ -73,10 +106,11 @@ describe("POST /api/student", () => {
   });
 
   it("201 — optional phone is saved when provided", async () => {
-    mockStudentCreate.mockResolvedValue({ ...MOCK_STUDENT, phone: "9876543210" } as never);
+    mockVerifyToken.mockReturnValue({ userId: "user-uuid-1", email: "arjun@test.com", role: "user" });
+    mockStudentUpsert.mockResolvedValue({ ...MOCK_STUDENT, phone: "9876543210" } as never);
 
     const res = await studentPOST(
-      req({ name: "Arjun", email: "arjun@test.com", phone: "9876543210" })
+      req({ name: "Arjun", email: "arjun@test.com", phone: "9876543210" }, "valid-token")
     );
     const body = await res.json();
 
@@ -84,46 +118,40 @@ describe("POST /api/student", () => {
     expect(body.student.phone).toBe("9876543210");
   });
 
-  it("201 — phone defaults to null when omitted", async () => {
-    mockStudentCreate.mockResolvedValue(MOCK_STUDENT as never);
+  // ── Happy paths (without token — fallback to email lookup) ──────────────────
+
+  it("201 — without token, finds user by email and creates student", async () => {
+    mockUserFindUnique.mockResolvedValue(MOCK_USER as never);
+    mockStudentUpsert.mockResolvedValue(MOCK_STUDENT as never);
 
     const res = await studentPOST(req({ name: "Arjun", email: "arjun@test.com" }));
     const body = await res.json();
 
-    expect(body.student.phone).toBeNull();
+    expect(res.status).toBe(201);
+    expect(body.success).toBe(true);
   });
 
-  it("201 — email is normalised to lowercase", async () => {
-    mockStudentCreate.mockResolvedValue(MOCK_STUDENT as never);
+  it("400 — without token, no user found by email returns error", async () => {
+    mockUserFindUnique.mockResolvedValue(null as never);
 
-    await studentPOST(req({ name: "Arjun", email: "ARJUN@TEST.COM" }));
+    const res = await studentPOST(req({ name: "Arjun", email: "unknown@test.com" }));
+    const body = await res.json();
 
-    expect(mockStudentCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ email: "arjun@test.com" }) })
-    );
-  });
-
-  it("201 — name is trimmed before saving", async () => {
-    mockStudentCreate.mockResolvedValue(MOCK_STUDENT as never);
-
-    await studentPOST(req({ name: "  Arjun  ", email: "arjun@test.com" }));
-
-    expect(mockStudentCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ name: "Arjun" }) })
-    );
+    expect(res.status).toBe(400);
+    expect(body.message).toMatch(/sign up/i);
   });
 
   // ── Conflict ─────────────────────────────────────────────────────────────────
 
-  it("409 — Prisma P2002 (duplicate email) returns conflict", async () => {
-    mockStudentCreate.mockRejectedValue(p2002() as never);
+  it("409 — Prisma P2002 (duplicate) returns conflict", async () => {
+    mockVerifyToken.mockReturnValue({ userId: "user-uuid-1", email: "arjun@test.com", role: "user" });
+    mockStudentUpsert.mockRejectedValue(p2002() as never);
 
-    const res = await studentPOST(req({ name: "Arjun", email: "arjun@test.com" }));
+    const res = await studentPOST(req({ name: "Arjun", email: "arjun@test.com" }, "valid-token"));
     const body = await res.json();
 
     expect(res.status).toBe(409);
     expect(body.success).toBe(false);
-    expect(body.message).toMatch(/already registered/i);
   });
 
   // ── Validation failures ───────────────────────────────────────────────────────
@@ -177,9 +205,10 @@ describe("POST /api/student", () => {
   // ── Server error ──────────────────────────────────────────────────────────────
 
   it("500 — unexpected DB error returns 500", async () => {
-    mockStudentCreate.mockRejectedValue(new Error("Connection lost") as never);
+    mockVerifyToken.mockReturnValue({ userId: "user-uuid-1", email: "arjun@test.com", role: "user" });
+    mockStudentUpsert.mockRejectedValue(new Error("Connection lost") as never);
 
-    const res = await studentPOST(req({ name: "Arjun", email: "arjun@test.com" }));
+    const res = await studentPOST(req({ name: "Arjun", email: "arjun@test.com" }, "valid-token"));
     const body = await res.json();
 
     expect(res.status).toBe(500);

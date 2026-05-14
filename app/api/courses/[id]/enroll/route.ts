@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { verifyToken } from "@/app/lib/auth";
+import { syncStudentOnEnroll } from "@/app/lib/sync-student";
 
 export async function POST(
   req: NextRequest,
@@ -35,6 +36,9 @@ export async function POST(
       update: {},
       create: { userId: payload.userId, courseId },
     });
+
+    // Sync Student record
+    await syncStudentOnEnroll(payload.userId);
 
     return NextResponse.json({
       success: true,
