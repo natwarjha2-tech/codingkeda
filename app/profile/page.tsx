@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { User, Mail, Calendar, BookOpen, Save, Loader2, CheckCircle } from "lucide-react";
+import { User, Mail, Calendar, BookOpen, Save, Loader2, CheckCircle, Camera } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import { getToken } from "@/services/auth";
 
@@ -23,6 +23,7 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   useEffect(() => {
     const token = getToken();
@@ -37,14 +38,35 @@ export default function ProfilePage() {
       .then((res) => res.json())
       .then((data) => {
         if (data.success) {
-          const user = data.user || data.student;
+          const user = data.student || data.user;
           setProfile(user);
           setName(user.name || "");
         }
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+
+    // Restore saved avatar from localStorage
+    const savedAvatar = localStorage.getItem("ck_avatar");
+    if (savedAvatar) setAvatarUrl(savedAvatar);
   }, [router]);
+
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return;
+    if (file.size > 2 * 1024 * 1024) {
+      setError("Image must be less than 2MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const result = ev.target?.result as string;
+      setAvatarUrl(result);
+      localStorage.setItem("ck_avatar", result);
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -114,15 +136,42 @@ export default function ProfilePage() {
             transition={{ delay: 0.1 }}
             className="flex items-center gap-4 mb-8"
           >
-            <div
-              className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold text-white"
-              style={{ background: "linear-gradient(135deg,#7c3aed,#ec4899)" }}
-            >
-              {(profile?.name || "U").charAt(0).toUpperCase()}
+            <div className="relative group">
+              <div
+                className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold text-white overflow-hidden"
+                style={{ background: "linear-gradient(135deg,#7c3aed,#ec4899)" }}
+              >
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                ) : (
+                  (profile?.name || "U").charAt(0).toUpperCase()
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => document.getElementById("avatar-upload")?.click()}
+                className="absolute inset-0 rounded-full bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity cursor-pointer"
+              >
+                <Camera size={18} className="text-white" />
+              </button>
+              <input
+                id="avatar-upload"
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleAvatarChange}
+              />
             </div>
             <div>
               <p className="text-white font-semibold">{profile?.name || "User"}</p>
               <p className="text-slate-400 text-sm">{profile?.email}</p>
+              <button
+                type="button"
+                onClick={() => document.getElementById("avatar-upload")?.click()}
+                className="text-purple-400 text-xs mt-1 hover:underline cursor-pointer"
+              >
+                Change photo
+              </button>
             </div>
           </motion.div>
 

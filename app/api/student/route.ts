@@ -35,11 +35,16 @@ export async function GET(req: NextRequest) {
       select: { id: true, enrolledCourses: true, createdAt: true },
     });
 
+    // Get actual enrollment count (always accurate)
+    const enrollmentCount = await prisma.enrollment.count({
+      where: { userId: payload.userId },
+    });
+
     return NextResponse.json({
       success: true,
       student: student
-        ? { ...user, studentId: student.id, enrolledCourses: student.enrolledCourses, enrolledSince: student.createdAt }
-        : user,
+        ? { ...user, studentId: student.id, enrolledCourses: enrollmentCount, enrolledSince: student.createdAt }
+        : { ...user, enrolledCourses: enrollmentCount },
       user,
     });
   } catch {
