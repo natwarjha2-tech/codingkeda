@@ -18,7 +18,6 @@ model User {
   progress    Progress[]
   payments    Payment[]
   student     Student?
-  wishlist    Wishlist[]
 }
 
 model Course {
@@ -40,7 +39,6 @@ model Course {
   enrollments Enrollment[]
   modules     Module[]
   payments    Payment[]
-  wishlist    Wishlist[]
 }
 
 model Module {
@@ -107,18 +105,6 @@ model SurveyResponse {
   answers   Json
   result    String
   createdAt DateTime @default(now())
-}
-
-model Wishlist {
-  id        String   @id @default(uuid())
-  userId    String
-  courseId   String
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, courseId])
-  @@index([userId])
 }
 
 model Student {

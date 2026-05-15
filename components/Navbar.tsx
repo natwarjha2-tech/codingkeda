@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
-import { Menu, X, ChevronDown, User, ShieldCheck, LogOut, Search, BookOpen, Heart, Settings } from "lucide-react";
+import { Menu, X, ChevronDown, User, ShieldCheck, LogOut, Search, BookOpen, Settings } from "lucide-react";
 import { getToken, logoutUser } from "@/services/auth";
 import SearchBar from "@/components/SearchBar";
 
@@ -128,10 +128,6 @@ export default function Navbar() {
                       className="flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors">
                       <User size={15} className="text-purple-400" /> Dashboard
                     </Link>
-                    <Link href="/wishlist" onClick={() => setProfileDropdown(false)}
-                      className="flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors">
-                      <Heart size={15} className="text-pink-400" /> Wishlist
-                    </Link>
                     <div className="h-px bg-white/8" />
                     <Link href="/profile" onClick={() => setProfileDropdown(false)}
                       className="flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors">
@@ -203,10 +199,6 @@ export default function Navbar() {
               <Link href="/my-courses" onClick={() => setOpen(false)}
                 className="text-slate-300 text-sm font-medium text-left cursor-pointer flex items-center gap-2">
                 <BookOpen size={14} className="text-purple-400" /> My Courses
-              </Link>
-              <Link href="/wishlist" onClick={() => setOpen(false)}
-                className="text-slate-300 text-sm font-medium text-left cursor-pointer flex items-center gap-2">
-                <Heart size={14} className="text-pink-400" /> Wishlist
               </Link>
               <Link href="/profile" onClick={() => setOpen(false)}
                 className="text-slate-300 text-sm font-medium text-left cursor-pointer flex items-center gap-2">
