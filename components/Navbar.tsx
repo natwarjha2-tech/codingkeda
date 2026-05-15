@@ -24,6 +24,7 @@ export default function Navbar() {
   const [hidden, setHidden] = useState(false);
   const lastScrollY = useRef(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   useEffect(() => {
     const token = getToken();
@@ -31,7 +32,21 @@ export default function Navbar() {
     if (token) {
       const email = localStorage.getItem("userEmail") || "";
       setUserInitial(email ? email.charAt(0).toUpperCase() : "U");
+      // Load user-specific avatar
+      const saved = localStorage.getItem("ck_avatar_" + email);
+      if (saved) setAvatarUrl(saved);
     }
+  }, []);
+
+  // Listen for avatar updates from profile page
+  useEffect(() => {
+    const handleAvatarUpdate = () => {
+      const email = localStorage.getItem("userEmail") || "";
+      const saved = localStorage.getItem("ck_avatar_" + email);
+      setAvatarUrl(saved);
+    };
+    window.addEventListener("avatar-updated", handleAvatarUpdate);
+    return () => window.removeEventListener("avatar-updated", handleAvatarUpdate);
   }, []);
 
   useEffect(() => {
@@ -107,10 +122,14 @@ export default function Navbar() {
               <div className="relative" ref={profileRef}>
                 <button
                   onClick={() => setProfileDropdown(!profileDropdown)}
-                  className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white hover:scale-105 transition-all"
-                  style={{ background: "linear-gradient(135deg,#7c3aed,#ec4899)" }}
+                  className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white hover:scale-105 transition-all overflow-hidden"
+                  style={{ background: avatarUrl ? "none" : "linear-gradient(135deg,#7c3aed,#ec4899)" }}
                 >
-                  {userInitial}
+                  {avatarUrl ? (
+                    <img src={avatarUrl} alt="" className="w-full h-full object-cover rounded-full" />
+                  ) : (
+                    userInitial
+                  )}
                 </button>
                 {profileDropdown && (
                   <div className="absolute right-0 mt-2 w-56 bg-[#16213e] border border-white/10 rounded-xl shadow-xl overflow-hidden z-50">

@@ -46,8 +46,9 @@ export default function ProfilePage() {
       .catch(() => {})
       .finally(() => setLoading(false));
 
-    // Restore saved avatar from localStorage
-    const savedAvatar = localStorage.getItem("ck_avatar");
+    // Restore saved avatar from localStorage (user-specific)
+    const email = localStorage.getItem("userEmail") || "";
+    const savedAvatar = localStorage.getItem("ck_avatar_" + email);
     if (savedAvatar) setAvatarUrl(savedAvatar);
   }, [router]);
 
@@ -63,7 +64,10 @@ export default function ProfilePage() {
     reader.onload = (ev) => {
       const result = ev.target?.result as string;
       setAvatarUrl(result);
-      localStorage.setItem("ck_avatar", result);
+      const email = localStorage.getItem("userEmail") || "";
+      localStorage.setItem("ck_avatar_" + email, result);
+      // Dispatch event so Navbar can update avatar
+      window.dispatchEvent(new Event("avatar-updated"));
     };
     reader.readAsDataURL(file);
   };
