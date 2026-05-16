@@ -103,11 +103,8 @@ function LoginForm() {
       const data = await loginUser({ email, password });
       saveToken(data.token);
       localStorage.setItem("userEmail", email);
-<<<<<<< HEAD
       localStorage.setItem("user", JSON.stringify({ email, role: "user" }));
 
-=======
->>>>>>> 7204422 (implemented survey modal and hero updates)
       const isNewUser = localStorage.getItem("isNewUser");
       const surveyDone = localStorage.getItem("surveyCompleted");
       const flow = searchParams.get("flow");
