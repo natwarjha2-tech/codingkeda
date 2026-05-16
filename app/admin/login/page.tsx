@@ -47,6 +47,7 @@ export default function AdminLogin() {
       if (data.token) {
         localStorage.setItem("token", data.token);
         localStorage.setItem("user", JSON.stringify(data.user));
+        localStorage.setItem("userEmail", data.user?.email || email);
       }
 
       // Redirect to admin dashboard

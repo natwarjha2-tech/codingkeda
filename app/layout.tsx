@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
+import SessionGuard from "@/components/SessionGuard";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -16,7 +17,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <script src="https://checkout.razorpay.com/v1/checkout.js" async></script>
       </head>
-      <body className={inter.className}>{children}</body>
+      <body className={inter.className}>
+        <SessionGuard />
+        {children}
+      </body>
     </html>
   );
 }

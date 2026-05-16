@@ -25,6 +25,7 @@ export default function Navbar() {
   const lastScrollY = useRef(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string>("user");
 
   useEffect(() => {
     const token = getToken();
@@ -32,18 +33,29 @@ export default function Navbar() {
     if (token) {
       const email = localStorage.getItem("userEmail") || "";
       setUserInitial(email ? email.charAt(0).toUpperCase() : "U");
-      // Load user-specific avatar
-      const saved = localStorage.getItem("ck_avatar_" + email);
-      if (saved) setAvatarUrl(saved);
+      // Get role from stored user data
+      try {
+        const userData = JSON.parse(localStorage.getItem("user") || "{}");
+        if (userData.role) setUserRole(userData.role);
+      } catch {}
+      // Fetch avatar from server
+      fetch("/api/student/avatar", { headers: { Authorization: `Bearer ${token}` } })
+        .then(res => res.json())
+        .then(data => { if (data.success && data.avatarUrl) setAvatarUrl(data.avatarUrl); })
+        .catch(() => {});
     }
   }, []);
 
   // Listen for avatar updates from profile page
   useEffect(() => {
     const handleAvatarUpdate = () => {
-      const email = localStorage.getItem("userEmail") || "";
-      const saved = localStorage.getItem("ck_avatar_" + email);
-      setAvatarUrl(saved);
+      const token = getToken();
+      if (token) {
+        fetch("/api/student/avatar", { headers: { Authorization: `Bearer ${token}` } })
+          .then(res => res.json())
+          .then(data => { if (data.success && data.avatarUrl) setAvatarUrl(data.avatarUrl); })
+          .catch(() => {});
+      }
     };
     window.addEventListener("avatar-updated", handleAvatarUpdate);
     return () => window.removeEventListener("avatar-updated", handleAvatarUpdate);
@@ -137,24 +149,43 @@ export default function Navbar() {
                     <div className="px-4 py-3 border-b border-white/8">
                       <p className="text-sm font-semibold text-white truncate">{userInitial === "U" ? "User" : `${userInitial}...`}</p>
                       <p className="text-xs text-slate-400 truncate">{localStorage.getItem("userEmail") || ""}</p>
+                      {userRole === "admin" && (
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full mt-1 inline-block">Admin</span>
+                      )}
                     </div>
-                    {/* Navigation Items */}
-                    <Link href="/my-courses" onClick={() => setProfileDropdown(false)}
-                      className="flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors">
-                      <BookOpen size={15} className="text-purple-400" /> My Courses
-                    </Link>
-                    <Link href="/dashboard" onClick={() => setProfileDropdown(false)}
-                      className="flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors">
-                      <User size={15} className="text-purple-400" /> Dashboard
-                    </Link>
-                    <div className="h-px bg-white/8" />
-                    <Link href="/profile" onClick={() => setProfileDropdown(false)}
-                      className="flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors">
-                      <Settings size={15} className="text-slate-400" /> Edit Profile
-                    </Link>
+                    {/* Navigation Items — Role-based */}
+                    {userRole === "admin" ? (
+                      <>
+                        <Link href="/admin/dashboard" onClick={() => setProfileDropdown(false)}
+                          className="flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors">
+                          <ShieldCheck size={15} className="text-red-400" /> Admin Panel
+                        </Link>
+                        <div className="h-px bg-white/8" />
+                        <Link href="/profile" onClick={() => setProfileDropdown(false)}
+                          className="flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors">
+                          <Settings size={15} className="text-slate-400" /> Edit Profile
+                        </Link>
+                      </>
+                    ) : (
+                      <>
+                        <Link href="/my-courses" onClick={() => setProfileDropdown(false)}
+                          className="flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors">
+                          <BookOpen size={15} className="text-purple-400" /> My Courses
+                        </Link>
+                        <Link href="/dashboard" onClick={() => setProfileDropdown(false)}
+                          className="flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors">
+                          <User size={15} className="text-purple-400" /> Dashboard
+                        </Link>
+                        <div className="h-px bg-white/8" />
+                        <Link href="/profile" onClick={() => setProfileDropdown(false)}
+                          className="flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors">
+                          <Settings size={15} className="text-slate-400" /> Edit Profile
+                        </Link>
+                      </>
+                    )}
                     <div className="h-px bg-white/8" />
                     <button
-                      onClick={() => { logoutUser(); setLoggedIn(false); setProfileDropdown(false); router.push("/"); }}
+                      onClick={() => { logoutUser(); setLoggedIn(false); setProfileDropdown(false); localStorage.removeItem("user"); localStorage.removeItem("userEmail"); router.push("/"); }}
                       className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-red-500/10 hover:text-red-400 transition-colors"
                     >
                       <LogOut size={15} className="text-red-400" /> Logout

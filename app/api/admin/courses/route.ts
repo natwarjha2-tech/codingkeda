@@ -9,10 +9,12 @@ import { requireAdmin } from "@/app/lib/middleware";
  */
 export async function GET(req: NextRequest) {
   try {
-    const { error } = requireAdmin(req);
+    const { error, user } = requireAdmin(req);
     if (error) return error;
 
+    // Admin sees only their own courses
     const courses = await prisma.course.findMany({
+      where: { createdBy: user!.userId },
       orderBy: { createdAt: "desc" },
       include: {
         _count: { select: { modules: true, enrollments: true } },
@@ -36,7 +38,7 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
-    const { error } = requireAdmin(req);
+    const { error, user } = requireAdmin(req);
     if (error) return error;
 
     const body = await req.json();
@@ -84,6 +86,7 @@ export async function POST(req: NextRequest) {
         color: color?.trim() || "from-purple-500 to-pink-500",
         icon: icon?.trim() || "fa-book",
         isActive: true,
+        createdBy: user!.userId,
       },
     });
 

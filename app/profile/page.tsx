@@ -46,13 +46,18 @@ export default function ProfilePage() {
       .catch(() => {})
       .finally(() => setLoading(false));
 
-    // Restore saved avatar from localStorage (user-specific)
-    const email = localStorage.getItem("userEmail") || "";
-    const savedAvatar = localStorage.getItem("ck_avatar_" + email);
-    if (savedAvatar) setAvatarUrl(savedAvatar);
+    // Restore avatar from server
+    fetch("/api/student/avatar", {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.avatarUrl) setAvatarUrl(data.avatarUrl);
+      })
+      .catch(() => {});
   }, [router]);
 
-  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) return;
@@ -60,16 +65,33 @@ export default function ProfilePage() {
       setError("Image must be less than 2MB.");
       return;
     }
+
+    // Show preview immediately
     const reader = new FileReader();
-    reader.onload = (ev) => {
-      const result = ev.target?.result as string;
-      setAvatarUrl(result);
-      const email = localStorage.getItem("userEmail") || "";
-      localStorage.setItem("ck_avatar_" + email, result);
-      // Dispatch event so Navbar can update avatar
-      window.dispatchEvent(new Event("avatar-updated"));
-    };
+    reader.onload = (ev) => setAvatarUrl(ev.target?.result as string);
     reader.readAsDataURL(file);
+
+    // Upload to server
+    const token = getToken();
+    const formData = new FormData();
+    formData.append("avatar", file);
+
+    try {
+      const res = await fetch("/api/student/avatar", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.success && data.avatarUrl) {
+        setAvatarUrl(data.avatarUrl);
+        window.dispatchEvent(new Event("avatar-updated"));
+      } else {
+        setError(data.message || "Failed to upload photo.");
+      }
+    } catch {
+      setError("Failed to upload photo. Please try again.");
+    }
   };
 
   const handleSave = async () => {
