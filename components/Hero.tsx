@@ -2,6 +2,8 @@
 import Link from "next/link";
 import { useState, useEffect } from "react";
 import { Zap, CheckCircle, Users, Star, BookOpen, PlayCircle } from "lucide-react";
+import { AnimatePresence } from "framer-motion";
+import SurveyModal from "./SurveyModal";
 
 const COMPANIES = ["TCS", "Google", "Amazon", "Infosys", "Wipro", "Microsoft", "Flipkart", "Volvo"];
 
@@ -39,6 +41,8 @@ function TypewriterText() {
 }
 
 export default function Hero() {
+  const [surveyOpen, setSurveyOpen] = useState(false);
+
   return (
     <section id="hero" className="min-h-screen flex items-center pt-16 pb-12 px-6">
       <div className="max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
@@ -65,13 +69,12 @@ export default function Hero() {
 
           {/* CTA Buttons */}
           <div className="flex flex-wrap gap-4 mb-6">
-            <Link
-              href="#survey"
-              onClick={(e) => { e.preventDefault(); document.getElementById("survey")?.scrollIntoView({ behavior: "smooth" }); }}
+            <button
+              onClick={() => setSurveyOpen(true)}
               className="inline-flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white font-bold px-8 py-4 rounded-xl transition-all hover:-translate-y-0.5 text-base shadow-lg shadow-purple-500/25"
             >
               <Zap size={18} /> Find My Course ⚡
-            </Link>
+            </button>
             <Link
               href="#free-video"
               onClick={(e) => { e.preventDefault(); document.getElementById("free-video")?.scrollIntoView({ behavior: "smooth" }); }}
@@ -158,6 +161,11 @@ export default function Hero() {
         </div>
 
       </div>
+
+      {/* Survey Modal */}
+      <AnimatePresence>
+        {surveyOpen && <SurveyModal onClose={() => setSurveyOpen(false)} />}
+      </AnimatePresence>
     </section>
   );
 }

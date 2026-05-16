@@ -1,6 +1,5 @@
 import Navbar from "@/components/Navbar";
 import Hero from "@/components/Hero";
-import SurveySection from "@/components/SurveySection";
 import CoursesSection from "@/components/CoursesSection";
 import FreeVideo from "@/components/FreeVideo";
 import HowItWorks from "@/components/HowItWorks";
@@ -21,10 +20,7 @@ export default function Home() {
       {/* 1. Hero */}
       <Hero />
 
-      {/* 2. Find My Course */}
-      <SurveySection />
-
-      {/* 3. Learning Flow */}
+      {/* 2. Learning Flow */}
       <HowItWorks />
 
       {/* 5. Free Video */}
