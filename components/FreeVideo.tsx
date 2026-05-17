@@ -36,7 +36,7 @@ export default function FreeVideo() {
                 </li>
               ))}
             </ul>
-            <Link href="/signup" className="inline-flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold px-7 py-3.5 rounded-xl transition-all">
+            <Link href="/signup" className="hidden md:inline-flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold px-7 py-3.5 rounded-xl transition-all">
               Continue Learning Free <ArrowRight size={18} />
             </Link>
           </div>

@@ -44,7 +44,7 @@ export default function Hero() {
   const [surveyOpen, setSurveyOpen] = useState(false);
 
   return (
-    <section id="hero" className="min-h-screen flex items-center pt-16 pb-12 px-6">
+    <section id="hero" className="min-h-screen flex items-center pt-24 md:pt-16 pb-12 px-6">
       <div className="max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
 
         {/* ── LEFT: Content ── */}
@@ -56,7 +56,7 @@ export default function Hero() {
           </div>
 
           {/* Heading */}
-          <h1 className="text-4xl md:text-5xl lg:text-[3.2rem] font-extrabold leading-tight mb-5">
+          <h1 className="text-[1.7rem] md:text-5xl lg:text-[3.2rem] font-extrabold leading-tight mb-5 min-h-[9rem] md:min-h-0">
             Learn to Code.<br />
             <span className="gradient-text">Build Real Projects.</span><br />
             <TypewriterText />
@@ -68,48 +68,48 @@ export default function Hero() {
           </p>
 
           {/* CTA Buttons */}
-          <div className="flex flex-wrap gap-4 mb-6">
+          <div className="grid grid-cols-2 gap-3 md:flex md:flex-wrap md:gap-4 mb-6">
             <button
               onClick={() => setSurveyOpen(true)}
-              className="inline-flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white font-bold px-8 py-4 rounded-xl transition-all hover:-translate-y-0.5 text-base shadow-lg shadow-purple-500/25"
+              className="inline-flex items-center justify-center gap-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold px-4 md:px-8 py-3 md:py-4 rounded-xl transition-all hover:-translate-y-0.5 text-xs md:text-base shadow-lg shadow-purple-500/25 whitespace-nowrap"
             >
-              <Zap size={18} /> Find My Course ⚡
+              <Zap size={14} className="md:hidden" /><Zap size={18} className="hidden md:block" /> Find My Course ⚡
             </button>
             <Link
               href="#free-video"
               onClick={(e) => { e.preventDefault(); document.getElementById("free-video")?.scrollIntoView({ behavior: "smooth" }); }}
-              className="inline-flex items-center gap-2 bg-white/8 hover:bg-white/14 text-white font-semibold px-7 py-4 rounded-xl transition-all text-base border border-white/10"
+              className="inline-flex items-center justify-center gap-1.5 bg-white/8 hover:bg-white/14 text-white font-semibold px-4 md:px-7 py-3 md:py-4 rounded-xl transition-all text-xs md:text-base border border-white/10 whitespace-nowrap"
             >
-              <PlayCircle size={18} /> Watch Demo
+              <PlayCircle size={14} className="md:hidden" /><PlayCircle size={18} className="hidden md:block" /> Watch Demo
             </Link>
           </div>
 
           {/* Feature Chips */}
-          <div className="flex flex-wrap gap-2 mb-10">
+          <div className="grid grid-cols-2 gap-2 md:flex md:flex-wrap mb-10">
             {[
               { icon: <CheckCircle size={13} />, text: "5,000+ Students" },
               { icon: <CheckCircle size={13} />, text: "Beginner Friendly" },
               { icon: <CheckCircle size={13} />, text: "Learn → Practice → Build" },
               { icon: <CheckCircle size={13} />, text: "Free to Start" },
             ].map((p) => (
-              <span key={p.text} className="inline-flex items-center gap-1.5 bg-white/5 border border-white/10 text-slate-300 text-xs font-medium px-3 py-1.5 rounded-full">
+              <span key={p.text} className="inline-flex items-center justify-center gap-1.5 bg-white/5 border border-white/10 text-slate-300 text-xs font-medium px-3 py-1.5 rounded-full">
                 <span className="text-green-400">{p.icon}</span> {p.text}
               </span>
             ))}
           </div>
 
           {/* Stats Row */}
-          <div className="flex items-center gap-8">
+          <div className="w-full grid grid-cols-3 gap-2 md:flex md:items-center md:gap-8">
             {[
-              { icon: <Users size={18} className="text-purple-400" />, value: "5,000+", label: "Students" },
-              { icon: <BookOpen size={18} className="text-orange-400" />, value: "20+", label: "Courses" },
-              { icon: <Star size={18} className="text-yellow-400" />, value: "4.8★", label: "Rating" },
+              { icon: <Users size={16} className="text-purple-400 md:w-[18px] md:h-[18px]" />, value: "5,000+", label: "Students" },
+              { icon: <BookOpen size={16} className="text-orange-400 md:w-[18px] md:h-[18px]" />, value: "20+", label: "Courses" },
+              { icon: <Star size={16} className="text-yellow-400 md:w-[18px] md:h-[18px]" />, value: "4.8★", label: "Rating" },
             ].map((s, i) => (
-              <div key={s.label} className="flex items-center gap-2">
-                {i > 0 && <div className="w-px h-8 bg-white/10 mr-6" />}
-                <div>
-                  <div className="flex items-center gap-1.5 mb-0.5">{s.icon}<span className="text-lg font-extrabold text-white">{s.value}</span></div>
-                  <div className="text-slate-500 text-xs">{s.label}</div>
+              <div key={s.label} className="flex flex-col items-center md:flex-row md:items-center gap-1 md:gap-2">
+                {i > 0 && <div className="hidden md:block w-px h-8 bg-white/10 mr-6" />}
+                <div className="text-center md:text-left">
+                  <div className="flex items-center justify-center md:justify-start gap-1 mb-0.5">{s.icon}<span className="text-sm md:text-lg font-extrabold text-white">{s.value}</span></div>
+                  <div className="text-slate-500 text-[10px] md:text-xs">{s.label}</div>
                 </div>
               </div>
             ))}
@@ -131,8 +131,8 @@ export default function Hero() {
             </div>
 
             {/* Code block */}
-            <div className="px-6 py-5">
-              <pre className="font-mono text-sm leading-7 overflow-x-auto">
+            <div className="px-4 md:px-6 py-5">
+              <pre className="font-mono text-[11px] md:text-sm leading-6 md:leading-7 overflow-x-auto">
 <span className="text-purple-400">public class </span><span className="text-cyan-300">HelloCodingKeda </span><span className="text-white">{"{"}</span>{"\n"}
 {"  "}<span className="text-purple-400">public static void </span><span className="text-yellow-300">main</span><span className="text-white">(String[] args) {"{"}</span>{"\n"}
 {"    "}<span className="text-slate-500">// 🚀 Your journey starts here</span>{"\n"}

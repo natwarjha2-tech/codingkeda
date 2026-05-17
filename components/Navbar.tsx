@@ -1,11 +1,13 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { Menu, X, ChevronDown, User, ShieldCheck, LogOut, Search, BookOpen, Settings } from "lucide-react";
 import { getToken, logoutUser } from "@/services/auth";
 import SearchBar from "@/components/SearchBar";
+import AuthModal from "@/components/AuthModal";
 
 const links = [
   { label: "Home",    scrollId: "hero" },
@@ -26,6 +28,10 @@ export default function Navbar() {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string>("user");
+  const [mounted, setMounted] = useState(false);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     const token = getToken();
@@ -101,9 +107,43 @@ export default function Navbar() {
 
   return (
     <nav className={`fixed top-0 w-full z-50 border-b border-white/8 transition-all duration-300 ${scrolled ? "bg-[#0f0f1a]/98" : "bg-[#0f0f1a]/85"} backdrop-blur-xl ${hidden ? "-translate-y-full" : "translate-y-0"}`}>
-      <div className="px-6 md:px-10 flex items-center h-16 gap-4 relative">
-        {/* Left: Logo */}
-        <Link href="/" className="flex items-center gap-2 font-extrabold text-xl text-white flex-shrink-0">
+      <div className="px-4 md:px-10 flex items-center h-16 gap-4 relative">
+        {/* MOBILE: Hamburger + Logo (left) */}
+        <div className="flex md:hidden items-center gap-2.5">
+          <button className="text-white p-1" onClick={() => setOpen(!open)} aria-label="Menu">
+            {open ? <X size={22} /> : <Menu size={22} />}
+          </button>
+          <Link href="/" className="flex items-center gap-1.5 font-extrabold text-base text-white">
+            <Image src="/logo.jpg" alt="CodingKeda" width={28} height={28} className="rounded-md object-contain" />
+            CodingKeda
+          </Link>
+        </div>
+
+        {/* MOBILE: Login/Profile (right) */}
+        <div className="flex md:hidden ml-auto">
+          {loggedIn === null ? (
+            <div className="w-9 h-9" />
+          ) : loggedIn ? (
+            <Link href="/profile"
+              className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white overflow-hidden"
+              style={{ background: avatarUrl ? "none" : "linear-gradient(135deg,#7c3aed,#ec4899)" }}
+            >
+              {avatarUrl ? (
+                <img src={avatarUrl} alt="" className="w-full h-full object-cover rounded-full" />
+              ) : (
+                userInitial
+              )}
+            </Link>
+          ) : (
+            <button onClick={() => setAuthModalOpen(true)}
+              className="text-xs font-semibold text-white bg-purple-600 px-3.5 py-2 rounded-lg whitespace-nowrap">
+              Login/Register
+            </button>
+          )}
+        </div>
+
+        {/* DESKTOP: Logo (left) — UNCHANGED */}
+        <Link href="/" className="hidden md:flex items-center gap-2 font-extrabold text-xl text-white flex-shrink-0">
           <Image src="/logo.jpg" alt="CodingKeda" width={36} height={36} className="rounded-md object-contain" />
           CodingKeda
         </Link>
@@ -218,67 +258,65 @@ export default function Navbar() {
             )}
             </div>
           </div>
-        <div className="md:hidden ml-auto flex items-center gap-3">
-          <button onClick={() => setSearchOpen(!searchOpen)} className="text-slate-400 hover:text-white transition-colors">
-            <Search size={20} />
-          </button>
-          <button className="text-white" onClick={() => setOpen(!open)}>
-            {open ? <X size={22} /> : <Menu size={22} />}
-          </button>
-        </div>
       </div>
 
-      {/* Mobile Search Expand */}
-      {searchOpen && (
-        <div className="md:hidden px-4 pb-3 bg-[#0f0f1a]/98">
-          <SearchBar className="w-full" />
-        </div>
-      )}
+      {/* Mobile Menu — Portal (full screen overlay, works on all pages) */}
+      {open && mounted && createPortal(
+        <div className="md:hidden fixed inset-x-0 top-16 bottom-0 z-[9999] bg-[#0f0f1a] overflow-y-auto">
+          <div className="px-5 py-4 flex flex-col gap-4">
+            {/* Search inside menu */}
+            <div className="pb-3 border-b border-white/8">
+              <SearchBar placeholder="Search for courses..." className="w-full" />
+            </div>
 
-      {/* Mobile Menu */}
-      {open && (
-        <div className="md:hidden bg-[#1a1a2e] border-t border-white/8 px-6 py-4 flex flex-col gap-4">
-          {links.map((l) => (
-            <button key={l.label} onClick={() => scrollTo(l.scrollId)}
-              className="text-slate-300 text-sm font-medium text-left cursor-pointer">
-              {l.label}
-            </button>
-          ))}
-          {loggedIn && (
-            <>
-              <Link href="/my-courses" onClick={() => setOpen(false)}
-                className="text-slate-300 text-sm font-medium text-left cursor-pointer flex items-center gap-2">
-                <BookOpen size={14} className="text-purple-400" /> My Courses
-              </Link>
-              <Link href="/profile" onClick={() => setOpen(false)}
-                className="text-slate-300 text-sm font-medium text-left cursor-pointer flex items-center gap-2">
-                <Settings size={14} className="text-slate-400" /> Edit Profile
-              </Link>
-            </>
-          )}
-          <div className="flex flex-col gap-2 pt-2">
-            {loggedIn ? (
-              <button
-                onClick={() => { logoutUser(); setLoggedIn(false); setOpen(false); router.push("/"); }}
-                className="flex items-center gap-2 text-sm font-semibold border border-white/10 text-red-400 py-2 px-4 rounded-lg">
-                <LogOut size={15} /> Logout
+            {links.map((l) => (
+              <button key={l.label} onClick={() => scrollTo(l.scrollId)}
+                className="text-slate-300 text-sm font-medium text-left cursor-pointer">
+                {l.label}
               </button>
-            ) : (
+            ))}
+            {loggedIn && (
               <>
-                <Link href="/login" onClick={() => setOpen(false)} className="flex items-center gap-2 text-sm font-semibold border border-white/10 text-white py-2 px-4 rounded-lg">
-                  <User size={15} className="text-purple-400" /> Student Login
+                <Link href="/my-courses" onClick={() => setOpen(false)}
+                  className="text-slate-300 text-sm font-medium text-left cursor-pointer flex items-center gap-2">
+                  <BookOpen size={14} className="text-purple-400" /> My Courses
                 </Link>
-                <Link href="/admin/login" onClick={() => setOpen(false)} className="flex items-center gap-2 text-sm font-semibold border border-white/10 text-white py-2 px-4 rounded-lg">
-                  <ShieldCheck size={15} className="text-red-400" /> Admin Login
+                <Link href="/profile" onClick={() => setOpen(false)}
+                  className="text-slate-300 text-sm font-medium text-left cursor-pointer flex items-center gap-2">
+                  <Settings size={14} className="text-slate-400" /> Edit Profile
                 </Link>
-                <Link href="/signup?flow=free" onClick={() => setOpen(false)} className="text-center text-sm font-semibold bg-purple-600 text-white py-2 rounded-lg">
-                  Start Free
-                </Link>
+                {userRole === "admin" && (
+                  <Link href="/admin/dashboard" onClick={() => setOpen(false)}
+                    className="text-slate-300 text-sm font-medium text-left cursor-pointer flex items-center gap-2">
+                    <ShieldCheck size={14} className="text-red-400" /> Admin Panel
+                  </Link>
+                )}
               </>
             )}
+            <div className="flex flex-col gap-2 pt-2">
+              {loggedIn ? (
+                <button
+                  onClick={() => { logoutUser(); setLoggedIn(false); setOpen(false); localStorage.removeItem("user"); localStorage.removeItem("userEmail"); router.push("/"); }}
+                  className="flex items-center gap-2 text-sm font-semibold border border-white/10 text-red-400 py-2 px-4 rounded-lg">
+                  <LogOut size={15} /> Logout
+                </button>
+              ) : (
+                <>
+                  <button onClick={() => { setOpen(false); setAuthModalOpen(true); }} className="flex items-center gap-2 text-sm font-semibold border border-white/10 text-white py-2 px-4 rounded-lg w-full">
+                    <User size={15} className="text-purple-400" /> Student Login
+                  </button>
+                  <Link href="/admin/login" onClick={() => setOpen(false)} className="flex items-center gap-2 text-sm font-semibold border border-white/10 text-white py-2 px-4 rounded-lg">
+                    <ShieldCheck size={15} className="text-red-400" /> Admin Login
+                  </Link>
+                </>
+              )}
+            </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
+      {/* Mobile Auth Modal (bottom sheet) */}
+      <AuthModal isOpen={authModalOpen} onClose={() => setAuthModalOpen(false)} />
     </nav>
   );
 }
