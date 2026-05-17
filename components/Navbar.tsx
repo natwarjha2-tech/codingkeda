@@ -109,12 +109,12 @@ export default function Navbar() {
     <nav className={`fixed top-0 w-full z-50 border-b border-white/8 transition-all duration-300 ${scrolled ? "bg-[#0f0f1a]/98" : "bg-[#0f0f1a]/85"} backdrop-blur-xl ${hidden ? "-translate-y-full" : "translate-y-0"}`}>
       <div className="px-4 md:px-10 flex items-center h-16 gap-4 relative">
         {/* MOBILE: Hamburger + Logo (left) */}
-        <div className="flex md:hidden items-center gap-2.5">
+        <div className="flex md:hidden items-center gap-2">
           <button className="text-white p-1" onClick={() => setOpen(!open)} aria-label="Menu">
-            {open ? <X size={22} /> : <Menu size={22} />}
+            {open ? <X size={20} /> : <Menu size={20} />}
           </button>
-          <Link href="/" className="flex items-center gap-1.5 font-extrabold text-base text-white">
-            <Image src="/logo.jpg" alt="CodingKeda" width={28} height={28} className="rounded-md object-contain" />
+          <Link href="/" className="flex items-center gap-1.5 font-extrabold text-sm text-white">
+            <Image src="/logo.jpg" alt="CodingKeda" width={26} height={26} className="rounded-md object-contain" />
             CodingKeda
           </Link>
         </div>

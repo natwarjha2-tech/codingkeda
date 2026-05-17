@@ -56,7 +56,7 @@ export default function Hero() {
           </div>
 
           {/* Heading */}
-          <h1 className="text-[1.7rem] md:text-5xl lg:text-[3.2rem] font-extrabold leading-tight mb-5 min-h-[9rem] md:min-h-0 overflow-hidden">
+          <h1 className="text-[1.4rem] md:text-5xl lg:text-[3.2rem] font-extrabold leading-tight mb-5 min-h-[8rem] md:min-h-0 overflow-hidden">
             Learn to Code.<br />
             <span className="gradient-text">Build Real Projects.</span><br />
             <TypewriterText />
