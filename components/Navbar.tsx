@@ -7,7 +7,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { Menu, X, ChevronDown, User, ShieldCheck, LogOut, Search, BookOpen, Settings } from "lucide-react";
 import { getToken, logoutUser } from "@/services/auth";
 import SearchBar from "@/components/SearchBar";
-import AuthModal from "@/components/AuthModal";
+import { useAuthModal } from "@/context/AuthModalContext";
 
 const links = [
   { label: "Home",    scrollId: "hero" },
@@ -29,9 +29,10 @@ export default function Navbar() {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string>("user");
   const [mounted, setMounted] = useState(false);
-  const [authModalOpen, setAuthModalOpen] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
+
+  const { openAuthModal } = useAuthModal();
 
   useEffect(() => {
     const token = getToken();
@@ -135,7 +136,7 @@ export default function Navbar() {
               )}
             </Link>
           ) : (
-            <button onClick={() => setAuthModalOpen(true)}
+            <button onClick={() => openAuthModal()}
               className="text-xs font-semibold text-white bg-purple-600 px-3.5 py-2 rounded-lg whitespace-nowrap">
               Login/Register
             </button>
@@ -302,7 +303,7 @@ export default function Navbar() {
                 </button>
               ) : (
                 <>
-                  <button onClick={() => { setOpen(false); setAuthModalOpen(true); }} className="flex items-center gap-2 text-sm font-semibold border border-white/10 text-white py-2 px-4 rounded-lg w-full">
+                  <button onClick={() => { setOpen(false); openAuthModal(); }} className="flex items-center gap-2 text-sm font-semibold border border-white/10 text-white py-2 px-4 rounded-lg w-full">
                     <User size={15} className="text-purple-400" /> Student Login
                   </button>
                   <Link href="/admin/login" onClick={() => setOpen(false)} className="flex items-center gap-2 text-sm font-semibold border border-white/10 text-white py-2 px-4 rounded-lg">
@@ -315,8 +316,6 @@ export default function Navbar() {
         </div>,
         document.body
       )}
-      {/* Mobile Auth Modal (bottom sheet) */}
-      <AuthModal isOpen={authModalOpen} onClose={() => setAuthModalOpen(false)} />
     </nav>
   );
 }

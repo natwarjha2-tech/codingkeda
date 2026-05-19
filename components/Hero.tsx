@@ -44,7 +44,7 @@ export default function Hero() {
   const [surveyOpen, setSurveyOpen] = useState(false);
 
   return (
-    <section id="hero" className="min-h-screen flex items-center pt-24 md:pt-16 pb-12 px-6">
+    <section id="hero" className="min-h-screen flex items-start md:items-center pt-24 md:pt-16 pb-12 px-6">
       <div className="max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
 
         {/* ── LEFT: Content ── */}
@@ -56,7 +56,7 @@ export default function Hero() {
           </div>
 
           {/* Heading */}
-          <h1 className="text-[1.4rem] md:text-5xl lg:text-[3.2rem] font-extrabold leading-tight mb-5 min-h-[8rem] md:min-h-0 overflow-hidden">
+          <h1 className="text-[1.8rem] md:text-5xl lg:text-[3.2rem] font-extrabold leading-tight mb-5 md:mt-0 min-h-[8rem] md:min-h-0 overflow-hidden">
             Learn to Code.<br />
             <span className="gradient-text">Build Real Projects.</span><br />
             <TypewriterText />
@@ -68,7 +68,7 @@ export default function Hero() {
           </p>
 
           {/* CTA Buttons */}
-          <div className="grid grid-cols-2 gap-3 md:flex md:flex-wrap md:gap-4 mb-6">
+          <div className="w-full grid grid-cols-2 gap-3 md:flex md:flex-wrap md:gap-4 mb-6">
             <button
               onClick={() => setSurveyOpen(true)}
               className="inline-flex items-center justify-center gap-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold px-4 md:px-8 py-3 md:py-4 rounded-xl transition-all hover:-translate-y-0.5 text-xs md:text-base shadow-lg shadow-purple-500/25 whitespace-nowrap"
@@ -85,7 +85,7 @@ export default function Hero() {
           </div>
 
           {/* Feature Chips */}
-          <div className="grid grid-cols-2 gap-2 md:flex md:flex-wrap mb-10">
+          <div className="w-full grid grid-cols-2 gap-2 md:flex md:flex-wrap mb-10">
             {[
               { icon: <CheckCircle size={13} />, text: "5,000+ Students" },
               { icon: <CheckCircle size={13} />, text: "Beginner Friendly" },

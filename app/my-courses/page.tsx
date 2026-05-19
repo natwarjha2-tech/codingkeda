@@ -5,6 +5,8 @@ import { motion } from "framer-motion";
 import { BookOpen, ArrowRight, Loader2, GraduationCap } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import { getToken } from "@/services/auth";
+import { useAuthRedirect } from "@/hooks/useAuthRedirect";
+import MobileBackButton from "@/components/MobileBackButton";
 
 interface EnrolledCourse {
   id: string;
@@ -18,13 +20,14 @@ interface EnrolledCourse {
 
 export default function MyCoursesPage() {
   const router = useRouter();
+  const triggerLogin = useAuthRedirect("/my-courses");
   const [courses, setCourses] = useState<EnrolledCourse[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const token = getToken();
     if (!token) {
-      router.replace("/login?redirect=/my-courses");
+      triggerLogin();
       return;
     }
 
@@ -46,6 +49,7 @@ export default function MyCoursesPage() {
       <Navbar />
       <main className="min-h-screen bg-[#0f0f1a] px-6 py-10 pt-24">
         <div className="max-w-4xl mx-auto">
+          <MobileBackButton />
           {/* Header */}
           <motion.div
             initial={{ opacity: 0, y: 16 }}

@@ -6,6 +6,8 @@ import { Check, Zap, Lock, ArrowRight } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import { getToken } from "@/services/auth";
 import SearchBar from "@/components/SearchBar";
+import { useAuthRedirect } from "@/hooks/useAuthRedirect";
+import MobileBackButton from "@/components/MobileBackButton";
 
 const COURSES = [
   {
@@ -36,12 +38,13 @@ const PREMIUM_FEATURES = [
 
 export default function Dashboard() {
   const router = useRouter();
+  const triggerLogin = useAuthRedirect();
   const [recommendedCourse, setRecommendedCourse] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     if (!getToken()) {
-      router.replace("/login");
+      triggerLogin();
       return;
     }
     setRecommendedCourse(localStorage.getItem("recommendedCourse") || null);
@@ -55,6 +58,7 @@ export default function Dashboard() {
       <Navbar />
       <main className="min-h-screen bg-[#0f0f1a] px-6 py-10 pt-24">
         <div className="max-w-4xl mx-auto">
+          <MobileBackButton />
 
           {/* Header */}
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}

@@ -4,6 +4,7 @@ import { Search, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import COURSES from "@/data/courses";
 import { getToken } from "@/services/auth";
+import { useAuthModal } from "@/context/AuthModalContext";
 
 interface SearchBarProps {
   placeholder?: string;
@@ -21,6 +22,7 @@ export default function SearchBar({
   const [showSuggestions, setShowSuggestions] = useState(false);
   const router = useRouter();
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const { openAuthModal } = useAuthModal();
 
   const suggestions = value.trim()
     ? COURSES.filter((c) =>
@@ -59,7 +61,12 @@ export default function SearchBar({
     if (token) {
       router.push(`/payment?package=${encodeURIComponent(slug)}`);
     } else {
-      router.push(`/signup?flow=survey&course=${encodeURIComponent(slug)}`);
+      const isMobile = window.innerWidth < 768;
+      if (isMobile) {
+        openAuthModal();
+      } else {
+        router.push(`/signup?flow=survey&course=${encodeURIComponent(slug)}`);
+      }
     }
   };
 

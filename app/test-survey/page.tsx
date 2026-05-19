@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, ArrowRight, X, Sparkles, Loader2 } from "lucide-react";
+import { useAuthRedirect } from "@/hooks/useAuthRedirect";
 
 /* ── Constants ── */
 const STEPS = 3;
@@ -76,6 +77,7 @@ function OptionCard({ selected, onClick, emoji, label, desc }: {
 /* ── Modal ── */
 function SurveyModal({ onClose }: { onClose: () => void }) {
   const router = useRouter();
+  const triggerLogin = useAuthRedirect();
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({ classGroup: "", languages: [] as string[], level: "" });
   const [done, setDone] = useState(false);
@@ -317,7 +319,7 @@ function SurveyModal({ onClose }: { onClose: () => void }) {
                 transition={{ delay: 0.25 }}
                 whileHover={{ scale: 1.05, boxShadow: "0 8px 28px rgba(124,58,237,0.5)" }}
                 whileTap={{ scale: 0.96 }}
-                onClick={() => router.push("/login")}
+                onClick={() => triggerLogin()}
                 className="w-full py-3.5 rounded-xl font-bold text-white text-sm"
                 style={{ background: "linear-gradient(135deg,#7c3aed,#ec4899)", boxShadow: "0 4px 16px rgba(124,58,237,0.35)" }}
               >

@@ -5,6 +5,8 @@ import { motion } from "framer-motion";
 import { User, Mail, Calendar, BookOpen, Save, Loader2, CheckCircle, Camera } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import { getToken } from "@/services/auth";
+import { useAuthRedirect } from "@/hooks/useAuthRedirect";
+import MobileBackButton from "@/components/MobileBackButton";
 
 interface UserProfile {
   id: string;
@@ -17,6 +19,7 @@ interface UserProfile {
 
 export default function ProfilePage() {
   const router = useRouter();
+  const triggerLogin = useAuthRedirect("/profile");
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
@@ -28,7 +31,7 @@ export default function ProfilePage() {
   useEffect(() => {
     const token = getToken();
     if (!token) {
-      router.replace("/login?redirect=/profile");
+      triggerLogin();
       return;
     }
 
@@ -145,6 +148,7 @@ export default function ProfilePage() {
       <Navbar />
       <main className="min-h-screen bg-[#0f0f1a] px-6 py-10 pt-24">
         <div className="max-w-lg mx-auto">
+          <MobileBackButton />
           {/* Header */}
           <motion.div
             initial={{ opacity: 0, y: 16 }}
