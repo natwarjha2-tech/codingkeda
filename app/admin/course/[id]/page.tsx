@@ -78,6 +78,21 @@ export default function ManageCoursePage() {
   const [videoError, setVideoError] = useState("");
   const [pdfError, setPdfError] = useState("");
 
+  // Generate Quiz state
+  const [generatingQuizId, setGeneratingQuizId] = useState<string | null>(null);
+
+  // Weekly Streak state
+  const [creatingStreakId, setCreatingStreakId] = useState<string | null>(null);
+  const [streakModal, setStreakModal] = useState(false);
+  const [streakLessonId, setStreakLessonId] = useState("");
+  const [streakModuleId, setStreakModuleId] = useState("");
+  const [streakWeekNum, setStreakWeekNum] = useState(1);
+  const [streakTitle, setStreakTitle] = useState("");
+  const [streakDesc, setStreakDesc] = useState("");
+  const [streakProblem, setStreakProblem] = useState("");
+  const [streakSolution, setStreakSolution] = useState("");
+  const [streakCreating, setStreakCreating] = useState(false);
+
   // Preview modals
   const [previewVideo, setPreviewVideo] = useState("");
   const [previewPdf, setPreviewPdf] = useState("");
@@ -346,6 +361,71 @@ export default function ManageCoursePage() {
     setEditVideoError(""); setEditPdfError("");
   };
 
+  // Generate Quiz & Exercise from PDF
+  const handleGenerateQuiz = async (lessonId: string) => {
+    if (generatingQuizId) return; // prevent double-click
+    setGeneratingQuizId(lessonId);
+    try {
+      const res = await fetch(`/api/admin/lessons/${lessonId}/generate-quiz`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(`✅ ${data.message}`);
+      } else {
+        alert(`⚠️ ${data.message || "Failed to generate quiz."}`);
+      }
+    } catch {
+      alert("⚠️ Something went wrong. Please try again.");
+    }
+    setGeneratingQuizId(null);
+  };
+
+  // Create Weekly Streak Challenge
+  const handleCreateWeeklyStreak = (lessonId: string, moduleId: string, lessonNum: number) => {
+    setStreakLessonId(lessonId);
+    setStreakModuleId(moduleId);
+    setStreakWeekNum(Math.floor(lessonNum / 7));
+    setStreakTitle("");
+    setStreakDesc("");
+    setStreakProblem("");
+    setStreakSolution("");
+    setStreakModal(true);
+  };
+
+  const handleSubmitWeeklyStreak = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!streakTitle.trim() || !streakProblem.trim() || !streakSolution.trim()) return;
+    setStreakCreating(true);
+    try {
+      const res = await fetch("/api/admin/weekly-streak", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({
+          lessonId: streakLessonId,
+          moduleId: streakModuleId,
+          courseId,
+          title: streakTitle.trim(),
+          description: streakDesc.trim(),
+          problem: streakProblem.trim(),
+          solution: streakSolution.trim(),
+          weekNumber: streakWeekNum,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert("✅ Weekly Challenge created!");
+        setStreakModal(false);
+      } else {
+        alert(`⚠️ ${data.message || "Failed."}`);
+      }
+    } catch {
+      alert("⚠️ Something went wrong.");
+    }
+    setStreakCreating(false);
+  };
+
   if (loading) return (
     <div className="min-h-screen bg-[#0f0f1a] flex items-center justify-center">
       <Loader2 size={32} className="text-purple-400 animate-spin" />
@@ -460,6 +540,19 @@ export default function ManageCoursePage() {
                                       className="flex items-center gap-1 text-xs text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 px-2 py-1 rounded-lg transition-colors">
                                       <Upload size={11} /> Edit
                                     </button>
+                                    {lesson.notes && (
+                                      <button onClick={() => handleGenerateQuiz(lesson.id)}
+                                        className="flex items-center gap-1 text-xs text-green-400 hover:text-green-300 bg-green-500/10 px-2 py-1 rounded-lg transition-colors">
+                                        <Loader2 size={11} className={generatingQuizId === lesson.id ? "animate-spin" : "hidden"} />
+                                        <span>{generatingQuizId === lesson.id ? "Generating..." : "⚡ Generate Quiz"}</span>
+                                      </button>
+                                    )}
+                                    {(li + 1) % 7 === 0 && (
+                                      <button onClick={() => handleCreateWeeklyStreak(lesson.id, mod.id, li + 1)}
+                                        className="flex items-center gap-1 text-xs text-yellow-400 hover:text-yellow-300 bg-yellow-500/10 px-2 py-1 rounded-lg transition-colors">
+                                        <span>{creatingStreakId === lesson.id ? "Creating..." : "🔥 Weekly Challenge"}</span>
+                                      </button>
+                                    )}
                                   </div>
                                 </div>
                               ))}
@@ -780,6 +873,70 @@ export default function ManageCoursePage() {
                   Done
                 </button>
               </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Weekly Streak Challenge Modal */}
+      <AnimatePresence>
+        {streakModal && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6 overflow-y-auto"
+            style={{ background: "rgba(0,0,0,0.8)", backdropFilter: "blur(10px)" }}
+            onClick={e => e.target === e.currentTarget && setStreakModal(false)}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.92, y: 20 }}
+              className="w-full max-w-lg rounded-2xl p-7 relative my-auto"
+              style={{ background: "linear-gradient(145deg,#0f0a1e,#16213e)", border: "1px solid rgba(245,158,11,0.3)", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" }}>
+              <button onClick={() => setStreakModal(false)}
+                className="absolute top-4 right-4 w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-all">
+                <X size={14} />
+              </button>
+              <h3 className="text-xl font-extrabold text-white mb-1">🔥 Create Weekly Challenge</h3>
+              <p className="text-slate-400 text-sm mb-6">Week {streakWeekNum} — This challenge will appear after lesson completion</p>
+
+              <form onSubmit={handleSubmitWeeklyStreak} className="space-y-4">
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">Challenge Title *</label>
+                  <input type="text" placeholder="e.g. Week 1 Master Challenge" value={streakTitle}
+                    onChange={e => setStreakTitle(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 focus:border-yellow-500 rounded-xl px-4 py-2.5 text-white text-sm outline-none transition-colors placeholder:text-slate-500" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">Description (optional)</label>
+                  <input type="text" placeholder="Brief description" value={streakDesc}
+                    onChange={e => setStreakDesc(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 focus:border-yellow-500 rounded-xl px-4 py-2.5 text-white text-sm outline-none transition-colors placeholder:text-slate-500" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">Problem Statement *</label>
+                  <textarea placeholder="Write the challenge problem here..." value={streakProblem}
+                    onChange={e => setStreakProblem(e.target.value)} rows={4}
+                    className="w-full bg-white/5 border border-white/10 focus:border-yellow-500 rounded-xl px-4 py-2.5 text-white text-sm outline-none transition-colors placeholder:text-slate-500 resize-none" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">Solution (for AI evaluation) *</label>
+                  <textarea placeholder="Write the expected solution..." value={streakSolution}
+                    onChange={e => setStreakSolution(e.target.value)} rows={4}
+                    className="w-full bg-white/5 border border-white/10 focus:border-yellow-500 rounded-xl px-4 py-2.5 text-white text-sm outline-none transition-colors placeholder:text-slate-500 resize-none" />
+                  <p className="text-slate-600 text-xs mt-1">This solution is used by AI to evaluate student answers. Not shown to students.</p>
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button type="button" onClick={() => setStreakModal(false)}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-slate-300 bg-white/5 hover:bg-white/10 transition-colors">
+                    Cancel
+                  </button>
+                  <motion.button type="submit" disabled={streakCreating}
+                    whileHover={!streakCreating ? { scale: 1.02 } : {}}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-60 flex items-center justify-center gap-2"
+                    style={{ background: "linear-gradient(135deg,#f59e0b,#d97706)" }}>
+                    {streakCreating ? <><Loader2 size={14} className="animate-spin" /> Creating...</> : "🔥 Create Challenge"}
+                  </motion.button>
+                </div>
+              </form>
             </motion.div>
           </motion.div>
         )}
