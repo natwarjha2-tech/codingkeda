@@ -8,6 +8,8 @@ import { Menu, X, ChevronDown, User, ShieldCheck, LogOut, Search, BookOpen, Sett
 import { getToken, logoutUser } from "@/services/auth";
 import SearchBar from "@/components/SearchBar";
 import { useAuthModal } from "@/context/AuthModalContext";
+import DesktopAuthModal from "@/components/DesktopAuthModal";
+import AdminAuthModal from "@/components/AdminAuthModal";
 
 const links = [
   { label: "Home",    scrollId: "hero" },
@@ -33,6 +35,8 @@ export default function Navbar() {
   useEffect(() => { setMounted(true); }, []);
 
   const { openAuthModal } = useAuthModal();
+  const [desktopAuthOpen, setDesktopAuthOpen] = useState(false);
+  const [adminAuthOpen, setAdminAuthOpen] = useState(false);
 
   useEffect(() => {
     const token = getToken();
@@ -238,21 +242,24 @@ export default function Navbar() {
               <div className="relative" ref={dropdownRef}>
                 <button
                   onClick={() => setLoginDropdown(!loginDropdown)}
-                  className="flex items-center gap-1.5 text-sm font-semibold text-white border border-white/10 px-4 py-2 rounded-lg hover:border-purple-500 transition-colors whitespace-nowrap"
+                  className="relative flex items-center gap-1.5 text-xs font-bold text-white px-5 py-3 rounded-xl whitespace-nowrap transition-all duration-300 hover:scale-105 hover:shadow-[0_0_20px_rgba(124,58,237,0.5)] bg-purple-600 hover:bg-purple-700"
+                  style={{
+                    boxShadow: "0 4px 15px rgba(124,58,237,0.35)",
+                  }}
                 >
-                  Log In <ChevronDown size={15} className={`transition-transform ${loginDropdown ? "rotate-180" : ""}`} />
+                  Login/Register <ChevronDown size={15} className={`transition-transform ${loginDropdown ? "rotate-180" : ""}`} />
                 </button>
                 {loginDropdown && (
                   <div className="absolute right-0 mt-2 w-48 bg-[#16213e] border border-white/10 rounded-xl shadow-xl overflow-hidden z-50">
-                    <Link href="/login" onClick={() => setLoginDropdown(false)}
-                      className="flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors">
+                    <button onClick={() => { setLoginDropdown(false); setDesktopAuthOpen(true); }}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors text-left">
                       <User size={16} className="text-purple-400" /> Student Login
-                    </Link>
+                    </button>
                     <div className="h-px bg-white/8" />
-                    <Link href="/admin/login" onClick={() => setLoginDropdown(false)}
-                      className="flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors">
+                    <button onClick={() => { setLoginDropdown(false); setAdminAuthOpen(true); }}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors text-left">
                       <ShieldCheck size={16} className="text-red-400" /> Admin Login
-                    </Link>
+                    </button>
                   </div>
                 )}
               </div>
@@ -316,6 +323,10 @@ export default function Navbar() {
         </div>,
         document.body
       )}
+      {/* Desktop Auth Modal */}
+      <DesktopAuthModal isOpen={desktopAuthOpen} onClose={() => setDesktopAuthOpen(false)} />
+      {/* Admin Auth Modal */}
+      <AdminAuthModal isOpen={adminAuthOpen} onClose={() => setAdminAuthOpen(false)} />
     </nav>
   );
 }

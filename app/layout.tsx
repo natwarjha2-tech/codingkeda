@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import SessionGuard from "@/components/SessionGuard";
-import { AuthModalProvider } from "@/context/AuthModalContext";
+import Providers from "@/components/Providers";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -19,10 +19,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script src="https://checkout.razorpay.com/v1/checkout.js" async></script>
       </head>
       <body className={inter.className}>
-        <AuthModalProvider>
+        <Providers>
           <SessionGuard />
           {children}
-        </AuthModalProvider>
+        </Providers>
       </body>
     </html>
   );

@@ -20,7 +20,7 @@ interface EnrolledCourse {
 
 export default function MyCoursesPage() {
   const router = useRouter();
-  const triggerLogin = useAuthRedirect("/my-courses");
+  const triggerLogin = useAuthRedirect();
   const [courses, setCourses] = useState<EnrolledCourse[]>([]);
   const [loading, setLoading] = useState(true);
 

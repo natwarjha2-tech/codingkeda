@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, ArrowRight, X, Sparkles, Loader2 } from "lucide-react";
+import { useAuthRedirect } from "@/hooks/useAuthRedirect";
 
 const STEPS = 4;
 
@@ -70,6 +71,7 @@ function OptionCard({ selected, onClick, emoji, label, desc }: { selected: boole
 
 export default function SurveyModal({ onClose }: { onClose: () => void }) {
   const router = useRouter();
+  const triggerLogin = useAuthRedirect();
   const [step, setStep] = useState(1);
   const [analyzing, setAnalyzing] = useState(false);
   const [done, setDone] = useState(false);
@@ -129,7 +131,7 @@ export default function SurveyModal({ onClose }: { onClose: () => void }) {
                 <ul className="space-y-1.5">{recommended.features.map((f, i) => (<li key={i} className="flex items-center gap-2 text-xs text-slate-300"><span className="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: "rgba(124,58,237,0.3)" }}><Check size={8} strokeWidth={3} className="text-purple-300" /></span>{f}</li>))}</ul>
               </motion.div>
               <motion.div className="flex flex-col gap-2.5">
-                <motion.button initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} whileHover={{ scale: 1.05, boxShadow: "0 8px 28px rgba(124,58,237,0.5)" }} whileTap={{ scale: 0.96 }} onClick={() => { localStorage.setItem("surveyCompleted", "true"); localStorage.setItem("recommendedCourse", recommended.name); const isLoggedIn = !!localStorage.getItem("token"); router.push(isLoggedIn ? "/login?flow=survey" : "/signup?flow=survey"); }} className="w-full py-3.5 rounded-xl font-bold text-white text-sm" style={{ background: "linear-gradient(135deg,#7c3aed,#ec4899)", boxShadow: "0 4px 16px rgba(124,58,237,0.35)" }}>Buy Now 🚀</motion.button>
+                <motion.button initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} whileHover={{ scale: 1.05, boxShadow: "0 8px 28px rgba(124,58,237,0.5)" }} whileTap={{ scale: 0.96 }} onClick={() => { localStorage.setItem("surveyCompleted", "true"); localStorage.setItem("recommendedCourse", recommended.name); onClose(); triggerLogin(); }} className="w-full py-3.5 rounded-xl font-bold text-white text-sm" style={{ background: "linear-gradient(135deg,#7c3aed,#ec4899)", boxShadow: "0 4px 16px rgba(124,58,237,0.35)" }}>Buy Now 🚀</motion.button>
                 <motion.button initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }} onClick={() => { localStorage.setItem("surveyCompleted", "true"); localStorage.setItem("recommendedCourse", recommended.name); onClose(); }} className="w-full py-3 rounded-xl font-semibold text-sm transition-colors" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#94a3b8" }}>Skip for now</motion.button>
               </motion.div>
               <button onClick={() => { setDone(false); setStep(1); setForm({ name: "", email: "", classGroup: "", experience: "", interest: "" }); }} className="w-full text-xs text-slate-500 hover:text-slate-300 transition-colors mt-3">← Retake survey</button>

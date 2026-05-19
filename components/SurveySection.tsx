@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, ArrowRight, X, Sparkles, Loader2 } from "lucide-react";
+import { useAuthRedirect } from "@/hooks/useAuthRedirect";
 
 const STEPS = 4;
 
@@ -134,6 +135,7 @@ function OptionCard({ selected, onClick, emoji, label, desc }: {
 /* ── Modal ── */
 function SurveyModal({ onClose }: { onClose: () => void }) {
   const router = useRouter();
+  const triggerLogin = useAuthRedirect();
   const [step, setStep] = useState(1);
   const [analyzing, setAnalyzing] = useState(false);
   const [done, setDone] = useState(false);
@@ -429,8 +431,8 @@ function SurveyModal({ onClose }: { onClose: () => void }) {
                   onClick={() => {
                     localStorage.setItem("surveyCompleted", "true");
                     localStorage.setItem("recommendedCourse", recommended.name);
-                    const isLoggedIn = !!localStorage.getItem("token");
-                    router.push(isLoggedIn ? "/login?flow=survey" : "/signup?flow=survey");
+                    onClose();
+                    triggerLogin();
                   }}
                   className="w-full py-3.5 rounded-xl font-bold text-white text-sm"
                   style={{ background: "linear-gradient(135deg,#7c3aed,#ec4899)", boxShadow: "0 4px 16px rgba(124,58,237,0.35)" }}

@@ -19,7 +19,7 @@ interface UserProfile {
 
 export default function ProfilePage() {
   const router = useRouter();
-  const triggerLogin = useAuthRedirect("/profile");
+  const triggerLogin = useAuthRedirect();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
