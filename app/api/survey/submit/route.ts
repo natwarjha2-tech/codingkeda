@@ -42,7 +42,7 @@ function recommendPackage(answers: Record<string, string>) {
 function buildRecommendationEmail(name: string, pkg: typeof PACKAGES.zenz): string {
   const loginUrl = process.env.NEXT_PUBLIC_BASE_URL
     ? `${process.env.NEXT_PUBLIC_BASE_URL}/login`
-    : "http://localhost:3000/login";
+    : "https://www.codingkida.com/login";
 
   const featureList = pkg.features
     .map((f) => `<li style="margin-bottom:6px;">✅ ${f}</li>`)

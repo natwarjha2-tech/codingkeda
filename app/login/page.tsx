@@ -21,9 +21,22 @@ function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
     if (!email.trim()) return setError("Please enter your email address.");
     if (!isValidEmail(email)) return setError("Please enter a valid email address.");
     setLoading(true);
-    await new Promise(r => setTimeout(r, 1500));
+    try {
+      const res = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim() }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSuccess(true);
+      } else {
+        setError(data.message || "Something went wrong.");
+      }
+    } catch {
+      setError("Network error. Please try again.");
+    }
     setLoading(false);
-    setSuccess(true);
   };
 
   return (

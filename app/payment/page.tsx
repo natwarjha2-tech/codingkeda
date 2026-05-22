@@ -58,27 +58,47 @@ function PaymentContent() {
   const [resolving, setResolving] = useState(!courseIdParam);
 
   useEffect(() => {
-    setToken(getToken());
+    const currentToken = getToken();
 
-    // If courseId not in URL, resolve it from package name via API
-    if (!courseIdParam && pkgName) {
-      setResolving(true);
-      fetch(`/api/courses/resolve?package=${encodeURIComponent(pkgName)}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data.success && data.courseId) {
-            setResolvedCourseId(data.courseId);
-          }
-        })
-        .catch(() => {})
-        .finally(() => setResolving(false));
-    } else if (courseIdParam) {
-      setResolvedCourseId(courseIdParam);
-      setResolving(false);
-    } else {
-      setResolving(false);
+    // Server-side token validation — redirect to login if invalid/expired
+    if (!currentToken) {
+      const returnUrl = typeof window !== "undefined" ? window.location.href : "/payment";
+      router.replace(`/login?redirect=${encodeURIComponent(returnUrl)}`);
+      return;
     }
-  }, [courseIdParam, pkgName]);
+
+    // Verify token with server
+    fetch("/api/student", { headers: { Authorization: `Bearer ${currentToken}` } })
+      .then(res => {
+        if (!res.ok) {
+          // Token invalid/expired — redirect to login
+          const returnUrl = typeof window !== "undefined" ? window.location.href : "/payment";
+          router.replace(`/login?redirect=${encodeURIComponent(returnUrl)}`);
+          return;
+        }
+        // Token valid — proceed
+        setToken(currentToken);
+
+        // Resolve courseId
+        if (!courseIdParam && pkgName) {
+          setResolving(true);
+          fetch(`/api/courses/resolve?package=${encodeURIComponent(pkgName)}`)
+            .then(r => r.json())
+            .then(data => { if (data.success && data.courseId) setResolvedCourseId(data.courseId); })
+            .catch(() => {})
+            .finally(() => setResolving(false));
+        } else if (courseIdParam) {
+          setResolvedCourseId(courseIdParam);
+          setResolving(false);
+        } else {
+          setResolving(false);
+        }
+      })
+      .catch(() => {
+        const returnUrl = typeof window !== "undefined" ? window.location.href : "/payment";
+        router.replace(`/login?redirect=${encodeURIComponent(returnUrl)}`);
+      });
+  }, [courseIdParam, pkgName, router]);
 
   const handlePayment = async () => {
     setEnrollError("");

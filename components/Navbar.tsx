@@ -230,7 +230,7 @@ export default function Navbar() {
                     )}
                     <div className="h-px bg-white/8" />
                     <button
-                      onClick={() => { logoutUser(); setLoggedIn(false); setProfileDropdown(false); localStorage.removeItem("user"); localStorage.removeItem("userEmail"); router.push("/"); }}
+                      onClick={() => { logoutUser(); setLoggedIn(false); setProfileDropdown(false); localStorage.removeItem("user"); localStorage.removeItem("userEmail"); localStorage.removeItem("ck_token"); router.push("/"); }}
                       className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-red-500/10 hover:text-red-400 transition-colors"
                     >
                       <LogOut size={15} className="text-red-400" /> Logout
@@ -304,7 +304,7 @@ export default function Navbar() {
             <div className="flex flex-col gap-2 pt-2">
               {loggedIn ? (
                 <button
-                  onClick={() => { logoutUser(); setLoggedIn(false); setOpen(false); localStorage.removeItem("user"); localStorage.removeItem("userEmail"); router.push("/"); }}
+                  onClick={() => { logoutUser(); setLoggedIn(false); setOpen(false); localStorage.removeItem("user"); localStorage.removeItem("userEmail"); localStorage.removeItem("ck_token"); router.push("/"); }}
                   className="flex items-center gap-2 text-sm font-semibold border border-white/10 text-red-400 py-2 px-4 rounded-lg">
                   <LogOut size={15} /> Logout
                 </button>
