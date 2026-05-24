@@ -7,7 +7,6 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const category = searchParams.get("category");
     const search = searchParams.get("search");
-    console.log('[courses/list] category:', category, '| search:', search);
 
     const where: Record<string, unknown> = { isActive: true };
 
@@ -44,8 +43,7 @@ export async function GET(req: NextRequest) {
     });
 
     return NextResponse.json({ success: true, courses });
-  } catch (err) {
-    console.error('[courses/list] FAILED:', err);
+  } catch {
     return NextResponse.json(
       { success: false, message: "Internal server error." },
       { status: 500 }

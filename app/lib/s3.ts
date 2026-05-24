@@ -23,8 +23,8 @@ export async function uploadToS3(file: Buffer, key: string, contentType: string)
 }
 
 export async function getSignedFileUrl(key: string, expiresIn = 3600) {
-  const command = new GetObjectCommand({ Bucket: BUCKET, Key: key, ChecksumMode: undefined });
-  return getSignedUrl(s3, command, { expiresIn, unhoistableHeaders: new Set(['x-amz-checksum-mode']) });
+  const command = new GetObjectCommand({ Bucket: BUCKET, Key: key });
+  return getSignedUrl(s3, command, { expiresIn });
 }
 
 export function getS3KeyFromUrl(url: string) {

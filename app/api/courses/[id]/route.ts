@@ -123,8 +123,7 @@ export async function GET(
         completedLessons: userProgress,
       },
     });
-  } catch (err) {
-    console.error('[courses/id] FAILED:', err);
+  } catch {
     return NextResponse.json(
       { success: false, message: "Internal server error." },
       { status: 500 }

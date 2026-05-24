@@ -61,8 +61,7 @@ export async function POST(req: NextRequest) {
       },
       { status: 201 }
     );
-  } catch (err) {
-    console.error('[auth/signup] FAILED:', err);
+  } catch {
     return NextResponse.json(
       { success: false, message: "Internal server error." },
       { status: 500 }
