@@ -90,9 +90,8 @@ export async function GET(
               mod.lessons.map(async (lesson) => {
                 // Sign video URL if user is enrolled OR lesson is free
                 if (isEnrolled || lesson.isFree) {
-                  // Skip signing if already a signed URL
-                  const alreadySigned = lesson.videoUrl?.includes('X-Amz-Signature');
-                  const signedVideoUrl = (!alreadySigned && getS3KeyFromUrl(lesson.videoUrl))
+                  const s3Key = getS3KeyFromUrl(lesson.videoUrl);
+                  const signedVideoUrl = s3Key
                     ? await getSignedFileUrlFromUrl(lesson.videoUrl)
                     : lesson.videoUrl;
                   return {
@@ -123,7 +122,8 @@ export async function GET(
         completedLessons: userProgress,
       },
     });
-  } catch {
+  } catch (err) {
+    console.error('[courses/id] FAILED:', err);
     return NextResponse.json(
       { success: false, message: "Internal server error." },
       { status: 500 }

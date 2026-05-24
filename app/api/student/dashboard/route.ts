@@ -109,7 +109,8 @@ export async function GET(req: NextRequest) {
       enrolledCourses,
       lastWatched,
     });
-  } catch {
+  } catch (err) {
+    console.error('[student/dashboard] FAILED:', err);
     return NextResponse.json(
       { success: false, message: "Internal server error." },
       { status: 500 }

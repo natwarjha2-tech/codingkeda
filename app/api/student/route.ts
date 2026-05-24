@@ -7,22 +7,21 @@ export async function GET(req: NextRequest) {
   try {
     const authHeader = req.headers.get("authorization");
     const token = authHeader?.replace("Bearer ", "");
-
     if (!token) {
+      console.warn('[student/profile] No token provided');
       return NextResponse.json(
         { success: false, message: "Unauthorized." },
         { status: 401 }
       );
     }
-
     const payload = verifyToken(token);
-
+    console.log('[student/profile] userId:', payload.userId);
     const user = await prisma.user.findUnique({
       where: { id: payload.userId },
       select: { id: true, name: true, email: true, role: true, createdAt: true },
     });
-
     if (!user) {
+      console.warn('[student/profile] User not found:', payload.userId);
       return NextResponse.json(
         { success: false, message: "User not found." },
         { status: 404 }
@@ -47,7 +46,8 @@ export async function GET(req: NextRequest) {
         : { ...user, enrolledCourses: enrollmentCount },
       user,
     });
-  } catch {
+  } catch (err) {
+    console.error('[student/profile] FAILED:', err);
     return NextResponse.json(
       { success: false, message: "Invalid or expired token." },
       { status: 401 }

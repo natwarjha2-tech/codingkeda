@@ -38,7 +38,8 @@ export async function POST(req: NextRequest) {
       token,
       user: { id: user.id, name: user.name, email: user.email, role: user.role },
     });
-  } catch {
+  } catch (err) {
+    console.error('[auth/login] FAILED:', err);
     return NextResponse.json(
       { success: false, message: "Internal server error." },
       { status: 500 }
