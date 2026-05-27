@@ -14,6 +14,7 @@ interface Course {
   icon: string;
   instructor: string;
   _count?: { modules: number; enrollments: number };
+  creator?: { name: string; email: string; role: string } | null;
 }
 
 const CATEGORIES = ["Web Dev", "Programming", "Data Science", "DSA", "Design", "General"];
@@ -21,18 +22,40 @@ const CATEGORIES = ["Web Dev", "Programming", "Data Science", "DSA", "Design", "
 export default function AdminDashboard() {
   const router = useRouter();
   const [courses, setCourses] = useState<Course[]>([]);
+  const [allCourses, setAllCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [creating, setCreating] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [form, setForm] = useState({ title: "", subtitle: "", category: "Web Dev", instructor: "", color: "from-purple-500 to-pink-500" });
   const [error, setError] = useState("");
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [activeTab, setActiveTab] = useState<"my" | "all">("my");
 
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : "";
 
   useEffect(() => {
     fetchCourses();
+    checkSuperAdmin();
   }, []);
+
+  const checkSuperAdmin = () => {
+    try {
+      const user = JSON.parse(localStorage.getItem("user") || "{}");
+      if (user.role === "super-admin") {
+        setIsSuperAdmin(true);
+        fetchAllCourses();
+      }
+    } catch {}
+  };
+
+  const fetchAllCourses = async () => {
+    try {
+      const res = await fetch("/api/admin/courses/all", { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (data.success) setAllCourses(data.courses);
+    } catch {}
+  };
 
   const fetchCourses = async () => {
     setLoading(true);
@@ -124,20 +147,34 @@ export default function AdminDashboard() {
             <Plus size={18} /> Create New Course
           </motion.button>
 
+          {/* Super Admin Tabs */}
+          {isSuperAdmin && (
+            <div className="flex gap-2 mb-6">
+              <button onClick={() => setActiveTab("my")}
+                className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${activeTab === "my" ? "bg-purple-500/20 text-purple-400 border border-purple-500/30" : "text-slate-400 hover:text-white bg-white/5"}`}>
+                My Courses
+              </button>
+              <button onClick={() => setActiveTab("all")}
+                className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${activeTab === "all" ? "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30" : "text-slate-400 hover:text-white bg-white/5"}`}>
+                👑 All Courses (Super Admin)
+              </button>
+            </div>
+          )}
+
           {/* Courses Grid */}
           {loading ? (
             <div className="flex items-center justify-center py-20">
               <Loader2 size={28} className="text-purple-400 animate-spin" />
             </div>
-          ) : courses.length === 0 ? (
+          ) : (activeTab === "my" ? courses : allCourses).length === 0 ? (
             <div className="text-center py-20">
               <BookOpen size={48} className="text-slate-600 mx-auto mb-4" />
               <p className="text-slate-400 text-lg font-semibold">No courses yet</p>
-              <p className="text-slate-600 text-sm mt-1">Click &quot;Create New Course&quot; to get started</p>
+              <p className="text-slate-600 text-sm mt-1">{activeTab === "my" ? 'Click "Create New Course" to get started' : "No courses from any admin yet"}</p>
             </div>
           ) : (
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {courses.map((course, i) => (
+              {(activeTab === "my" ? courses : allCourses).map((course, i) => (
                 <motion.div key={course.id}
                   initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.05 }}
@@ -152,6 +189,11 @@ export default function AdminDashboard() {
                       <span className="text-xs text-purple-400 bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-full flex items-center gap-1">
                         <Tag size={10} /> {course.category}
                       </span>
+                      {activeTab === "all" && course.creator && (
+                        <span className="text-xs text-yellow-400 bg-yellow-500/10 border border-yellow-500/20 px-2 py-0.5 rounded-full">
+                          by {course.creator.name || course.creator.email}
+                        </span>
+                      )}
                     </div>
                     <h3 className="text-white font-bold text-base mb-1 line-clamp-1">{course.title}</h3>
                     <p className="text-slate-400 text-xs mb-4 line-clamp-2">{course.subtitle || "No description"}</p>

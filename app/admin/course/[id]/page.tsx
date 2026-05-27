@@ -4,7 +4,7 @@ import { useRouter, useParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft, Plus, ChevronDown, ChevronUp, FileVideo, FileText,
-  X, Loader2, Upload, Check, Play, Eye
+  X, Loader2, Upload, Check, Play, Eye, Trash2
 } from "lucide-react";
 import Navbar from "@/components/Navbar";
 
@@ -81,6 +81,14 @@ export default function ManageCoursePage() {
   // Generate Quiz state
   const [generatingQuizId, setGeneratingQuizId] = useState<string | null>(null);
 
+  // Homework state
+  const [homeworkModal, setHomeworkModal] = useState(false);
+  const [homeworkLessonId, setHomeworkLessonId] = useState("");
+  const [homeworkTitle, setHomeworkTitle] = useState("");
+  const [homeworkDesc, setHomeworkDesc] = useState("");
+  const [homeworkDifficulty, setHomeworkDifficulty] = useState("medium");
+  const [homeworkCreating, setHomeworkCreating] = useState(false);
+
   // Weekly Streak state
   const [creatingStreakId, setCreatingStreakId] = useState<string | null>(null);
   const [streakModal, setStreakModal] = useState(false);
@@ -96,6 +104,10 @@ export default function ManageCoursePage() {
   // Preview modals
   const [previewVideo, setPreviewVideo] = useState("");
   const [previewPdf, setPreviewPdf] = useState("");
+
+  // Delete states
+  const [deletingModuleId, setDeletingModuleId] = useState<string | null>(null);
+  const [deletingLessonId, setDeletingLessonId] = useState<string | null>(null);
 
   const [error, setError] = useState("");
 
@@ -382,6 +394,29 @@ export default function ManageCoursePage() {
     setGeneratingQuizId(null);
   };
 
+  // Create Homework
+  const handleSubmitHomework = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!homeworkTitle.trim() || !homeworkDesc.trim()) return;
+    setHomeworkCreating(true);
+    try {
+      const res = await fetch("/api/admin/homework", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ lessonId: homeworkLessonId, title: homeworkTitle.trim(), description: homeworkDesc.trim(), difficulty: homeworkDifficulty }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert("✅ Homework added!");
+        setHomeworkModal(false);
+        setHomeworkTitle(""); setHomeworkDesc(""); setHomeworkDifficulty("medium");
+      } else {
+        alert(`⚠️ ${data.message || "Failed."}`);
+      }
+    } catch { alert("⚠️ Something went wrong."); }
+    setHomeworkCreating(false);
+  };
+
   // Create Weekly Streak Challenge
   const handleCreateWeeklyStreak = (lessonId: string, moduleId: string, lessonNum: number) => {
     setStreakLessonId(lessonId);
@@ -426,6 +461,75 @@ export default function ManageCoursePage() {
     setStreakCreating(false);
   };
 
+  // ── Delete Module ──
+  const handleDeleteModule = async (moduleId: string, moduleTitle: string) => {
+    if (!confirm(`Are you sure you want to delete module "${moduleTitle}" and ALL its lessons? This cannot be undone.`)) return;
+    setDeletingModuleId(moduleId);
+    try {
+      const res = await fetch(`/api/admin/modules/${moduleId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCourse(prev => prev ? { ...prev, modules: prev.modules.filter(m => m.id !== moduleId) } : prev);
+      } else {
+        alert(`⚠️ ${data.message || "Failed to delete module."}`);
+      }
+    } catch {
+      alert("⚠️ Something went wrong.");
+    }
+    setDeletingModuleId(null);
+  };
+
+  // ── Delete Lesson ──
+  const handleDeleteLesson = async (lessonId: string, lessonTitle: string, moduleId: string) => {
+    if (!confirm(`Are you sure you want to delete lesson "${lessonTitle}"? This cannot be undone.`)) return;
+    setDeletingLessonId(lessonId);
+    try {
+      const res = await fetch(`/api/admin/lessons/${lessonId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCourse(prev => prev ? {
+          ...prev,
+          modules: prev.modules.map(m => m.id === moduleId ? { ...m, lessons: m.lessons.filter(l => l.id !== lessonId) } : m)
+        } : prev);
+      } else {
+        alert(`⚠️ ${data.message || "Failed to delete lesson."}`);
+      }
+    } catch {
+      alert("⚠️ Something went wrong.");
+    }
+    setDeletingLessonId(null);
+  };
+
+  // ── Delete Course ──
+  const handleDeleteCourse = async () => {
+    const confirmText = prompt(`Type "${course?.title}" to confirm deletion of this entire course:`);
+    if (confirmText !== course?.title) {
+      if (confirmText !== null) alert("Course name didn't match. Deletion cancelled.");
+      return;
+    }
+    try {
+      const res = await fetch(`/api/admin/courses/${courseId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert("✅ Course deleted permanently.");
+        router.push("/admin/dashboard");
+      } else {
+        alert(`⚠️ ${data.message || "Failed to delete course."}`);
+      }
+    } catch {
+      alert("⚠️ Something went wrong.");
+    }
+  };
+
   if (loading) return (
     <div className="min-h-screen bg-[#0f0f1a] flex items-center justify-center">
       <Loader2 size={32} className="text-purple-400 animate-spin" />
@@ -462,6 +566,10 @@ export default function ManageCoursePage() {
               <div className="flex items-center gap-4 mt-3 text-white/60 text-xs">
                 <span>{course.modules.length} modules</span>
                 <span>{course.modules.reduce((a, m) => a + m.lessons.length, 0)} lessons</span>
+                <button onClick={handleDeleteCourse}
+                  className="ml-auto flex items-center gap-1 text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 px-3 py-1 rounded-lg transition-colors text-xs font-semibold">
+                  <Trash2 size={12} /> Delete Course
+                </button>
               </div>
             </div>
           </div>
@@ -500,7 +608,13 @@ export default function ManageCoursePage() {
                       <span className="text-white font-semibold">{mod.title}</span>
                       <span className="text-slate-500 text-xs">{mod.lessons.length} lessons</span>
                     </div>
-                    {expandedModules.has(mod.id) ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+                    <div className="flex items-center gap-2">
+                      <span onClick={(e) => { e.stopPropagation(); handleDeleteModule(mod.id, mod.title); }}
+                        className="w-7 h-7 rounded-lg flex items-center justify-center text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors cursor-pointer">
+                        {deletingModuleId === mod.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                      </span>
+                      {expandedModules.has(mod.id) ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+                    </div>
                   </button>
 
                   {/* Module Content */}
@@ -547,12 +661,20 @@ export default function ManageCoursePage() {
                                         <span>{generatingQuizId === lesson.id ? "Generating..." : "⚡ Generate Quiz"}</span>
                                       </button>
                                     )}
+                                    <button onClick={() => { setHomeworkLessonId(lesson.id); setHomeworkModal(true); }}
+                                      className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 bg-blue-500/10 px-2 py-1 rounded-lg transition-colors">
+                                      <span>📝 Homework</span>
+                                    </button>
                                     {(li + 1) % 7 === 0 && (
                                       <button onClick={() => handleCreateWeeklyStreak(lesson.id, mod.id, li + 1)}
                                         className="flex items-center gap-1 text-xs text-yellow-400 hover:text-yellow-300 bg-yellow-500/10 px-2 py-1 rounded-lg transition-colors">
                                         <span>{creatingStreakId === lesson.id ? "Creating..." : "🔥 Weekly Challenge"}</span>
                                       </button>
                                     )}
+                                    <button onClick={() => handleDeleteLesson(lesson.id, lesson.title, mod.id)}
+                                      className="flex items-center gap-1 text-xs text-red-400 hover:text-red-300 bg-red-500/10 px-2 py-1 rounded-lg transition-colors">
+                                      {deletingLessonId === lesson.id ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
+                                    </button>
                                   </div>
                                 </div>
                               ))}
@@ -873,6 +995,65 @@ export default function ManageCoursePage() {
                   Done
                 </button>
               </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Homework Modal */}
+      <AnimatePresence>
+        {homeworkModal && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center px-4"
+            style={{ background: "rgba(0,0,0,0.8)", backdropFilter: "blur(10px)" }}
+            onClick={e => e.target === e.currentTarget && setHomeworkModal(false)}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.92, y: 20 }}
+              className="w-full max-w-md rounded-2xl p-7 relative"
+              style={{ background: "linear-gradient(145deg,#0f0a1e,#16213e)", border: "1px solid rgba(59,130,246,0.3)", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" }}>
+              <button onClick={() => setHomeworkModal(false)}
+                className="absolute top-4 right-4 w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-all">
+                <X size={14} />
+              </button>
+              <h3 className="text-xl font-extrabold text-white mb-1">📝 Add Homework</h3>
+              <p className="text-slate-400 text-sm mb-6">Practice problem for students (no evaluation)</p>
+              <form onSubmit={handleSubmitHomework} className="space-y-4">
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">Title *</label>
+                  <input type="text" placeholder="e.g. Build a responsive navbar" value={homeworkTitle}
+                    onChange={e => setHomeworkTitle(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 focus:border-blue-500 rounded-xl px-4 py-2.5 text-white text-sm outline-none transition-colors placeholder:text-slate-500" autoFocus />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">Description *</label>
+                  <textarea placeholder="Describe the practice problem..." value={homeworkDesc}
+                    onChange={e => setHomeworkDesc(e.target.value)} rows={4}
+                    className="w-full bg-white/5 border border-white/10 focus:border-blue-500 rounded-xl px-4 py-2.5 text-white text-sm outline-none transition-colors placeholder:text-slate-500 resize-none" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">Difficulty</label>
+                  <select value={homeworkDifficulty} onChange={e => setHomeworkDifficulty(e.target.value)}
+                    className="w-full bg-[#0f0a1e] border border-white/10 focus:border-blue-500 rounded-xl px-4 py-2.5 text-white text-sm outline-none transition-colors">
+                    <option value="easy">Easy</option>
+                    <option value="medium">Medium</option>
+                    <option value="hard">Hard</option>
+                  </select>
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button type="button" onClick={() => setHomeworkModal(false)}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-slate-300 bg-white/5 hover:bg-white/10 transition-colors">
+                    Cancel
+                  </button>
+                  <motion.button type="submit" disabled={homeworkCreating}
+                    whileHover={!homeworkCreating ? { scale: 1.02 } : {}}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-60 flex items-center justify-center gap-2"
+                    style={{ background: "linear-gradient(135deg,#3b82f6,#6366f1)" }}>
+                    {homeworkCreating ? <><Loader2 size={14} className="animate-spin" /> Adding...</> : "Add Homework"}
+                  </motion.button>
+                </div>
+              </form>
             </motion.div>
           </motion.div>
         )}

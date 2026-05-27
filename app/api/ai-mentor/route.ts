@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { verifyToken } from "@/app/lib/auth";
 import { getSignedFileUrlFromUrl, getS3KeyFromUrl } from "@/app/lib/s3";
+import { logger } from "@/app/lib/logger";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
@@ -149,11 +150,14 @@ Student's question: ${question.trim()}`;
     }
 
     if (!answer) {
+      logger.warn("ai-mentor", "all_retries_failed", { userId: payload.userId, attempts: maxAttempts, mode });
       return NextResponse.json({
         success: false,
         message: "AI is currently busy. Please wait a few seconds and try again.",
       }, { status: 429 });
     }
+
+    logger.success("ai-mentor", "response_generated", { userId: payload.userId, mode, answerLength: answer.length });
 
     return NextResponse.json({
       success: true,

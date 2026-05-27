@@ -59,10 +59,35 @@ export function requireAdmin(req: NextRequest): {
 
   if (error) return { error };
 
-  if (user?.role !== "admin") {
+  if (user?.role !== "admin" && user?.role !== "super-admin") {
     return {
       error: NextResponse.json(
         { success: false, message: "Forbidden. Admin access required." },
+        { status: 403 }
+      ),
+    };
+  }
+
+  return { user };
+}
+
+/**
+ * Middleware to check if user is super-admin
+ * @param req - Next.js request object
+ * @returns Response with 403 if not super-admin, null otherwise
+ */
+export function requireSuperAdmin(req: NextRequest): {
+  error?: NextResponse;
+  user?: JwtPayload;
+} {
+  const { error, user } = requireAuth(req);
+
+  if (error) return { error };
+
+  if (user?.role !== "super-admin") {
+    return {
+      error: NextResponse.json(
+        { success: false, message: "Forbidden. Super admin access required." },
         { status: 403 }
       ),
     };

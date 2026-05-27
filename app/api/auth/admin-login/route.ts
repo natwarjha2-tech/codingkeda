@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/app/lib/prisma";
 import { signToken } from "@/app/lib/auth";
+import { logger } from "@/app/lib/logger";
 
 /**
  * POST /api/auth/admin-login
@@ -43,8 +44,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Check if user is admin
-    if (user.role !== "admin") {
+    // Check if user is admin or super-admin
+    if (user.role !== "admin" && user.role !== "super-admin") {
       return NextResponse.json(
         { success: false, message: "Access denied. Admin privileges required." },
         { status: 403 }
@@ -67,6 +68,8 @@ export async function POST(req: NextRequest) {
       email: user.email,
       role: user.role,
     });
+
+    logger.success("admin-login", "login_successful", { userId: user.id, email: user.email, role: user.role });
 
     return NextResponse.json({
       success: true,

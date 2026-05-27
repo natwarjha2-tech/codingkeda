@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { syncStudentOnEnroll } from "@/app/lib/sync-student";
 import crypto from "crypto";
+import { logger } from "@/app/lib/logger";
 
 /**
  * POST /api/payment/webhook
@@ -96,6 +97,7 @@ export async function POST(req: NextRequest) {
       console.log(
         `Payment success: ${razorpayPaymentId} - User ${payment.userId} enrolled in ${payment.courseId}`
       );
+      logger.success("payment-webhook", "enrollment_complete", { userId: payment.userId, courseId: payment.courseId, paymentId: razorpayPaymentId });
 
       return NextResponse.json({
         success: true,
@@ -112,6 +114,7 @@ export async function POST(req: NextRequest) {
       });
 
       console.log(`Payment failed: ${razorpayPaymentId} - Order ${razorpayOrderId}`);
+      logger.error("payment-webhook", "payment_failed", { orderId: razorpayOrderId, paymentId: razorpayPaymentId });
 
       return NextResponse.json({
         success: true,
