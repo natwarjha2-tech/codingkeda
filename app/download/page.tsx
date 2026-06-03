@@ -15,7 +15,7 @@ interface Release {
 }
 
 // GitHub repo details — update owner/repo to match your actual GitHub
-const GITHUB_OWNER = "codingkida";
+const GITHUB_OWNER = "natwarjha2-tech";
 const GITHUB_REPO = "codingkidadesktop";
 
 function formatBytes(bytes: number): string {
