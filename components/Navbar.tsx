@@ -168,6 +168,10 @@ export default function Navbar() {
               {l.label}
             </button>
           ))}
+          <Link href="/download"
+            className="text-slate-400 hover:text-white text-sm font-medium transition-colors whitespace-nowrap flex items-center gap-1.5">
+            <span>⬇</span> Download App
+          </Link>
         </div>
 
         {/* Profile/Login - always at extreme right end */}
@@ -283,6 +287,10 @@ export default function Navbar() {
                 {l.label}
               </button>
             ))}
+            <Link href="/download" onClick={() => setOpen(false)}
+              className="text-slate-300 text-sm font-medium text-left flex items-center gap-2">
+              <span>⬇</span> Download App
+            </Link>
             {loggedIn && (
               <>
                 <Link href="/my-courses" onClick={() => setOpen(false)}
