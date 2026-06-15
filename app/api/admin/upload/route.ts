@@ -3,6 +3,7 @@ import { uploadToS3, getSignedFileUrl } from "@/app/lib/s3";
 import { prisma } from "@/app/lib/prisma";
 import { MediaType } from "@prisma/client";
 import { requireAdmin } from "@/app/lib/middleware";
+import { processVideoHls } from "@/app/lib/hls-processor";
 
 export const config = {
   api: {
@@ -83,11 +84,19 @@ export async function POST(req: NextRequest) {
         s3Url: url,
         tags,
         uploadedBy: user!.userId,
+        ...(MEDIA_TYPE_MAP[type] === "VIDEO" && { hlsStatus: "pending" }),
       },
     });
 
     // Generate presigned URL for immediate use
     const presignedUrl = await getSignedFileUrl(key, 3600);
+
+    // Auto-trigger HLS processing for video uploads (non-blocking, runs in background)
+    if (MEDIA_TYPE_MAP[type] === "VIDEO") {
+      processVideoHls(media.id, key, url).catch((err) => {
+        console.error(`[HLS] Background processing failed for ${media.id}:`, err);
+      });
+    }
 
     return NextResponse.json({
       success: true,
@@ -99,6 +108,7 @@ export async function POST(req: NextRequest) {
         type: media.type,
         tags: media.tags,
         createdAt: media.createdAt,
+        hlsStatus: MEDIA_TYPE_MAP[type] === "VIDEO" ? "pending" : "none",
       },
     });
   } catch (error) {

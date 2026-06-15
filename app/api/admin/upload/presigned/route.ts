@@ -53,6 +53,7 @@ export async function POST(req: NextRequest) {
       s3Url: publicUrl,
       tags: tags ? tags.split(",").map((t: string) => t.trim()).filter(Boolean) : [],
       uploadedBy: user!.userId,
+      ...(MEDIA_TYPE_MAP[type] === "VIDEO" && { hlsStatus: "pending" }),
     },
   });
 

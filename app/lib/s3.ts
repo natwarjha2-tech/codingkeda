@@ -56,3 +56,39 @@ export async function getPresignedUploadUrl(key: string, contentType: string, ex
 export function getPublicUrl(key: string) {
   return `https://${BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
 }
+
+// Upload a text/playlist file (m3u8) or binary segment (.ts) to S3
+export async function uploadHlsFile(
+  content: Buffer | string,
+  key: string,
+  contentType: string
+) {
+  const body = typeof content === "string" ? Buffer.from(content) : content;
+  const command = new PutObjectCommand({
+    Bucket: BUCKET,
+    Key: key,
+    Body: body,
+    ContentType: contentType,
+    // HLS assets are public — segments are useless without the signed master URL
+    // and CloudFront can add auth layer on top if needed
+  });
+  await s3.send(command);
+  return getPublicUrl(key);
+}
+
+// CloudFront base URL (optional — falls back to S3 direct if not set)
+const CF_DOMAIN = process.env.CLOUDFRONT_DOMAIN; // e.g. "d1234.cloudfront.net"
+
+export function getHlsUrl(s3Key: string): string {
+  if (CF_DOMAIN) {
+    return `https://${CF_DOMAIN}/${s3Key}`;
+  }
+  return getPublicUrl(s3Key);
+}
+
+// Sign a CloudFront URL using signed cookies is complex — for now we sign the S3 key
+// In production replace this with CloudFront signed URL via @aws-sdk/cloudfront-signer
+export async function getSignedHlsUrl(s3Key: string, expiresIn = 3600): Promise<string> {
+  // If CloudFront domain is set but no CF signing keys configured, return signed S3 URL
+  return getSignedFileUrl(s3Key, expiresIn);
+}

@@ -6,6 +6,8 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "600mb",
     },
   },
+  // Allow long-running API routes for FFmpeg HLS processing
+  serverExternalPackages: ["fluent-ffmpeg"],
 };
 
 export default nextConfig;

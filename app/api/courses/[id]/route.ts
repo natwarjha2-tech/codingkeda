@@ -95,10 +95,45 @@ export async function GET(
                   const signedVideoUrl = (!alreadySigned && getS3KeyFromUrl(lesson.videoUrl))
                     ? await getSignedFileUrlFromUrl(lesson.videoUrl)
                     : lesson.videoUrl;
+
+                  // Look up HLS info from Media table by matching s3Url
+                  let mediaId = null;
+                  let hlsMasterUrl = null;
+                  let hlsStatus = 'none';
+                  let hlsQualities: string[] = [];
+                  let qualityUrls: Record<string, string> = {};
+                  if (lesson.videoUrl) {
+                    const s3KeyRaw = getS3KeyFromUrl(lesson.videoUrl);
+                    const media = s3KeyRaw ? await prisma.media.findFirst({
+                      where: { s3Key: s3KeyRaw, isActive: true },
+                      select: { id: true, hlsMasterUrl: true, hlsStatus: true, hlsQualities: true, hlsS3Prefix: true },
+                    }) : null;
+                    if (media) {
+                      mediaId = media.id;
+                      hlsStatus = media.hlsStatus || 'none';
+                      hlsQualities = media.hlsQualities || [];
+                      // Generate signed URLs for each quality MP4
+                      if (media.hlsStatus === 'ready' && media.hlsS3Prefix && hlsQualities.length > 0) {
+                        for (const q of hlsQualities) {
+                          const qKey = `${media.hlsS3Prefix}/${q}.mp4`;
+                          qualityUrls[q] = await getSignedFileUrlFromUrl(
+                            `https://${process.env.AWS_S3_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${qKey}`,
+                            3600
+                          );
+                        }
+                      }
+                    }
+                  }
+
                   return {
                     ...lesson,
                     videoUrl: signedVideoUrl,
                     notes: lesson.notes,
+                    mediaId,
+                    hlsMasterUrl,
+                    hlsStatus,
+                    hlsQualities,
+                    qualityUrls,
                   };
                 }
                 // For locked lessons, return empty URLs
@@ -106,6 +141,10 @@ export async function GET(
                   ...lesson,
                   videoUrl: "",
                   notes: "",
+                  mediaId: null,
+                  hlsMasterUrl: null,
+                  hlsStatus: 'none',
+                  hlsQualities: [],
                 };
               })
             ),

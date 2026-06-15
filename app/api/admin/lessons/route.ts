@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
+import { MediaType } from "@prisma/client";
+import { processVideoHls } from "@/app/lib/hls-processor";
 
 /**
  * POST /api/admin/lessons
@@ -13,7 +15,7 @@ export async function POST(req: NextRequest) {
     if (error) return error;
 
     const body = await req.json();
-    const { moduleId, title, duration, isFree, order, videoUrl, notes } = body;
+    let { moduleId, title, duration, isFree, order, videoUrl, notes, mediaId } = body;
 
     if (!moduleId?.trim() || !title?.trim()) {
       return NextResponse.json(
@@ -38,6 +40,20 @@ export async function POST(req: NextRequest) {
         orderBy: { order: "desc" },
       });
       lessonOrder = (lastLesson?.order ?? 0) + 1;
+    }
+
+    if (mediaId) {
+      const media = await prisma.media.findUnique({
+        where: { id: mediaId, type: MediaType.VIDEO, isActive: true },
+      });
+      if (media) {
+        if (!videoUrl) {
+          videoUrl = media.s3Url;
+        }
+        processVideoHls(media.id, media.s3Key, media.s3Url).catch((err) => {
+          console.error(`[HLS] Auto processing failed for ${mediaId}:`, err);
+        });
+      }
     }
 
     const lesson = await prisma.lesson.create({

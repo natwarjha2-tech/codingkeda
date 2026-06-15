@@ -70,6 +70,7 @@ export default function ManageCoursePage() {
   const [videoUploading, setVideoUploading] = useState(false);
   const [pdfUploading, setPdfUploading] = useState(false);
   const [videoUrl, setVideoUrl] = useState("");
+  const [videoMediaId, setVideoMediaId] = useState<string | null>(null);
   const [pdfUrl, setPdfUrl] = useState("");
   const [videoDragging, setVideoDragging] = useState(false);
   const [pdfDragging, setPdfDragging] = useState(false);
@@ -77,6 +78,7 @@ export default function ManageCoursePage() {
   const [pdfUploadSuccess, setPdfUploadSuccess] = useState(false);
   const [videoError, setVideoError] = useState("");
   const [pdfError, setPdfError] = useState("");
+  const [editVideoMediaId, setEditVideoMediaId] = useState<string | null>(null);
 
   // Generate Quiz state
   const [generatingQuizId, setGeneratingQuizId] = useState<string | null>(null);
@@ -170,6 +172,19 @@ export default function ManageCoursePage() {
   };
 
   // ── Upload handlers ──
+  const startVideoProcessing = async (mediaId: string | null) => {
+    if (!mediaId) return;
+    try {
+      await fetch("/api/admin/video-process", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ mediaId }),
+      });
+    } catch {
+      // ignore processing trigger errors, it can be retried manually
+    }
+  };
+
   const handleVideoUpload = async () => {
     if (!videoFile) return setVideoError("Please select a video file.");
     setVideoError("");
@@ -187,9 +202,28 @@ export default function ManageCoursePage() {
       // Step 2: upload directly to S3
       const s3Res = await fetch(presignData.uploadUrl, { method: "PUT", body: videoFile, headers: { "Content-Type": videoFile.type } });
       if (!s3Res.ok) return setVideoError("S3 upload failed.");
+
+      // Step 3: verify uploaded object on S3 (size/checksum)
+      try {
+        const token = localStorage.getItem("token");
+        const verifyRes = await fetch("/api/admin/upload/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ key: presignData.key, expectedSize: videoFile.size }),
+        });
+        const verifyData = await verifyRes.json();
+        if (!verifyRes.ok || !verifyData.matches) {
+          return setVideoError("Upload verification failed. Please try re-uploading the file.");
+        }
+      } catch (err) {
+        return setVideoError("Upload verification failed. Please try re-uploading the file.");
+      }
+
       setVideoUrl(presignData.publicUrl);
+      setVideoMediaId(presignData.mediaId || null);
       setVideoUploadSuccess(true);
       setVideoFile(null);
+      await startVideoProcessing(presignData.mediaId || null);
     } catch {
       setVideoError("Upload failed. Check your connection.");
     } finally {
@@ -266,7 +300,7 @@ export default function ManageCoursePage() {
       const res = await fetch("/api/admin/lessons", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ moduleId: activeModuleId, title: lessonTitle, isFree: lessonIsFree, videoUrl, notes: pdfUrl }),
+        body: JSON.stringify({ moduleId: activeModuleId, title: lessonTitle, isFree: lessonIsFree, videoUrl, notes: pdfUrl, mediaId: videoMediaId }),
       });
       const data = await res.json();
       if (data.success) {
@@ -294,7 +328,7 @@ export default function ManageCoursePage() {
     setLessonTitle("");
     setLessonIsFree(false);
     setVideoFile(null); setPdfFile(null);
-    setVideoUrl(""); setPdfUrl("");
+    setVideoUrl(""); setVideoMediaId(null); setPdfUrl("");
     setVideoUploadSuccess(false); setPdfUploadSuccess(false);
     setVideoError(""); setPdfError("");
     setError("");
@@ -317,13 +351,31 @@ export default function ManageCoursePage() {
       // Step 2: upload directly to S3
       const s3Res = await fetch(presignData.uploadUrl, { method: "PUT", body: editVideoFile, headers: { "Content-Type": editVideoFile.type } });
       if (!s3Res.ok) return setEditVideoError("S3 upload failed.");
+
+      // Step 3: verify uploaded object on S3 (size/checksum)
+      try {
+        const verifyRes = await fetch("/api/admin/upload/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+          body: JSON.stringify({ key: presignData.key, expectedSize: editVideoFile.size }),
+        });
+        const verifyData = await verifyRes.json();
+        if (!verifyRes.ok || !verifyData.matches) {
+          return setEditVideoError("Upload verification failed. Please try re-uploading the file.");
+        }
+      } catch (err) {
+        return setEditVideoError("Upload verification failed. Please try re-uploading the file.");
+      }
+
+      setEditVideoMediaId(presignData.mediaId || null);
       const updateRes = await fetch(`/api/admin/lessons/${editLesson.id}/update-video`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ videoUrl: presignData.publicUrl }),
+        body: JSON.stringify({ videoUrl: presignData.publicUrl, mediaId: presignData.mediaId }),
       });
       const updateData = await updateRes.json();
       if (!updateRes.ok) return setEditVideoError(updateData.message || "Update failed.");
+      await startVideoProcessing(presignData.mediaId || null);
       setCourse(prev => prev ? {
         ...prev,
         modules: prev.modules.map(m => ({
@@ -369,6 +421,7 @@ export default function ManageCoursePage() {
   const resetEditModal = () => {
     setEditLesson(null);
     setEditVideoFile(null); setEditPdfFile(null);
+    setEditVideoMediaId(null);
     setEditVideoSuccess(false); setEditPdfSuccess(false);
     setEditVideoError(""); setEditPdfError("");
   };
