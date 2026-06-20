@@ -1,0 +1,9 @@
+-- AlterTable: Add student detail and parent fields to Student
+ALTER TABLE "Student" ADD COLUMN IF NOT EXISTS "studentName"    TEXT;
+ALTER TABLE "Student" ADD COLUMN IF NOT EXISTS "studentDob"     TEXT;
+ALTER TABLE "Student" ADD COLUMN IF NOT EXISTS "studentGrade"   TEXT;
+ALTER TABLE "Student" ADD COLUMN IF NOT EXISTS "studentGender"  TEXT;
+ALTER TABLE "Student" ADD COLUMN IF NOT EXISTS "studentSchool"  TEXT;
+ALTER TABLE "Student" ADD COLUMN IF NOT EXISTS "parentName"     TEXT;
+ALTER TABLE "Student" ADD COLUMN IF NOT EXISTS "parentEmail"    TEXT;
+ALTER TABLE "Student" ADD COLUMN IF NOT EXISTS "parentContact"  TEXT;

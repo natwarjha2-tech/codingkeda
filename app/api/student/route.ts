@@ -32,7 +32,19 @@ export async function GET(req: NextRequest) {
     // Also fetch student record if exists
     const student = await prisma.student.findUnique({
       where: { userId: payload.userId },
-      select: { id: true, enrolledCourses: true, createdAt: true },
+      select: {
+        id: true,
+        enrolledCourses: true,
+        createdAt: true,
+        studentName: true,
+        studentDob: true,
+        studentGrade: true,
+        studentGender: true,
+        studentSchool: true,
+        parentName: true,
+        parentEmail: true,
+        parentContact: true,
+      },
     });
 
     // Get actual enrollment count (always accurate)
@@ -43,7 +55,20 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       success: true,
       student: student
-        ? { ...user, studentId: student.id, enrolledCourses: enrollmentCount, enrolledSince: student.createdAt }
+        ? {
+            ...user,
+            studentId: student.id,
+            enrolledCourses: enrollmentCount,
+            enrolledSince: student.createdAt,
+            studentName: student.studentName ?? null,
+            studentDob: student.studentDob ?? null,
+            studentGrade: student.studentGrade ?? null,
+            studentGender: student.studentGender ?? null,
+            studentSchool: student.studentSchool ?? null,
+            parentName: student.parentName ?? null,
+            parentEmail: student.parentEmail ?? null,
+            parentContact: student.parentContact ?? null,
+          }
         : { ...user, enrolledCourses: enrollmentCount },
       user,
     });

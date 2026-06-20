@@ -4,7 +4,7 @@ import { verifyToken } from "@/app/lib/auth";
 
 /**
  * PATCH /api/student/profile
- * Update student name and/or avatar URL
+ * Update user display name + all student/parent detail fields
  * Requires valid user token
  */
 export async function PATCH(req: NextRequest) {
@@ -20,26 +20,72 @@ export async function PATCH(req: NextRequest) {
     }
 
     const payload = verifyToken(token);
-    const { name, avatarUrl } = await req.json();
+    const body = await req.json();
 
-    if (!name?.trim() && !avatarUrl?.trim()) {
-      return NextResponse.json(
-        { success: false, message: "Nothing to update." },
-        { status: 400 }
-      );
+    const {
+      name,
+      studentName,
+      studentDob,
+      studentGrade,
+      studentGender,
+      studentSchool,
+      parentName,
+      parentEmail,
+      parentContact,
+    } = body;
+
+    // Update User display name if provided
+    if (name?.trim()) {
+      await prisma.user.update({
+        where: { id: payload.userId },
+        data: { name: name.trim() },
+      });
     }
 
-    const updateData: Record<string, string> = {};
-    if (name?.trim()) updateData.name = name.trim();
+    // Build student update data — only include fields that were sent
+    const studentData: Record<string, string | null> = {};
+    if (studentName !== undefined) studentData.studentName = studentName?.trim() || null;
+    if (studentDob !== undefined) studentData.studentDob = studentDob?.trim() || null;
+    if (studentGrade !== undefined) studentData.studentGrade = studentGrade?.trim() || null;
+    if (studentGender !== undefined) studentData.studentGender = studentGender?.trim() || null;
+    if (studentSchool !== undefined) studentData.studentSchool = studentSchool?.trim() || null;
+    if (parentName !== undefined) studentData.parentName = parentName?.trim() || null;
+    if (parentEmail !== undefined) studentData.parentEmail = parentEmail?.trim() || null;
+    if (parentContact !== undefined) studentData.parentContact = parentContact?.trim() || null;
+    if (name?.trim()) studentData.name = name.trim();
 
-    const user = await prisma.user.update({
-      where: { id: payload.userId },
-      data: updateData,
-      select: { id: true, name: true, email: true, role: true },
-    });
+    // Upsert student record — create if not exists, update if exists
+    if (Object.keys(studentData).length > 0) {
+      const existingStudent = await prisma.student.findUnique({
+        where: { userId: payload.userId },
+      });
 
-    return NextResponse.json({ success: true, user });
-  } catch {
+      if (existingStudent) {
+        await prisma.student.update({
+          where: { userId: payload.userId },
+          data: studentData,
+        });
+      } else {
+        // Get user email for student creation
+        const user = await prisma.user.findUnique({
+          where: { id: payload.userId },
+          select: { email: true, name: true },
+        });
+        await prisma.student.create({
+          data: {
+            userId: payload.userId,
+            email: user!.email,
+            name: studentData.name ?? user!.name,
+            enrolledCourses: 0,
+            ...studentData,
+          },
+        });
+      }
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error("Profile update error:", err);
     return NextResponse.json(
       { success: false, message: "Internal server error." },
       { status: 500 }
