@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
     if (error) return error;
 
     const body = await req.json();
-    let { moduleId, title, duration, isFree, order, videoUrl, notes, mediaId } = body;
+    let { moduleId, title, duration, isFree, order, videoUrl, notes, mediaId, pdfMediaId } = body;
 
     if (!moduleId?.trim() || !title?.trim()) {
       return NextResponse.json(
@@ -44,16 +44,23 @@ export async function POST(req: NextRequest) {
 
     if (mediaId) {
       const media = await prisma.media.findUnique({
-        where: { id: mediaId, type: MediaType.VIDEO, isActive: true },
+        where: { id: mediaId, type: MediaType.VIDEO },
       });
       if (media) {
         if (!videoUrl) {
           videoUrl = media.s3Url;
         }
+        // Activate the media record — upload is now confirmed by Save
+        await prisma.media.update({ where: { id: mediaId }, data: { isActive: true } });
         processVideoHls(media.id, media.s3Key, media.s3Url).catch((err) => {
           console.error(`[HLS] Auto processing failed for ${mediaId}:`, err);
         });
       }
+    }
+
+    // Activate PDF media record if provided
+    if (pdfMediaId) {
+      await prisma.media.update({ where: { id: pdfMediaId }, data: { isActive: true } }).catch(() => {});
     }
 
     const lesson = await prisma.lesson.create({

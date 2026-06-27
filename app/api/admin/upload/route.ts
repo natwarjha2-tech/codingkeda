@@ -84,6 +84,7 @@ export async function POST(req: NextRequest) {
         s3Url: url,
         tags,
         uploadedBy: user!.userId,
+        isActive: false, // Will be activated when admin clicks Save
         ...(MEDIA_TYPE_MAP[type] === "VIDEO" && { hlsStatus: "pending" }),
       },
     });

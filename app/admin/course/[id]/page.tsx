@@ -72,6 +72,7 @@ export default function ManageCoursePage() {
   const [videoUrl, setVideoUrl] = useState("");
   const [videoMediaId, setVideoMediaId] = useState<string | null>(null);
   const [pdfUrl, setPdfUrl] = useState("");
+  const [pdfMediaId, setPdfMediaId] = useState<string | null>(null);
   const [videoDragging, setVideoDragging] = useState(false);
   const [pdfDragging, setPdfDragging] = useState(false);
   const [videoUploadSuccess, setVideoUploadSuccess] = useState(false);
@@ -248,6 +249,7 @@ export default function ManageCoursePage() {
       const s3Res = await fetch(presignData.uploadUrl, { method: "PUT", body: pdfFile, headers: { "Content-Type": pdfFile.type } });
       if (!s3Res.ok) return setPdfError("S3 upload failed.");
       setPdfUrl(presignData.publicUrl);
+      setPdfMediaId(presignData.mediaId || null);
       setPdfUploadSuccess(true);
       setPdfFile(null);
     } catch {
@@ -300,7 +302,7 @@ export default function ManageCoursePage() {
       const res = await fetch("/api/admin/lessons", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ moduleId: activeModuleId, title: lessonTitle, isFree: lessonIsFree, videoUrl, notes: pdfUrl, mediaId: videoMediaId }),
+        body: JSON.stringify({ moduleId: activeModuleId, title: lessonTitle, isFree: lessonIsFree, videoUrl, notes: pdfUrl, mediaId: videoMediaId, pdfMediaId }),
       });
       const data = await res.json();
       if (data.success) {
@@ -313,7 +315,16 @@ export default function ManageCoursePage() {
             ),
           };
         });
-        resetLessonModal();
+        // Reset without cancelling uploads (they are now confirmed)
+        setShowLessonModal(false);
+        setLessonTitle("");
+        setLessonIsFree(false);
+        setVideoFile(null); setPdfFile(null);
+        setVideoUrl(""); setVideoMediaId(null); setPdfUrl(""); setPdfMediaId(null);
+        setVideoUploadSuccess(false); setPdfUploadSuccess(false);
+        setVideoError(""); setPdfError("");
+        setError("");
+        setActiveModuleId("");
       } else {
         setError(data.message || "Failed to save lesson.");
       }
@@ -323,12 +334,35 @@ export default function ManageCoursePage() {
     setCreatingLesson(false);
   };
 
-  const resetLessonModal = () => {
+  const resetLessonModal = async () => {
+    // Cancel pending uploads from S3 + DB if admin didn't save
+    if (videoMediaId && videoUploadSuccess) {
+      try {
+        await fetch("/api/admin/upload/cancel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+          body: JSON.stringify({ mediaId: videoMediaId }),
+        });
+      } catch (err) {
+        console.error("Failed to cancel video upload:", err);
+      }
+    }
+    if (pdfMediaId && pdfUploadSuccess) {
+      try {
+        await fetch("/api/admin/upload/cancel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+          body: JSON.stringify({ mediaId: pdfMediaId }),
+        });
+      } catch (err) {
+        console.error("Failed to cancel PDF upload:", err);
+      }
+    }
     setShowLessonModal(false);
     setLessonTitle("");
     setLessonIsFree(false);
     setVideoFile(null); setPdfFile(null);
-    setVideoUrl(""); setVideoMediaId(null); setPdfUrl("");
+    setVideoUrl(""); setVideoMediaId(null); setPdfUrl(""); setPdfMediaId(null);
     setVideoUploadSuccess(false); setPdfUploadSuccess(false);
     setVideoError(""); setPdfError("");
     setError("");
@@ -418,7 +452,19 @@ export default function ManageCoursePage() {
     finally { setEditPdfUploading(false); }
   };
 
-  const resetEditModal = () => {
+  const resetEditModal = async () => {
+    // Cancel pending edit upload if it was uploaded to S3 but update-video/update-pdf failed
+    if (editVideoMediaId && !editVideoSuccess) {
+      try {
+        await fetch("/api/admin/upload/cancel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+          body: JSON.stringify({ mediaId: editVideoMediaId }),
+        });
+      } catch (err) {
+        console.error("Failed to cancel edit video upload:", err);
+      }
+    }
     setEditLesson(null);
     setEditVideoFile(null); setEditPdfFile(null);
     setEditVideoMediaId(null);

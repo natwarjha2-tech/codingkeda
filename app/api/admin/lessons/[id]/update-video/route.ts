@@ -45,7 +45,7 @@ export async function POST(
 
     if (mediaId) {
       const media = await prisma.media.findUnique({
-        where: { id: mediaId, type: "VIDEO", isActive: true },
+        where: { id: mediaId, type: "VIDEO" },
       });
 
       if (!media) {
@@ -56,6 +56,8 @@ export async function POST(
       }
 
       finalVideoUrl = media.s3Url;
+      // Activate the media record — upload is now confirmed by Save
+      await prisma.media.update({ where: { id: mediaId }, data: { isActive: true } });
     }
 
     // Update lesson with video URL

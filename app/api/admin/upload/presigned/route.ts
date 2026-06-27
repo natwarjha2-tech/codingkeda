@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
 
   const { uploadUrl, publicUrl } = await getPresignedUploadUrl(key, fileType);
 
-  // Pre-create the media record so we can return the id
+  // Pre-create the media record as INACTIVE (pending) — only activated when lesson is saved
   const media = await prisma.media.create({
     data: {
       title: title?.trim() || fileName,
@@ -53,6 +53,7 @@ export async function POST(req: NextRequest) {
       s3Url: publicUrl,
       tags: tags ? tags.split(",").map((t: string) => t.trim()).filter(Boolean) : [],
       uploadedBy: user!.userId,
+      isActive: false, // Will be activated when admin clicks Save
       ...(MEDIA_TYPE_MAP[type] === "VIDEO" && { hlsStatus: "pending" }),
     },
   });

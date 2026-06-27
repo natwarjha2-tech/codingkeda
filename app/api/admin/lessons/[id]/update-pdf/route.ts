@@ -45,7 +45,7 @@ export async function POST(
 
     if (mediaId) {
       const media = await prisma.media.findUnique({
-        where: { id: mediaId, type: "PDF", isActive: true },
+        where: { id: mediaId, type: "PDF" },
       });
 
       if (!media) {
@@ -56,6 +56,8 @@ export async function POST(
       }
 
       finalPdfUrl = media.s3Url;
+      // Activate the media record — upload is now confirmed by Save
+      await prisma.media.update({ where: { id: mediaId }, data: { isActive: true } });
     }
 
     // Update lesson with PDF URL in notes field
