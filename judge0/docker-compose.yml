@@ -1,0 +1,126 @@
+# ═══════════════════════════════════════════════════════
+# CodingKida — Judge0 CE (Code Execution Engine)
+# 
+# Judge0 CE v1.13.1 — self-hosted code execution sandbox
+# Supports: C, C++, Java, Python, JavaScript + 60 more
+#
+# Usage:
+#   docker compose up -d        (start all services)
+#   docker compose down         (stop all services)
+#   docker compose logs -f      (view logs)
+#
+# After starting:
+#   API available at http://localhost:2358
+#   Test: curl http://localhost:2358/about
+#
+# ═══════════════════════════════════════════════════════
+
+services:
+  # ─────────────────────────────────────────
+  # Judge0 API Server
+  # ─────────────────────────────────────────
+  judge0-server:
+    image: judge0/judge0:1.13.1
+    container_name: judge0-server
+    ports:
+      - "2358:2358"
+    privileged: true
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://judge0-redis:6379
+      - REDIS_HOST=judge0-redis
+      - REDIS_PORT=6379
+      - POSTGRES_HOST=judge0-db
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=judge0
+      - POSTGRES_USER=judge0
+      - POSTGRES_PASSWORD=judge0password
+      # Security limits
+      - CPU_TIME_LIMIT=2
+      - CPU_EXTRA_TIME=1
+      - WALL_TIME_LIMIT=5
+      - MEMORY_LIMIT=256000
+      - STACK_LIMIT=128000
+      - MAX_PROCESSES_AND_OR_THREADS=60
+      - ENABLE_NETWORK=false
+      - MAX_FILE_SIZE=1024
+      # Performance
+      - NUMBER_OF_WORKERS=2
+      - SUBMISSION_CACHE_DURATION=2
+    depends_on:
+      judge0-db:
+        condition: service_healthy
+      judge0-redis:
+        condition: service_healthy
+
+  # ─────────────────────────────────────────
+  # Judge0 Workers (executes code in sandboxes)
+  # ─────────────────────────────────────────
+  judge0-workers:
+    image: judge0/judge0:1.13.1
+    container_name: judge0-workers
+    command: ["./scripts/workers"]
+    privileged: true
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://judge0-redis:6379
+      - REDIS_HOST=judge0-redis
+      - REDIS_PORT=6379
+      - POSTGRES_HOST=judge0-db
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=judge0
+      - POSTGRES_USER=judge0
+      - POSTGRES_PASSWORD=judge0password
+      - CPU_TIME_LIMIT=2
+      - CPU_EXTRA_TIME=1
+      - WALL_TIME_LIMIT=5
+      - MEMORY_LIMIT=256000
+      - STACK_LIMIT=128000
+      - MAX_PROCESSES_AND_OR_THREADS=60
+      - ENABLE_NETWORK=false
+      - MAX_FILE_SIZE=1024
+      - NUMBER_OF_WORKERS=2
+    depends_on:
+      judge0-db:
+        condition: service_healthy
+      judge0-redis:
+        condition: service_healthy
+
+  # ─────────────────────────────────────────
+  # PostgreSQL (Judge0's internal DB)
+  # ─────────────────────────────────────────
+  judge0-db:
+    image: postgres:15-alpine
+    container_name: judge0-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=judge0
+      - POSTGRES_USER=judge0
+      - POSTGRES_PASSWORD=judge0password
+    volumes:
+      - judge0-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U judge0 -d judge0"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ─────────────────────────────────────────
+  # Redis (Judge0's queue & cache)
+  # ─────────────────────────────────────────
+  judge0-redis:
+    image: redis:7-alpine
+    container_name: judge0-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - judge0-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  judge0-postgres-data:
+  judge0-redis-data:

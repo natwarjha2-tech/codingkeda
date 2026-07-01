@@ -25,8 +25,12 @@ export async function GET(req: NextRequest) {
         title: true,
         description: true,
         difficulty: true,
+        type: true,
+        language: true,
         starterCode: true,
         hints: true,
+        timeLimit: true,
+        memoryLimit: true,
         order: true,
         // Don't expose solution — check server-side
       },
@@ -59,7 +63,7 @@ export async function POST(req: NextRequest) {
     }
 
     const payload = verifyToken(token);
-    const { exerciseId, code, courseId } = await req.json();
+    const { exerciseId, code, courseId, language } = await req.json();
 
     if (!exerciseId || !code?.trim() || !courseId) {
       return NextResponse.json(
@@ -144,6 +148,7 @@ Respond ONLY with valid JSON (no markdown):
         exerciseId,
         courseId,
         code: code.trim(),
+        language: language || null,
         passed,
       },
     });
