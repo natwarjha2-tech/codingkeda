@@ -222,26 +222,31 @@ export async function POST(req: NextRequest) {
             else statusStr = "runtime_error";
           }
         } else if (JUDGE0_API_URL) {
-          // Judge0 execution
+          // Judge0 execution (base64 encoded for reliable stdin transfer)
           const j0Headers: Record<string, string> = { "Content-Type": "application/json" };
           if (JUDGE0_AUTH_TOKEN) j0Headers["X-Auth-Token"] = JUDGE0_AUTH_TOKEN;
-          const j0Res = await fetch(`${JUDGE0_API_URL}/submissions?base64_encoded=false&wait=true`, {
+          const b64Src = Buffer.from(source_code).toString("base64");
+          const b64In = Buffer.from(tc.input || "").toString("base64");
+          const b64Exp = Buffer.from(tc.expectedOutput || "").toString("base64");
+          const j0Res = await fetch(`${JUDGE0_API_URL}/submissions?base64_encoded=true&wait=true`, {
             method: "POST",
             headers: j0Headers,
             body: JSON.stringify({
-              source_code: source_code,
+              source_code: b64Src,
               language_id: Number(language_id),
-              stdin: tc.input,
-              expected_output: tc.expectedOutput,
+              stdin: b64In,
+              expected_output: b64Exp,
             }),
           });
           if (!j0Res.ok) { fetchOk = false; }
           else {
             const j0Data = await j0Res.json();
             const statusId = j0Data.status?.id;
-            stdout = (j0Data.stdout || "").trim();
-            stderr = j0Data.stderr || "";
-            compileOut = j0Data.compile_output || "";
+            // Decode base64 response
+            const decB64 = (s: string | null) => { if (!s) return ""; try { return Buffer.from(s, "base64").toString("utf-8"); } catch { return s; } };
+            stdout = decB64(j0Data.stdout).trim();
+            stderr = decB64(j0Data.stderr);
+            compileOut = decB64(j0Data.compile_output);
             execTime = j0Data.time || null;
             execMemory = j0Data.memory || null;
             if (statusId === 3) statusStr = "accepted";

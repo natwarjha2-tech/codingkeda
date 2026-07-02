@@ -108,6 +108,7 @@ async function executeWithPiston(sourceCode: string, langId: number, stdin: stri
 
 /**
  * Execute via Judge0 API (production — Linux VPS)
+ * Uses base64 encoding for reliable stdin/source transfer
  */
 async function executeWithJudge0(sourceCode: string, langId: number, stdin: string) {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -116,13 +117,17 @@ async function executeWithJudge0(sourceCode: string, langId: number, stdin: stri
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
 
-  const res = await fetch(`${JUDGE0_API_URL}/submissions?base64_encoded=false&wait=true`, {
+  // Base64 encode source_code and stdin for reliable transfer
+  const b64Source = Buffer.from(sourceCode).toString("base64");
+  const b64Stdin = Buffer.from(stdin || "").toString("base64");
+
+  const res = await fetch(`${JUDGE0_API_URL}/submissions?base64_encoded=true&wait=true`, {
     method: "POST",
     headers,
     body: JSON.stringify({
-      source_code: sourceCode,
+      source_code: b64Source,
       language_id: langId,
-      stdin: stdin || "",
+      stdin: b64Stdin,
     }),
     signal: controller.signal,
   });
@@ -144,10 +149,16 @@ async function executeWithJudge0(sourceCode: string, langId: number, stdin: stri
   else if (statusId >= 7 && statusId <= 12) status = "runtime_error";
   else if (statusId === 13) status = "internal_error";
 
+  // Decode base64 response fields
+  const decodeB64 = (s: string | null) => {
+    if (!s) return "";
+    try { return Buffer.from(s, "base64").toString("utf-8"); } catch { return s; }
+  };
+
   return {
-    stdout: result.stdout || "",
-    stderr: result.stderr || "",
-    compile_output: result.compile_output || "",
+    stdout: decodeB64(result.stdout),
+    stderr: decodeB64(result.stderr),
+    compile_output: decodeB64(result.compile_output),
     status: status,
     status_description: result.status?.description || "Unknown",
     time: result.time || null,
