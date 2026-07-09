@@ -26,6 +26,8 @@ export async function GET(
                 order: true,
                 notes: true,
                 videoUrl: true,
+                pptUrl: true,
+                pptContent: true,
               },
             },
           },

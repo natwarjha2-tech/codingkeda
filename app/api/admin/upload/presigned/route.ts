@@ -8,12 +8,14 @@ const ALLOWED_TYPES: Record<string, string[]> = {
   video: ["video/mp4", "video/avi", "video/quicktime", "video/x-msvideo"],
   pdf: ["application/pdf"],
   image: ["image/jpeg", "image/png", "image/webp", "image/jpg"],
+  ppt: ["application/vnd.openxmlformats-officedocument.presentationml.presentation"],
 };
 
 const MEDIA_TYPE_MAP: Record<string, MediaType> = {
   video: MediaType.VIDEO,
   pdf: MediaType.PDF,
   image: MediaType.IMAGE,
+  ppt: MediaType.PDF, // PPT stored as document type alongside PDFs
 };
 
 // Step 1: GET presigned upload URL

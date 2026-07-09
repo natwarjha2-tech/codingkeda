@@ -61,19 +61,21 @@ model Module {
 }
 
 model Lesson {
-  id        String     @id @default(uuid())
-  moduleId  String
-  title     String
-  duration  String
-  videoUrl  String     @default("")
-  notes     String     @default("")
-  isFree    Boolean    @default(false)
-  order     Int
-  module    Module     @relation(fields: [moduleId], references: [id], onDelete: Cascade)
-  progress  Progress[]
-  quizzes   Quiz[]
-  exercises Exercise[]
-  homeworks Homework[]
+  id         String     @id @default(uuid())
+  moduleId   String
+  title      String
+  duration   String
+  videoUrl   String     @default("")
+  notes      String     @default("")
+  pptUrl     String     @default("")
+  pptContent String     @default("") // Extracted text from PPT slides for viewing
+  isFree     Boolean    @default(false)
+  order      Int
+  module     Module     @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  progress   Progress[]
+  quizzes    Quiz[]
+  exercises  Exercise[]
+  homeworks  Homework[]
 
   @@index([moduleId])
 }
@@ -246,22 +248,23 @@ model Quiz {
 }
 
 model Exercise {
-  id          String               @id @default(uuid())
-  lessonId    String
-  title       String
-  description String
-  difficulty  String               @default("medium")
-  type        String               @default("theory") // "theory" | "coding"
-  language    String? // default language for coding: "c", "cpp", "java", "python", "javascript"
-  starterCode String?
-  solution    String?
-  hints       Json?
-  timeLimit   Int?                 @default(2) // seconds (for code execution)
-  memoryLimit Int?                 @default(256) // MB (for code execution)
-  order       Int                  @default(0)
-  lesson      Lesson               @relation(fields: [lessonId], references: [id], onDelete: Cascade)
-  submissions ExerciseSubmission[]
-  testCases   TestCase[]
+  id           String               @id @default(uuid())
+  lessonId     String
+  title        String
+  description  String
+  difficulty   String               @default("medium")
+  type         String               @default("theory") // "theory" | "coding"
+  language     String? // default language for coding: "c", "cpp", "java", "python", "javascript"
+  starterCode  String?
+  solution     String?
+  bestSolution Json? // AI-generated best optimized solution (stored permanently)
+  hints        Json?
+  timeLimit    Int?                 @default(2) // seconds (for code execution)
+  memoryLimit  Int?                 @default(256) // MB (for code execution)
+  order        Int                  @default(0)
+  lesson       Lesson               @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  submissions  ExerciseSubmission[]
+  testCases    TestCase[]
 
   @@index([lessonId])
 }

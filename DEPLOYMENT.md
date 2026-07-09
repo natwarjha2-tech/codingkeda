@@ -32,22 +32,22 @@ git push origin main
 
 ```
 DATABASE_URL
-Value: postgresql://neondb_owner:npg_pb8hJsNwPMk1@ep-proud-scene-aorybdvp-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+Value: <YOUR_NEON_DATABASE_URL>
 
 JWT_SECRET
-Value: CodingKeda-@NPA@%&%-April-$$-project##
+Value: <YOUR_JWT_SECRET>
 
 SMTP_HOST
-Value: smtp.gmail.com
+Value: smtp.zoho.in
 
 SMTP_PORT
 Value: 587
 
 SMTP_USER
-Value: princechoudhary26102610@gmail.com
+Value: <YOUR_SMTP_EMAIL>
 
 SMTP_PASS
-Value: qltlpqbuftrctwzr
+Value: <YOUR_SMTP_APP_PASSWORD>
 
 NEXT_PUBLIC_BASE_URL
 Value: https://your-project-name.vercel.app
