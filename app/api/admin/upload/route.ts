@@ -5,13 +5,6 @@ import { MediaType } from "@prisma/client";
 import { requireAdmin } from "@/app/lib/middleware";
 import { processVideoHls } from "@/app/lib/hls-processor";
 
-export const config = {
-  api: {
-    bodyParser: false,
-    responseLimit: false,
-  },
-};
-
 const ALLOWED_TYPES: Record<string, string[]> = {
   video: ["video/mp4", "video/avi", "video/quicktime", "video/x-msvideo"],
   pdf: ["application/pdf"],

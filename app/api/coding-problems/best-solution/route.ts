@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
+import { Prisma } from "@prisma/client";
 
 /**
  * GET /api/coding-problems/best-solution?problemId=xxx
@@ -167,7 +168,7 @@ async function generateAndStore(problemId: string): Promise<BestSolution | null>
 async function bulkGenerateAll(): Promise<number> {
   // Generate for DB exercises (coding type without bestSolution)
   const exercises = await prisma.exercise.findMany({
-    where: { type: "coding", bestSolution: null },
+    where: { type: "coding", bestSolution: { equals: Prisma.DbNull } },
     select: { id: true, title: true, description: true, testCases: { select: { input: true, expectedOutput: true }, take: 2 } },
     take: 50,
   });
