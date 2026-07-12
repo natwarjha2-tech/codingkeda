@@ -61,21 +61,23 @@ model Module {
 }
 
 model Lesson {
-  id         String     @id @default(uuid())
-  moduleId   String
-  title      String
-  duration   String
-  videoUrl   String     @default("")
-  notes      String     @default("")
-  pptUrl     String     @default("")
-  pptContent String     @default("") // Extracted text from PPT slides for viewing
-  isFree     Boolean    @default(false)
-  order      Int
-  module     Module     @relation(fields: [moduleId], references: [id], onDelete: Cascade)
-  progress   Progress[]
-  quizzes    Quiz[]
-  exercises  Exercise[]
-  homeworks  Homework[]
+  id             String     @id @default(uuid())
+  moduleId       String
+  title          String
+  duration       String
+  videoUrl       String     @default("")
+  notes          String     @default("")
+  pptUrl         String     @default("")
+  pptContent     String     @default("") // Extracted text from PPT slides for viewing
+  quizPdfUrl     String     @default("") // S3 URL of uploaded Quiz PDF
+  exercisePdfUrl String     @default("") // S3 URL of uploaded Exercise PDF
+  isFree         Boolean    @default(false)
+  order          Int
+  module         Module     @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  progress       Progress[]
+  quizzes        Quiz[]
+  exercises      Exercise[]
+  homeworks      Homework[]
 
   @@index([moduleId])
 }

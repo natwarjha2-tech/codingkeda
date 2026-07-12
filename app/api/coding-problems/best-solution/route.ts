@@ -53,11 +53,15 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: true, solution: inMemory });
     }
 
-    // Not yet generated — trigger generation in background
-    generateAndStore(problemId).catch(() => {});
+    // Not yet generated — generate NOW (synchronous wait) and return
+    const generated = await generateAndStore(problemId);
+    if (generated) {
+      return NextResponse.json({ success: true, solution: generated });
+    }
+
     return NextResponse.json({
       success: false,
-      message: "Solution is being generated. Please try again in a moment.",
+      message: "Could not generate solution. Try again later.",
     });
   } catch {
     return NextResponse.json(
@@ -236,7 +240,7 @@ async function fetchAllProblems() {
 async function callGeminiForSolution(problem: any): Promise<BestSolution | null> {
   if (!GEMINI_API_KEY) return null;
 
-  const prompt = `You are an expert competitive programmer. Generate the BEST optimized solution for this coding problem.
+  const prompt = `You are an expert competitive programmer and coding teacher for beginners. Generate the BEST optimized solution for this coding problem in ALL 4 LANGUAGES: C, Java, Python, JavaScript.
 
 PROBLEM: ${problem.title}
 DESCRIPTION: ${problem.description}
@@ -248,11 +252,18 @@ EXPECTED SC: ${problem.spaceComplexity || "Optimal"}
 SAMPLE INPUT: ${problem.testCases?.[0]?.input || ""}
 SAMPLE OUTPUT: ${problem.testCases?.[0]?.expectedOutput || ""}
 
-Write in C language. Code must read from stdin (scanf) and write to stdout (printf).
-Be the MOST optimized approach possible.
+IMPORTANT RULES:
+- Write SIMPLE, CLEAN code that a junior student can understand
+- Use only SHORT, necessary comments (1-2 words max per comment, like "// find max" or "// check prime")
+- Do NOT write long explanatory comments or paragraphs in comments
+- Keep code concise and readable — avoid over-engineering
+- C: use scanf/printf, keep it simple
+- Java: use Scanner, class name must be Main, keep it simple
+- Python: use input() and print(), keep it Pythonic
+- JavaScript: use require('fs').readFileSync('/dev/stdin','utf8') for input, console.log for output
 
 Respond ONLY with valid JSON (no markdown):
-{"code":"complete C code with \\n for newlines","language":"c","timeComplexity":"O(...)","spaceComplexity":"O(...)","explanation":"2-3 sentence explanation of approach"}`;
+{"c":{"code":"complete C code","timeComplexity":"O(...)","spaceComplexity":"O(...)","explanation":"1-2 sentence simple explanation"},"java":{"code":"complete Java code","timeComplexity":"O(...)","spaceComplexity":"O(...)","explanation":"1-2 sentence simple explanation"},"python":{"code":"complete Python code","timeComplexity":"O(...)","spaceComplexity":"O(...)","explanation":"1-2 sentence simple explanation"},"javascript":{"code":"complete JS code","timeComplexity":"O(...)","spaceComplexity":"O(...)","explanation":"1-2 sentence simple explanation"}}`;
 
   try {
     const res = await fetch(GEMINI_URL, {
@@ -260,7 +271,7 @@ Respond ONLY with valid JSON (no markdown):
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.3, maxOutputTokens: 2048 },
+        generationConfig: { temperature: 0.3, maxOutputTokens: 8192 },
       }),
     });
 
@@ -271,6 +282,21 @@ Respond ONLY with valid JSON (no markdown):
     const cleaned = rawText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
     const parsed = JSON.parse(cleaned);
 
+    // Multi-language format
+    if (parsed.c && parsed.java && parsed.python && parsed.javascript) {
+      return {
+        code: parsed.c.code || "",
+        language: "c",
+        timeComplexity: parsed.c.timeComplexity || "O(?)",
+        spaceComplexity: parsed.c.spaceComplexity || "O(?)",
+        explanation: parsed.c.explanation || "Optimal solution.",
+        generatedAt: new Date().toISOString(),
+        // Multi-language fields (stored as part of the solution object)
+        ...parsed,
+      } as any;
+    }
+
+    // Fallback: single language response
     return {
       code: parsed.code || "",
       language: parsed.language || "c",

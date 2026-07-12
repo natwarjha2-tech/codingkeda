@@ -10,7 +10,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "postinstall": "prisma generate",
-    "seed": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/seed.ts"
+    "seed": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/seed.ts",
+    "seed:problems": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/seed-problems.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1042.0",

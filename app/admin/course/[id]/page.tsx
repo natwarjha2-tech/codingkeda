@@ -17,6 +17,8 @@ interface Lesson {
   notes: string;
   pptUrl: string;
   pptContent: string;
+  quizPdfUrl: string;
+  exercisePdfUrl: string;
   order: number;
 }
 
@@ -133,8 +135,11 @@ export default function ManageCoursePage() {
 
   // PPT Upload state
   const [pptUploading, setPptUploading] = useState(false);
+  const [quizPdfUploading, setQuizPdfUploading] = useState(false);
+  const [exercisePdfUploading, setExercisePdfUploading] = useState(false);
   const [pptLessonId, setPptLessonId] = useState("");
   const [pptReviewData, setPptReviewData] = useState<{quizzes:any[];exercises:any[]} | null>(null);
+  const [pptReviewType, setPptReviewType] = useState<"quiz" | "exercise" | "both">("both");
   const [pptSaving, setPptSaving] = useState(false);
   const [pptEditIdx, setPptEditIdx] = useState<string | null>(null);
   const [pptFullscreen, setPptFullscreen] = useState(false);
@@ -712,6 +717,93 @@ export default function ManageCoursePage() {
     e.target.value = "";
   };
 
+  // PDF Extract — Upload PDF to S3, save URL to lesson, then AI extract content
+  const handlePdfExtract = async (e: React.ChangeEvent<HTMLInputElement>, lessonId: string, type: "quiz" | "exercise") => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".pdf")) {
+      alert("⚠️ Only .pdf files are supported.");
+      return;
+    }
+    if (type === "quiz") setQuizPdfUploading(true);
+    else setExercisePdfUploading(true);
+    try {
+      // Step 1: Upload PDF to S3 (same as notes PDF upload)
+      const presignRes = await fetch("/api/admin/upload/presigned", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ fileName: file.name, fileType: file.type, fileSize: file.size, type: "pdf" }),
+      });
+      const presignData = await presignRes.json();
+      if (!presignRes.ok) {
+        alert(`⚠️ ${presignData.error || "Failed to get upload URL."}`);
+        if (type === "quiz") setQuizPdfUploading(false);
+        else setExercisePdfUploading(false);
+        e.target.value = "";
+        return;
+      }
+
+      // Upload to S3
+      const s3Res = await fetch(presignData.uploadUrl, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
+      if (!s3Res.ok) {
+        alert("⚠️ S3 upload failed.");
+        if (type === "quiz") setQuizPdfUploading(false);
+        else setExercisePdfUploading(false);
+        e.target.value = "";
+        return;
+      }
+
+      // Step 2: Save PDF URL to lesson (quizPdfUrl or exercisePdfUrl)
+      const updateField = type === "quiz" ? "quizPdfUrl" : "exercisePdfUrl";
+      await fetch(`/api/admin/lessons/${lessonId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ [updateField]: presignData.publicUrl }),
+      });
+
+      // Update local state
+      setCourse(prev => prev ? {
+        ...prev,
+        modules: prev.modules.map(m => ({
+          ...m, lessons: m.lessons.map(l => l.id === lessonId ? { ...l, [updateField]: presignData.publicUrl } : l)
+        }))
+      } : prev);
+
+      // Step 3: AI extraction
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("type", type);
+      const res = await fetch("/api/admin/extract-content", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${getToken()}` },
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.success) {
+        // Enforce isHidden on coding exercise test cases: first 2 visible, rest hidden
+        if (data.exercises?.length > 0) {
+          for (const ex of data.exercises) {
+            if (ex.type === "coding" && Array.isArray(ex.testCases)) {
+              ex.testCases.forEach((tc: any, idx: number) => {
+                tc.isHidden = idx >= 2;
+              });
+            }
+          }
+        }
+        setQeMenuOpen(false);
+        setPptReviewType(type);
+        setPptReviewData({ quizzes: data.quizzes || [], exercises: data.exercises || [] });
+      } else {
+        alert(`⚠️ ${data.message || "Failed to extract from PDF."}`);
+      }
+    } catch {
+      alert("⚠️ Something went wrong while processing the PDF.");
+    }
+    if (type === "quiz") setQuizPdfUploading(false);
+    else setExercisePdfUploading(false);
+    e.target.value = "";
+  };
+
   // PPT Save All — saves extracted quizzes and exercises to DB
   const handlePptSaveAll = async () => {
     if (!pptReviewData) return;
@@ -720,26 +812,30 @@ export default function ManageCoursePage() {
       let quizCount = 0;
       let exCount = 0;
 
-      // Step 1: Delete existing quizzes and exercises for this lesson (replace mode)
-      // Fetch existing quizzes and delete them
-      const existingQuizRes = await fetch(`/api/admin/quiz?lessonId=${pptLessonId}`, {
-        headers: { Authorization: `Bearer ${getToken()}` },
-      });
-      const existingQuizData = await existingQuizRes.json();
-      if (existingQuizData.success && existingQuizData.quizzes?.length > 0) {
-        for (const q of existingQuizData.quizzes) {
-          await fetch(`/api/admin/quiz/${q.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${getToken()}` } });
+      // Step 1: Delete existing content based on what type was uploaded
+      // Only delete quizzes if quiz content was generated
+      if (pptReviewData.quizzes.length > 0 || pptReviewType === "quiz") {
+        const existingQuizRes = await fetch(`/api/admin/quiz?lessonId=${pptLessonId}`, {
+          headers: { Authorization: `Bearer ${getToken()}` },
+        });
+        const existingQuizData = await existingQuizRes.json();
+        if (existingQuizData.success && existingQuizData.quizzes?.length > 0) {
+          for (const q of existingQuizData.quizzes) {
+            await fetch(`/api/admin/quiz/${q.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${getToken()}` } });
+          }
         }
       }
 
-      // Fetch existing exercises and delete them
-      const existingExRes = await fetch(`/api/admin/exercises?lessonId=${pptLessonId}`, {
-        headers: { Authorization: `Bearer ${getToken()}` },
-      });
-      const existingExData = await existingExRes.json();
-      if (existingExData.success && existingExData.exercises?.length > 0) {
-        for (const ex of existingExData.exercises) {
-          await fetch(`/api/admin/exercises/${ex.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${getToken()}` } });
+      // Only delete exercises if exercise content was generated
+      if (pptReviewData.exercises.length > 0 || pptReviewType === "exercise") {
+        const existingExRes = await fetch(`/api/admin/exercises?lessonId=${pptLessonId}`, {
+          headers: { Authorization: `Bearer ${getToken()}` },
+        });
+        const existingExData = await existingExRes.json();
+        if (existingExData.success && existingExData.exercises?.length > 0) {
+          for (const ex of existingExData.exercises) {
+            await fetch(`/api/admin/exercises/${ex.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${getToken()}` } });
+          }
         }
       }
 
@@ -774,7 +870,7 @@ export default function ManageCoursePage() {
         if (eData.success) exCount = eData.count || exercises.length;
       }
 
-      alert(`✅ Saved! ${quizCount} quiz(zes) + ${exCount} exercise(s) replaced.` + (pptReviewData.exercises.some((e: any) => e.type === "coding") ? "\n🤖 AI best solutions will generate automatically for coding exercises." : ""));
+      alert(`✅ Saved! ${quizCount > 0 ? `${quizCount} quiz(zes)` : ""}${quizCount > 0 && exCount > 0 ? " + " : ""}${exCount > 0 ? `${exCount} exercise(s)` : ""} added.` + (pptReviewData.exercises.some((e: any) => e.type === "coding") ? "\n🤖 AI best solutions will generate automatically for coding exercises." : ""));
       setPptReviewData(null);
     } catch {
       alert("⚠️ Something went wrong while saving.");
@@ -1013,12 +1109,6 @@ export default function ManageCoursePage() {
                                       <button onClick={() => handlePreviewPdf(lesson.notes)}
                                         className="flex items-center gap-1 text-xs text-pink-400 hover:text-pink-300 bg-pink-500/10 px-2 py-1 rounded-lg transition-colors">
                                         <Eye size={11} /> PDF
-                                      </button>
-                                    )}
-                                    {lesson.pptUrl && (
-                                      <button onClick={() => { if (lesson.pptContent) setPreviewPptContent(lesson.pptContent); else alert('PPT content not available. Re-upload PPT via Quiz & Exercise.'); }}
-                                        className="flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 bg-amber-500/10 px-2 py-1 rounded-lg transition-colors">
-                                        <Eye size={11} /> PPT
                                       </button>
                                     )}
                                     <button onClick={() => { setEditLesson(lesson); setEditVideoSuccess(false); setEditPdfSuccess(false); setEditVideoError(""); setEditPdfError(""); }}
@@ -1461,10 +1551,10 @@ export default function ManageCoursePage() {
       </AnimatePresence>
 
       {/* Quiz & Exercise Sub-Menu */}
-      {qeMenuOpen && (()=>{ const _lesson = course?.modules.flatMap(m=>m.lessons).find(l=>l.id===qeMenuLessonId); return (<div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ background: "rgba(0,0,0,0.7)" }} onClick={e => { if (e.target === e.currentTarget && !pptUploading) setQeMenuOpen(false); }}><div className="w-full max-w-xs rounded-2xl p-6" style={{ background: "#16213e", border: "1px solid rgba(108,71,255,0.3)" }}><h3 className="text-base font-bold text-white mb-4 text-center">📝 Quiz & Exercise</h3><div className="space-y-3">{_lesson?.pptUrl && <button onClick={() => { if (_lesson.pptContent) { setPreviewPptContent(_lesson.pptContent); } else { alert('PPT content not available. Try re-uploading the PPT.'); } setQeMenuOpen(false); }} className="w-full py-2.5 rounded-xl text-xs font-semibold text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 transition-colors flex items-center justify-center gap-2">📄 View Uploaded PPT</button>}<div><label className={`block w-full py-4 rounded-xl text-sm font-semibold text-center transition-colors ${pptUploading ? "text-amber-300 bg-amber-500/20 border border-amber-500/40 cursor-wait" : "text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 cursor-pointer"}`}>{pptUploading ? <span className="flex items-center justify-center gap-2"><span className="inline-block w-4 h-4 border-2 border-amber-400 border-t-transparent rounded-full animate-spin"></span> AI is extracting content...</span> : (_lesson?.pptUrl ? "🔄 Replace PPT" : "📄 Upload PPT")}<input type="file" accept=".pptx" className="hidden" onChange={(e) => { setPptLessonId(qeMenuLessonId); handlePptUpload(e, qeMenuLessonId); }} disabled={pptUploading} /></label>{!pptUploading && <p className="text-xs text-slate-500 text-center mt-2">{_lesson?.pptUrl ? "Re-upload will replace existing quiz & exercise" : "Upload .pptx → AI extracts → Review & Save"}</p>}{pptUploading && <p className="text-xs text-amber-400/70 text-center mt-2">Please wait... AI is reading your PPT slides</p>}</div>{!pptUploading && <div className="border-t border-white/10 pt-3"><p className="text-xs text-slate-500 text-center mb-2">Or manage manually:</p><div className="flex gap-2"><button onClick={() => { setQeMenuOpen(false); setQuizLessonId(qeMenuLessonId); setQuizModal(true); }} className="flex-1 py-2 rounded-lg text-xs font-semibold text-green-400 bg-green-500/10 border border-green-500/20">+ Quiz</button><button onClick={() => { setQeMenuOpen(false); setExerciseLessonId(qeMenuLessonId); setExerciseModal(true); }} className="flex-1 py-2 rounded-lg text-xs font-semibold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20">+ Exercise</button></div><div className="flex gap-2 mt-2"><button onClick={() => { setQeMenuOpen(false); setEditQuizLessonId(qeMenuLessonId); setEditQuizModal(true); }} className="flex-1 py-2 rounded-lg text-xs font-semibold text-slate-400 bg-white/5 border border-white/10">✏️ Edit Quiz</button><button onClick={() => { setQeMenuOpen(false); setEditExLessonId(qeMenuLessonId); setEditExModal(true); }} className="flex-1 py-2 rounded-lg text-xs font-semibold text-slate-400 bg-white/5 border border-white/10">✏️ Edit Ex</button></div></div>}</div></div></div>); })()}
+      {qeMenuOpen && (()=>{ const _lesson = course?.modules.flatMap(m=>m.lessons).find(l=>l.id===qeMenuLessonId); const anyUploading = quizPdfUploading || exercisePdfUploading; const hasQuizPdf = !!_lesson?.quizPdfUrl; const hasExPdf = !!_lesson?.exercisePdfUrl; return (<div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ background: "rgba(0,0,0,0.7)" }} onClick={e => { if (e.target === e.currentTarget && !anyUploading) setQeMenuOpen(false); }}><div className="w-full max-w-sm rounded-2xl p-7" style={{ background: "#16213e", border: "1px solid rgba(108,71,255,0.3)" }}><h3 className="text-base font-bold text-white mb-4 text-center">📝 Quiz & Exercise</h3><div className="space-y-3">{/* Upload / Replace Row */}<div className="flex gap-2"><label className={`flex-1 py-3 rounded-xl text-xs font-semibold text-center transition-colors ${quizPdfUploading ? "text-green-300 bg-green-500/20 border border-green-500/40 cursor-wait" : "text-green-400 bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 cursor-pointer"}`}>{quizPdfUploading ? <span className="flex items-center justify-center gap-1"><span className="inline-block w-3 h-3 border-2 border-green-400 border-t-transparent rounded-full animate-spin"></span> Extracting...</span> : hasQuizPdf ? "🔄 Replace Quiz PDF" : "📋 Upload Quiz PDF"}<input type="file" accept=".pdf" className="hidden" onChange={(e) => { setPptLessonId(qeMenuLessonId); handlePdfExtract(e, qeMenuLessonId, "quiz"); }} disabled={anyUploading} /></label><label className={`flex-1 py-3 rounded-xl text-xs font-semibold text-center transition-colors ${exercisePdfUploading ? "text-cyan-300 bg-cyan-500/20 border border-cyan-500/40 cursor-wait" : "text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/20 cursor-pointer"}`}>{exercisePdfUploading ? <span className="flex items-center justify-center gap-1"><span className="inline-block w-3 h-3 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin"></span> Extracting...</span> : hasExPdf ? "🔄 Replace Exercise PDF" : "💻 Upload Exercise PDF"}<input type="file" accept=".pdf" className="hidden" onChange={(e) => { setPptLessonId(qeMenuLessonId); handlePdfExtract(e, qeMenuLessonId, "exercise"); }} disabled={anyUploading} /></label></div>{/* View PDF buttons — show only if PDF already uploaded */}{(hasQuizPdf || hasExPdf) && !anyUploading && <div className="flex gap-2">{hasQuizPdf && <button onClick={() => { handlePreviewPdf(_lesson!.quizPdfUrl); setQeMenuOpen(false); }} className="flex-1 py-2 rounded-lg text-xs font-semibold text-green-400 bg-green-500/10 border border-green-500/20 hover:bg-green-500/20">👁️ View Quiz PDF</button>}{hasExPdf && <button onClick={() => { handlePreviewPdf(_lesson!.exercisePdfUrl); setQeMenuOpen(false); }} className="flex-1 py-2 rounded-lg text-xs font-semibold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 hover:bg-cyan-500/20">👁️ View Exercise PDF</button>}</div>}{!anyUploading && <p className="text-xs text-slate-500 text-center">Upload PDF → AI extracts → Review & Save</p>}{anyUploading && <p className="text-xs text-amber-400/70 text-center">AI is reading your PDF...</p>}{!anyUploading && <div className="border-t border-white/10 pt-3"><p className="text-xs text-slate-500 text-center mb-2">Or manage manually:</p><div className="flex gap-2"><button onClick={() => { setQeMenuOpen(false); setQuizLessonId(qeMenuLessonId); setQuizModal(true); }} className="flex-1 py-2 rounded-lg text-xs font-semibold text-green-400 bg-green-500/10 border border-green-500/20">+ Quiz</button><button onClick={() => { setQeMenuOpen(false); setExerciseLessonId(qeMenuLessonId); setExerciseModal(true); }} className="flex-1 py-2 rounded-lg text-xs font-semibold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20">+ Exercise</button></div><div className="flex gap-2 mt-2"><button onClick={() => { setQeMenuOpen(false); setEditQuizLessonId(qeMenuLessonId); setEditQuizModal(true); }} className="flex-1 py-2 rounded-lg text-xs font-semibold text-slate-400 bg-white/5 border border-white/10">✏️ Edit Quiz</button><button onClick={() => { setQeMenuOpen(false); setEditExLessonId(qeMenuLessonId); setEditExModal(true); }} className="flex-1 py-2 rounded-lg text-xs font-semibold text-slate-400 bg-white/5 border border-white/10">✏️ Edit Ex</button></div></div>}</div></div></div>); })()}
 
       {/* PPT Review Modal — shows extracted content for admin review before saving */}
-      {pptReviewData && (<div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6 overflow-y-auto" style={{ background: "rgba(0,0,0,0.85)", backdropFilter: "blur(10px)" }} onClick={e => { if (e.target === e.currentTarget) setPptReviewData(null); }}><div className={`w-full rounded-2xl p-7 relative my-auto overflow-y-auto ${pptFullscreen ? "max-w-full mx-4 max-h-full h-[calc(100vh-48px)]" : "max-w-2xl max-h-[90vh]"}`} style={{ background: "linear-gradient(145deg,#0f0a1e,#16213e)", border: "1px solid rgba(245,158,11,0.3)", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" }}><div className="flex items-center justify-between mb-1"><h3 className="text-lg font-bold text-white">📄 PPT Extraction — Review</h3><div className="flex items-center gap-2"><button onClick={() => setPptFullscreen(!pptFullscreen)} className="w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10" title={pptFullscreen ? "Minimize" : "Maximize"}>{pptFullscreen ? <span className="text-xs">⊖</span> : <span className="text-xs">⊕</span>}</button><button onClick={() => { setPptReviewData(null); setPptFullscreen(false); }} className="w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10"><X size={14} /></button></div></div><p className="text-xs text-slate-400 mb-5">AI extracted the following. Click ✏️ to edit, then Save All.</p>
+      {pptReviewData && (<div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6 overflow-y-auto" style={{ background: "rgba(0,0,0,0.85)", backdropFilter: "blur(10px)" }} onClick={e => { if (e.target === e.currentTarget) setPptReviewData(null); }}><div className={`w-full rounded-2xl p-7 relative my-auto overflow-y-auto ${pptFullscreen ? "max-w-full mx-4 max-h-full h-[calc(100vh-48px)]" : "max-w-2xl max-h-[90vh]"}`} style={{ background: "linear-gradient(145deg,#0f0a1e,#16213e)", border: "1px solid rgba(245,158,11,0.3)", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" }}><div className="flex items-center justify-between mb-1"><h3 className="text-lg font-bold text-white">📄 PDF Extraction — Review</h3><div className="flex items-center gap-2"><button onClick={() => setPptFullscreen(!pptFullscreen)} className="w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10" title={pptFullscreen ? "Minimize" : "Maximize"}>{pptFullscreen ? <span className="text-xs">⊖</span> : <span className="text-xs">⊕</span>}</button><button onClick={() => { setPptReviewData(null); setPptFullscreen(false); }} className="w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10"><X size={14} /></button></div></div><p className="text-xs text-slate-400 mb-5">AI extracted the following. Click ✏️ to edit, then Save All.</p>
         {/* Quizzes */}
         {pptReviewData.quizzes.length > 0 && (<div className="mb-6"><h4 className="text-sm font-bold text-green-400 mb-3">📋 Quizzes ({pptReviewData.quizzes.length})</h4><div className="space-y-2">{pptReviewData.quizzes.map((q: any, i: number) => (<div key={i} className="bg-white/5 border border-white/10 rounded-xl p-3">
           {pptEditIdx === `q-${i}` ? (

@@ -28,6 +28,8 @@ export async function GET(
                 videoUrl: true,
                 pptUrl: true,
                 pptContent: true,
+                quizPdfUrl: true,
+                exercisePdfUrl: true,
               },
             },
           },

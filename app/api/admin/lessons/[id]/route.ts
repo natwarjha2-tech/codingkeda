@@ -4,6 +4,60 @@ import { requireAdmin } from "@/app/lib/middleware";
 import { deleteLessonS3Files, deleteS3Prefix, deleteFromS3, getS3KeyFromUrl } from "@/app/lib/s3";
 
 /**
+ * PATCH /api/admin/lessons/[id]
+ * Update specific fields of a lesson (quizPdfUrl, exercisePdfUrl, etc.)
+ * Requires admin authentication.
+ */
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { error } = requireAdmin(req);
+    if (error) return error;
+
+    const { id } = await params;
+    const body = await req.json();
+
+    if (!id) {
+      return NextResponse.json(
+        { success: false, message: "Lesson ID is required." },
+        { status: 400 }
+      );
+    }
+
+    // Only allow safe fields to be updated
+    const allowedFields = ["quizPdfUrl", "exercisePdfUrl"];
+    const updateData: Record<string, string> = {};
+    for (const field of allowedFields) {
+      if (field in body && typeof body[field] === "string") {
+        updateData[field] = body[field];
+      }
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return NextResponse.json(
+        { success: false, message: "No valid fields to update." },
+        { status: 400 }
+      );
+    }
+
+    await prisma.lesson.update({
+      where: { id },
+      data: updateData,
+    });
+
+    return NextResponse.json({ success: true, message: "Lesson updated." });
+  } catch (err) {
+    console.error("Patch lesson error:", err);
+    return NextResponse.json(
+      { success: false, message: "Internal server error." },
+      { status: 500 }
+    );
+  }
+}
+
+/**
  * DELETE /api/admin/lessons/[id]
  * Permanently delete a lesson and all its related data:
  * - DB: quizzes, exercises, progress, homework (cascade), weeklyStreak, achievements, coinTransactions, media
