@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+// Use multiple models as fallback chain — if primary is unavailable, try next
+const GEMINI_MODELS = [
+  "gemini-2.5-flash",
+  "gemini-2.0-flash",
+  "gemini-2.0-flash-lite",
+];
 
 /**
  * POST /api/code/analyze-complexity
  * Analyzes user's code and returns Time/Space complexity in Big-O notation.
- * Uses Gemini AI for accurate analysis.
+ * Uses Gemini AI with retry + model fallback for reliability.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -26,55 +32,57 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const prompt = `Analyze the following ${language || "code"} and determine its time complexity and space complexity in Big-O notation.
+    const prompt = `Analyze this ${language || "code"} complexity.
 
-CODE:
-\`\`\`
-${code.slice(0, 3000)}
-\`\`\`
+${code.slice(0, 2000)}
 
-Respond ONLY with valid JSON (no markdown, no explanation):
-{"timeComplexity":"O(...)","spaceComplexity":"O(...)"}
+Return JSON only: {"timeComplexity":"O(...)","spaceComplexity":"O(...)"}`;
 
-Examples: O(1), O(n), O(n²), O(n log n), O(2^n), O(n*m)
-Be precise based on the actual loops, recursion, and data structures used.`;
+    // Try each model until one succeeds
+    for (const model of GEMINI_MODELS) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
 
-    const res = await fetch(GEMINI_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.2, maxOutputTokens: 256 },
-      }),
-    });
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.1,
+              maxOutputTokens: 100,
+              responseMimeType: "application/json",
+            },
+          }),
+        });
 
-    if (!res.ok) {
-      return NextResponse.json({ success: false, message: "AI analysis failed." }, { status: 500 });
+        // Skip to next model if this one is unavailable/rate-limited
+        if (res.status === 503 || res.status === 429) continue;
+        if (!res.ok) continue;
+
+        const data = await res.json();
+        const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        if (!rawText) continue;
+
+        const parsed = JSON.parse(rawText.trim());
+        if (parsed.timeComplexity && parsed.spaceComplexity) {
+          return NextResponse.json({
+            success: true,
+            timeComplexity: parsed.timeComplexity,
+            spaceComplexity: parsed.spaceComplexity,
+          });
+        }
+      } catch {
+        // Try next model
+        continue;
+      }
     }
 
-    const data = await res.json();
-    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    
-    // Extract JSON from response (handles extra text, markdown, etc.)
-    let cleaned = rawText.replace(/```json\s*/gi, "").replace(/```\s*/gi, "").trim();
-    
-    // Try to extract JSON object from anywhere in the response
-    const jsonMatch = cleaned.match(/\{[^{}]*"timeComplexity"[^{}]*"spaceComplexity"[^{}]*\}/);
-    if (!jsonMatch) {
-      // Fallback: try to find any JSON object
-      const anyJson = cleaned.match(/\{[^{}]*\}/);
-      if (anyJson) cleaned = anyJson[0];
-    } else {
-      cleaned = jsonMatch[0];
-    }
-    
-    const parsed = JSON.parse(cleaned);
-
-    return NextResponse.json({
-      success: true,
-      timeComplexity: parsed.timeComplexity || "O(?)",
-      spaceComplexity: parsed.spaceComplexity || "O(?)",
-    });
+    // All models failed — return failure
+    return NextResponse.json(
+      { success: false, message: "AI temporarily unavailable." },
+      { status: 503 }
+    );
   } catch (err: any) {
     console.error("Analyze complexity error:", err?.message || err);
     return NextResponse.json(
