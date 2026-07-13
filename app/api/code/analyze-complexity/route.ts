@@ -54,7 +54,20 @@ Be precise based on the actual loops, recursion, and data structures used.`;
 
     const data = await res.json();
     const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    const cleaned = rawText.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+    
+    // Extract JSON from response (handles extra text, markdown, etc.)
+    let cleaned = rawText.replace(/```json\s*/gi, "").replace(/```\s*/gi, "").trim();
+    
+    // Try to extract JSON object from anywhere in the response
+    const jsonMatch = cleaned.match(/\{[^{}]*"timeComplexity"[^{}]*"spaceComplexity"[^{}]*\}/);
+    if (!jsonMatch) {
+      // Fallback: try to find any JSON object
+      const anyJson = cleaned.match(/\{[^{}]*\}/);
+      if (anyJson) cleaned = anyJson[0];
+    } else {
+      cleaned = jsonMatch[0];
+    }
+    
     const parsed = JSON.parse(cleaned);
 
     return NextResponse.json({
@@ -62,7 +75,8 @@ Be precise based on the actual loops, recursion, and data structures used.`;
       timeComplexity: parsed.timeComplexity || "O(?)",
       spaceComplexity: parsed.spaceComplexity || "O(?)",
     });
-  } catch {
+  } catch (err: any) {
+    console.error("Analyze complexity error:", err?.message || err);
     return NextResponse.json(
       { success: false, message: "Analysis failed." },
       { status: 500 }
