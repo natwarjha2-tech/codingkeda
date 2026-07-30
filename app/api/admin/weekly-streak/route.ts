@@ -1,11 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 
 /**
- * POST /api/admin/weekly-streak
- * Create a weekly streak challenge for a lesson (7th, 14th, 21st, etc.)
- * Body: { lessonId, moduleId, courseId, title, description, problem, solution, weekNumber }
+ * POST /api/admin/weekly-streak — Create weekly streak challenge
+ * GET /api/admin/weekly-streak?courseId=xxx — List streaks for a course
  */
 export async function POST(req: NextRequest) {
   try {
@@ -13,71 +13,32 @@ export async function POST(req: NextRequest) {
     if (error) return error;
 
     const { lessonId, moduleId, courseId, title, description, problem, solution, weekNumber } = await req.json();
-
     if (!lessonId || !moduleId || !courseId || !title?.trim() || !problem?.trim() || !solution?.trim()) {
-      return NextResponse.json(
-        { success: false, message: "lessonId, moduleId, courseId, title, problem, and solution are required." },
-        { status: 400 }
-      );
+      return apiError(400, "lessonId, moduleId, courseId, title, problem, and solution are required.");
     }
 
-    // Check if streak already exists for this lesson
     const existing = await prisma.weeklyStreak.findUnique({ where: { lessonId } });
-    if (existing) {
-      return NextResponse.json(
-        { success: false, message: "Weekly streak already exists for this lesson." },
-        { status: 409 }
-      );
-    }
+    if (existing) return apiError(409, "Weekly streak already exists for this lesson.");
 
     const streak = await prisma.weeklyStreak.create({
-      data: {
-        lessonId,
-        moduleId,
-        courseId,
-        title: title.trim(),
-        description: description?.trim() || "",
-        problem: problem.trim(),
-        solution: solution.trim(),
-        weekNumber: weekNumber || 1,
-      },
+      data: { lessonId, moduleId, courseId, title: title.trim(), description: description?.trim() || "", problem: problem.trim(), solution: solution.trim(), weekNumber: weekNumber || 1 },
     });
 
-    return NextResponse.json({
-      success: true,
-      message: "Weekly streak challenge created.",
-      streak,
-    });
+    return apiSuccess({ message: "Weekly streak challenge created.", streak });
   } catch {
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }
 
-/**
- * GET /api/admin/weekly-streak?courseId=xxx
- * Get all weekly streaks for a course (admin view)
- */
 export async function GET(req: NextRequest) {
   try {
     const { error } = requireAdmin(req);
     if (error) return error;
 
     const courseId = req.nextUrl.searchParams.get("courseId");
-
-    const where = courseId ? { courseId } : {};
-    const streaks = await prisma.weeklyStreak.findMany({
-      where,
-      orderBy: { weekNumber: "asc" },
-    });
-
-    return NextResponse.json({ success: true, streaks });
+    const streaks = await prisma.weeklyStreak.findMany({ where: courseId ? { courseId } : {}, orderBy: { weekNumber: "asc" } });
+    return apiSuccess({ streaks });
   } catch {
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }

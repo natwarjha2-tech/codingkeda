@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 
 /**
  * GET /api/admin/courses
@@ -21,13 +22,10 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    return NextResponse.json({ success: true, courses });
+    return apiSuccess({ courses });
   } catch (err) {
     console.error("Fetch admin courses error:", err);
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }
 
@@ -57,20 +55,14 @@ export async function POST(req: NextRequest) {
 
     // Required fields validation
     if (!title?.trim() || !subtitle?.trim() || !category?.trim() || !instructor?.trim()) {
-      return NextResponse.json(
-        { success: false, message: "title, subtitle, category and instructor are required." },
-        { status: 400 }
-      );
+      return apiError(400, "title, subtitle, category and instructor are required.");
     }
 
     const parsedHours = parseInt(totalHours ?? "0");
     const parsedVideos = parseInt(totalVideos ?? "0");
 
     if (isNaN(parsedHours) || parsedHours < 0 || isNaN(parsedVideos) || parsedVideos < 0) {
-      return NextResponse.json(
-        { success: false, message: "Invalid totalHours or totalVideos value." },
-        { status: 400 }
-      );
+      return apiError(400, "Invalid totalHours or totalVideos value.");
     }
 
     const course = await prisma.course.create({
@@ -90,15 +82,9 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json(
-      { success: true, message: "Course created successfully.", course },
-      { status: 201 }
-    );
+    return apiSuccess({ message: "Course created successfully.", course }, 201);
   } catch (err) {
     console.error("Create course error:", err);
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }

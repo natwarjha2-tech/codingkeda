@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
-import { verifyToken } from "@/app/lib/auth";
+import { requireAuth } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 
 /**
  * GET /api/achievements
@@ -9,30 +10,16 @@ import { verifyToken } from "@/app/lib/auth";
  */
 export async function GET(req: NextRequest) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
+    const { error, user } = requireAuth(req);
+    if (error) return error;
 
-    if (!token) {
-      return NextResponse.json(
-        { success: false, message: "Unauthorized." },
-        { status: 401 }
-      );
-    }
-
-    const payload = verifyToken(token);
-
-    // Get all achievements with lesson and course details
     const achievements = await prisma.achievement.findMany({
-      where: { userId: payload.userId },
+      where: { userId: user!.userId },
       orderBy: { createdAt: "desc" },
     });
 
     if (achievements.length === 0) {
-      return NextResponse.json({
-        success: true,
-        achievements: [],
-        totalCount: 0,
-      });
+      return apiSuccess({ achievements: [], totalCount: 0 });
     }
 
     // Get lesson details for each achievement
@@ -71,7 +58,7 @@ export async function GET(req: NextRequest) {
 
     // Get student name
     const student = await prisma.user.findUnique({
-      where: { id: payload.userId },
+      where: { id: user!.userId },
       select: { name: true, email: true },
     });
 
@@ -79,7 +66,7 @@ export async function GET(req: NextRequest) {
     const quizScores: Record<string, number> = {};
     for (const lessonId of lessonIds) {
       const attempts = await prisma.quizAttempt.findMany({
-        where: { userId: payload.userId, lessonId },
+        where: { userId: user!.userId, lessonId },
         select: { correct: true },
       });
       if (attempts.length > 0) {
@@ -112,15 +99,8 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    return NextResponse.json({
-      success: true,
-      achievements: certificateData,
-      totalCount: certificateData.length,
-    });
+    return apiSuccess({ achievements: certificateData, totalCount: certificateData.length });
   } catch {
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }

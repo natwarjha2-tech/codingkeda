@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 
 /**
  * POST /api/admin/lessons/[id]/update-ppt
@@ -20,10 +21,7 @@ export async function POST(
     const { pptUrl, mediaId, pptContent } = body;
 
     if (!pptUrl && !mediaId) {
-      return NextResponse.json(
-        { success: false, message: "Either pptUrl or mediaId is required." },
-        { status: 400 }
-      );
+      return apiError(400, "Either pptUrl or mediaId is required.");
     }
 
     const lesson = await prisma.lesson.findUnique({
@@ -31,10 +29,7 @@ export async function POST(
     });
 
     if (!lesson) {
-      return NextResponse.json(
-        { success: false, message: "Lesson not found." },
-        { status: 404 }
-      );
+      return apiError(404, "Lesson not found.");
     }
 
     let finalPptUrl = pptUrl;
@@ -44,10 +39,7 @@ export async function POST(
         where: { id: mediaId },
       });
       if (!media) {
-        return NextResponse.json(
-          { success: false, message: "Media not found." },
-          { status: 404 }
-        );
+        return apiError(404, "Media not found.");
       }
       finalPptUrl = media.s3Url;
       await prisma.media.update({ where: { id: mediaId }, data: { isActive: true } });
@@ -58,16 +50,12 @@ export async function POST(
       data: { pptUrl: finalPptUrl || "", ...(pptContent && { pptContent }) },
     });
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       message: "PPT URL updated successfully.",
       lesson: { id: updatedLesson.id, pptUrl: updatedLesson.pptUrl },
     });
   } catch (err) {
     console.error("Update PPT error:", err);
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }

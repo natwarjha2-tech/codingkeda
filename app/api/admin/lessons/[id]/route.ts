@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
 import { deleteLessonS3Files, deleteS3Prefix, deleteFromS3, getS3KeyFromUrl } from "@/app/lib/s3";
+import { apiSuccess, apiError } from "@/app/lib/response";
 
 /**
  * PATCH /api/admin/lessons/[id]
@@ -20,10 +21,7 @@ export async function PATCH(
     const body = await req.json();
 
     if (!id) {
-      return NextResponse.json(
-        { success: false, message: "Lesson ID is required." },
-        { status: 400 }
-      );
+      return apiError(400, "Lesson ID is required.");
     }
 
     // Only allow safe fields to be updated
@@ -36,10 +34,7 @@ export async function PATCH(
     }
 
     if (Object.keys(updateData).length === 0) {
-      return NextResponse.json(
-        { success: false, message: "No valid fields to update." },
-        { status: 400 }
-      );
+      return apiError(400, "No valid fields to update.");
     }
 
     await prisma.lesson.update({
@@ -47,13 +42,10 @@ export async function PATCH(
       data: updateData,
     });
 
-    return NextResponse.json({ success: true, message: "Lesson updated." });
+    return apiSuccess({ message: "Lesson updated." });
   } catch (err) {
     console.error("Patch lesson error:", err);
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }
 
@@ -75,10 +67,7 @@ export async function DELETE(
     const { id } = await params;
 
     if (!id) {
-      return NextResponse.json(
-        { success: false, message: "Lesson ID is required." },
-        { status: 400 }
-      );
+      return apiError(400, "Lesson ID is required.");
     }
 
     // Verify lesson exists and get S3 file references
@@ -87,10 +76,7 @@ export async function DELETE(
       select: { id: true, videoUrl: true, notes: true },
     });
     if (!lesson) {
-      return NextResponse.json(
-        { success: false, message: "Lesson not found." },
-        { status: 404 }
-      );
+      return apiError(404, "Lesson not found.");
     }
 
     // Delete video from S3
@@ -146,15 +132,11 @@ export async function DELETE(
       await prisma.media.deleteMany({ where: { id: { in: orphanedMedia.map((m) => m.id) } } });
     }
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       message: "Lesson and all reference data deleted permanently.",
     });
   } catch (err) {
     console.error("Delete lesson error:", err);
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }

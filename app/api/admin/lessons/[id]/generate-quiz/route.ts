@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
 import { getSignedFileUrlFromUrl, getS3KeyFromUrl } from "@/app/lib/s3";
+import { apiSuccess, apiError } from "@/app/lib/response";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
@@ -20,10 +21,7 @@ export async function POST(
     if (error) return error;
 
     if (!GEMINI_API_KEY) {
-      return NextResponse.json(
-        { success: false, message: "AI service not configured. Add GEMINI_API_KEY to environment." },
-        { status: 503 }
-      );
+      return apiError(503, "AI service not configured. Add GEMINI_API_KEY to environment.");
     }
 
     const { id: lessonId } = await params;
@@ -35,17 +33,11 @@ export async function POST(
     });
 
     if (!lesson) {
-      return NextResponse.json(
-        { success: false, message: "Lesson not found." },
-        { status: 404 }
-      );
+      return apiError(404, "Lesson not found.");
     }
 
     if (!lesson.notes) {
-      return NextResponse.json(
-        { success: false, message: "No PDF notes found for this lesson. Upload notes first." },
-        { status: 400 }
-      );
+      return apiError(400, "No PDF notes found for this lesson. Upload notes first.");
     }
 
     // Extract text from PDF
@@ -71,10 +63,7 @@ export async function POST(
     }
 
     if (!pdfText || pdfText.trim().length < 10) {
-      return NextResponse.json(
-        { success: false, message: "Could not extract content. Please ensure the PDF has readable text." },
-        { status: 400 }
-      );
+      return apiError(400, "Could not extract content. Please ensure the PDF has readable text.");
     }
 
     // Truncate to avoid token limits (max ~8000 chars)
@@ -140,18 +129,12 @@ Rules:
       aiResponse = JSON.parse(cleaned);
     } catch (err) {
       console.error("Gemini API error:", err);
-      return NextResponse.json(
-        { success: false, message: "AI failed to generate content. Please try again." },
-        { status: 502 }
-      );
+      return apiError(502, "AI failed to generate content. Please try again.");
     }
 
     // Validate response structure
     if (!aiResponse.quizzes || !Array.isArray(aiResponse.quizzes) || aiResponse.quizzes.length === 0) {
-      return NextResponse.json(
-        { success: false, message: "AI generated invalid quiz data. Please try again." },
-        { status: 502 }
-      );
+      return apiError(502, "AI generated invalid quiz data. Please try again.");
     }
 
     // Save quizzes to DB
@@ -194,17 +177,13 @@ Rules:
       }
     }
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       message: `Generated ${createdQuizzes.length} quizzes and ${createdExercises.length} exercises.`,
       quizzes: createdQuizzes,
       exercises: createdExercises,
     });
   } catch (err) {
     console.error("Generate quiz error:", err);
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }

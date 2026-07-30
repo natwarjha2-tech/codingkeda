@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
-import { verifyToken } from "@/app/lib/auth";
+import { requireAuth } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 
 /**
  * GET /api/student/orders
@@ -9,19 +10,13 @@ import { verifyToken } from "@/app/lib/auth";
  */
 export async function GET(req: NextRequest) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
-    if (!token) return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
-
-    const payload = verifyToken(token);
-    const userId = payload.userId;
+    const { error, user } = requireAuth(req);
+    if (error) return error;
 
     const orders = await prisma.payment.findMany({
-      where: { userId },
+      where: { userId: user!.userId },
       include: {
-        course: {
-          select: { id: true, title: true, icon: true, color: true, instructor: true },
-        },
+        course: { select: { id: true, title: true, icon: true, color: true, instructor: true } },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -33,7 +28,7 @@ export async function GET(req: NextRequest) {
       courseIcon: order.course.icon,
       courseColor: order.course.color,
       instructor: order.course.instructor,
-      amount: order.amount / 100, // Convert paisa to rupees
+      amount: order.amount / 100,
       status: order.status,
       razorpayOrderId: order.razorpayOrderId,
       razorpayPaymentId: order.razorpayPaymentId,
@@ -41,13 +36,12 @@ export async function GET(req: NextRequest) {
       updatedAt: order.updatedAt,
     }));
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       orders: formattedOrders,
       totalSpent: formattedOrders.filter(o => o.status === "success").reduce((sum, o) => sum + o.amount, 0),
       totalOrders: formattedOrders.length,
     });
   } catch {
-    return NextResponse.json({ success: false, message: "Internal server error" }, { status: 500 });
+    return apiError(500, "Internal server error");
   }
 }

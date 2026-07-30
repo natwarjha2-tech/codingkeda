@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
-import { verifyToken } from "@/app/lib/auth";
-
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
+import { requireAuth } from "@/app/lib/middleware";
+import { extractUser } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
+import { callGeminiJSON, isGeminiConfigured } from "@/app/lib/gemini";
 
 /**
  * GET /api/weekly-streak?lessonId=xxx
@@ -18,17 +19,13 @@ export async function GET(req: NextRequest) {
         where: { lessonId },
         select: { id: true, title: true, description: true, problem: true, weekNumber: true },
       });
-      return NextResponse.json({ success: true, streak });
+      return apiSuccess({ streak });
     }
 
     if (courseId) {
-      // Get user's streak count for this course
-      const authHeader = req.headers.get("authorization");
-      const token = authHeader?.replace("Bearer ", "");
-      let userId: string | null = null;
-      if (token) {
-        try { userId = verifyToken(token).userId; } catch {}
-      }
+      // Get user's streak count for this course (auth is optional here)
+      const user = extractUser(req);
+      const userId = user?.userId || null;
 
       const streaks = await prisma.weeklyStreak.findMany({
         where: { courseId },
@@ -47,8 +44,7 @@ export async function GET(req: NextRequest) {
         completedCount = attempts.length;
       }
 
-      return NextResponse.json({
-        success: true,
+      return apiSuccess({
         streaks: streaks.map(s => ({
           ...s,
           completed: attempts.some(a => a.streakId === s.id),
@@ -58,9 +54,9 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({ success: false, message: "lessonId or courseId required." }, { status: 400 });
+    return apiError(400, "lessonId or courseId required.");
   } catch {
-    return NextResponse.json({ success: false, message: "Internal server error." }, { status: 500 });
+    return apiError(500, "Internal server error.");
   }
 }
 
@@ -71,44 +67,32 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
-    if (!token) {
-      return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
-    }
+    const { error, user } = requireAuth(req);
+    if (error) return error;
 
-    const payload = verifyToken(token);
     const { streakId, answer } = await req.json();
 
     if (!streakId || !answer?.trim()) {
-      return NextResponse.json({ success: false, message: "streakId and answer are required." }, { status: 400 });
+      return apiError(400, "streakId and answer are required.");
     }
 
     const streak = await prisma.weeklyStreak.findUnique({ where: { id: streakId } });
-    if (!streak) {
-      return NextResponse.json({ success: false, message: "Streak challenge not found." }, { status: 404 });
-    }
+    if (!streak) return apiError(404, "Streak challenge not found.");
 
     // Check if user already passed this streak
     const existingPass = await prisma.weeklyStreakAttempt.findFirst({
-      where: { userId: payload.userId, streakId, passed: true },
+      where: { userId: user!.userId, streakId, passed: true },
     });
     if (existingPass) {
-      return NextResponse.json({
-        success: true,
-        passed: true,
-        feedback: "You have already completed this streak challenge!",
-        attemptId: existingPass.id,
-      });
+      return apiSuccess({ passed: true, feedback: "You have already completed this streak challenge!", attemptId: existingPass.id });
     }
 
     // Evaluate using Gemini AI
     let passed = false;
     let feedback = "Solution submitted.";
 
-    if (GEMINI_API_KEY) {
-      try {
-        const prompt = `You are an expert evaluator. Evaluate this student's answer to a weekly coding challenge.
+    if (isGeminiConfigured()) {
+      const prompt = `You are an expert evaluator. Evaluate this student's answer to a weekly coding challenge.
 
 CHALLENGE: ${streak.title}
 PROBLEM: ${streak.problem}
@@ -120,34 +104,16 @@ ${answer}
 Respond ONLY with valid JSON (no markdown):
 {"passed": true/false, "feedback": "Brief 1-2 sentence feedback"}`;
 
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: { temperature: 0.3, maxOutputTokens: 256 },
-            }),
-          }
-        );
+      const aiResult = await callGeminiJSON<{ passed: boolean; feedback: string }>(prompt, {
+        temperature: 0.3,
+        maxOutputTokens: 256,
+      });
 
-        if (res.ok) {
-          const data = await res.json();
-          const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-          const cleaned = rawText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-          try {
-            const aiResult = JSON.parse(cleaned);
-            passed = !!aiResult.passed;
-            feedback = aiResult.feedback || feedback;
-          } catch {
-            passed = rawText.toLowerCase().includes('"passed": true') || rawText.toLowerCase().includes('"passed":true');
-          }
-        } else {
-          passed = true;
-          feedback = "Solution submitted successfully.";
-        }
-      } catch {
+      if (aiResult) {
+        passed = !!aiResult.passed;
+        feedback = aiResult.feedback || feedback;
+      } else {
+        // Gemini unavailable — accept submission
         passed = true;
         feedback = "Solution submitted successfully.";
       }
@@ -159,7 +125,7 @@ Respond ONLY with valid JSON (no markdown):
     // Save attempt
     const attempt = await prisma.weeklyStreakAttempt.create({
       data: {
-        userId: payload.userId,
+        userId: user!.userId,
         streakId,
         answer: answer.trim(),
         passed,
@@ -167,13 +133,8 @@ Respond ONLY with valid JSON (no markdown):
       },
     });
 
-    return NextResponse.json({
-      success: true,
-      passed,
-      feedback,
-      attemptId: attempt.id,
-    });
+    return apiSuccess({ passed, feedback, attemptId: attempt.id });
   } catch {
-    return NextResponse.json({ success: false, message: "Internal server error." }, { status: 500 });
+    return apiError(500, "Internal server error.");
   }
 }

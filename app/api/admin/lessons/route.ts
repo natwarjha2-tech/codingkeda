@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
 import { MediaType } from "@prisma/client";
 import { processVideoHls } from "@/app/lib/hls-processor";
+import { apiSuccess, apiError } from "@/app/lib/response";
 
 /**
  * POST /api/admin/lessons
@@ -18,18 +19,12 @@ export async function POST(req: NextRequest) {
     let { moduleId, title, duration, isFree, order, videoUrl, notes, mediaId, pdfMediaId } = body;
 
     if (!moduleId?.trim() || !title?.trim()) {
-      return NextResponse.json(
-        { success: false, message: "moduleId and title are required." },
-        { status: 400 }
-      );
+      return apiError(400, "moduleId and title are required.");
     }
 
     const module = await prisma.module.findUnique({ where: { id: moduleId } });
     if (!module) {
-      return NextResponse.json(
-        { success: false, message: "Module not found." },
-        { status: 404 }
-      );
+      return apiError(404, "Module not found.");
     }
 
     // Auto-assign order if not provided
@@ -75,15 +70,9 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json(
-      { success: true, message: "Lesson created successfully.", lesson },
-      { status: 201 }
-    );
+    return apiSuccess({ message: "Lesson created successfully.", lesson }, 201);
   } catch (err) {
     console.error("Create lesson error:", err);
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }

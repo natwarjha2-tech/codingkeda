@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 
 /**
  * POST /api/admin/homework
@@ -13,48 +14,22 @@ export async function POST(req: NextRequest) {
     if (error) return error;
 
     const { lessonId, title, description, difficulty } = await req.json();
-
     if (!lessonId?.trim() || !title?.trim() || !description?.trim()) {
-      return NextResponse.json(
-        { success: false, message: "lessonId, title, and description are required." },
-        { status: 400 }
-      );
+      return apiError(400, "lessonId, title, and description are required.");
     }
 
-    // Verify lesson exists
     const lesson = await prisma.lesson.findUnique({ where: { id: lessonId } });
-    if (!lesson) {
-      return NextResponse.json(
-        { success: false, message: "Lesson not found." },
-        { status: 404 }
-      );
-    }
+    if (!lesson) return apiError(404, "Lesson not found.");
 
-    // Auto-assign order
-    const lastHomework = await prisma.homework.findFirst({
-      where: { lessonId },
-      orderBy: { order: "desc" },
-    });
+    const lastHomework = await prisma.homework.findFirst({ where: { lessonId }, orderBy: { order: "desc" } });
     const nextOrder = (lastHomework?.order ?? 0) + 1;
 
     const homework = await prisma.homework.create({
-      data: {
-        lessonId: lessonId.trim(),
-        title: title.trim(),
-        description: description.trim(),
-        difficulty: difficulty?.trim() || "medium",
-        order: nextOrder,
-      },
+      data: { lessonId: lessonId.trim(), title: title.trim(), description: description.trim(), difficulty: difficulty?.trim() || "medium", order: nextOrder },
     });
 
-    return NextResponse.json(
-      { success: true, message: "Homework created successfully.", homework },
-      { status: 201 }
-    );
+    return apiSuccess({ message: "Homework created successfully.", homework }, 201);
   } catch {
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }

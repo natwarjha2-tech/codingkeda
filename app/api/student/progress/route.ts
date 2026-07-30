@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
-import { verifyToken } from "@/app/lib/auth";
+import { requireAuth } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 
 /**
  * GET /api/student/progress
@@ -12,18 +13,10 @@ import { verifyToken } from "@/app/lib/auth";
  */
 export async function GET(req: NextRequest) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
+    const { error, user } = requireAuth(req);
+    if (error) return error;
 
-    if (!token) {
-      return NextResponse.json(
-        { success: false, message: "Unauthorized." },
-        { status: 401 }
-      );
-    }
-
-    const payload = verifyToken(token);
-    const userId = payload.userId;
+    const userId = user!.userId;
 
     // Get all enrollments with full course structure
     const enrollments = await prisma.enrollment.findMany({
@@ -261,8 +254,7 @@ export async function GET(req: NextRequest) {
     else if (overallExerciseRate >= 60) exerciseRating = 3;
     else if (overallExerciseRate >= 40) exerciseRating = 2;
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       overallRating,
       overallScore: Math.round(overallScore),
       ratingBreakdown: {
@@ -287,9 +279,6 @@ export async function GET(req: NextRequest) {
     });
   } catch (err) {
     console.error("Student progress error:", err);
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }

@@ -1,5 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
+import { apiSuccess, apiError } from "@/app/lib/response";
+import { callGeminiJSON, isGeminiConfigured } from "@/app/lib/gemini";
 import { Prisma } from "@prisma/client";
 
 /**
@@ -8,11 +10,7 @@ import { Prisma } from "@prisma/client";
  * 
  * POST /api/coding-problems/best-solution
  * Generates and stores best solution for a specific problem.
- * Called when: new coding exercise is added.
  */
-
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
 interface BestSolution {
   code: string;
@@ -29,13 +27,7 @@ interface BestSolution {
 export async function GET(req: NextRequest) {
   try {
     const problemId = req.nextUrl.searchParams.get("problemId");
-
-    if (!problemId) {
-      return NextResponse.json(
-        { success: false, message: "problemId is required." },
-        { status: 400 }
-      );
-    }
+    if (!problemId) return apiError(400, "problemId is required.");
 
     // Check DB for stored solution
     const exercise = await prisma.exercise.findUnique({
@@ -44,30 +36,20 @@ export async function GET(req: NextRequest) {
     });
 
     if (exercise && exercise.bestSolution) {
-      return NextResponse.json({ success: true, solution: exercise.bestSolution });
+      return apiSuccess({ solution: exercise.bestSolution });
     }
 
-    // Also check in-memory for legacy 33 problems (coding-problems API problems)
+    // Check in-memory for legacy problems
     const inMemory = storedSolutions.get(problemId);
-    if (inMemory) {
-      return NextResponse.json({ success: true, solution: inMemory });
-    }
+    if (inMemory) return apiSuccess({ solution: inMemory });
 
-    // Not yet generated — generate NOW (synchronous wait) and return
+    // Not yet generated — generate NOW and return
     const generated = await generateAndStore(problemId);
-    if (generated) {
-      return NextResponse.json({ success: true, solution: generated });
-    }
+    if (generated) return apiSuccess({ solution: generated });
 
-    return NextResponse.json({
-      success: false,
-      message: "Could not generate solution. Try again later.",
-    });
+    return apiError(500, "Could not generate solution. Try again later.");
   } catch {
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }
 
@@ -81,29 +63,17 @@ export async function POST(req: NextRequest) {
 
     if (generateAll) {
       const count = await bulkGenerateAll();
-      return NextResponse.json({
-        success: true,
-        message: `Generated solutions for ${count} problems.`,
-      });
+      return apiSuccess({ message: `Generated solutions for ${count} problems.` });
     }
 
     if (problemId) {
       const result = await generateAndStore(problemId);
-      return NextResponse.json({
-        success: !!result,
-        message: result ? "Solution generated and stored." : "Failed to generate.",
-      });
+      return apiSuccess({ message: result ? "Solution generated and stored." : "Failed to generate." });
     }
 
-    return NextResponse.json(
-      { success: false, message: "Provide problemId or generateAll:true" },
-      { status: 400 }
-    );
+    return apiError(400, "Provide problemId or generateAll:true");
   } catch {
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }
 
@@ -235,10 +205,10 @@ async function fetchAllProblems() {
 }
 
 /**
- * Call Gemini AI to generate best solution
+ * Call Gemini AI to generate best solution (uses centralized client)
  */
 async function callGeminiForSolution(problem: any): Promise<BestSolution | null> {
-  if (!GEMINI_API_KEY) return null;
+  if (!isGeminiConfigured()) return null;
 
   const prompt = `You are an expert competitive programmer and coding teacher for beginners. Generate the BEST optimized solution for this coding problem in ALL 4 LANGUAGES: C, Java, Python, JavaScript.
 
@@ -265,45 +235,29 @@ IMPORTANT RULES:
 Respond ONLY with valid JSON (no markdown):
 {"c":{"code":"complete C code","timeComplexity":"O(...)","spaceComplexity":"O(...)","explanation":"1-2 sentence simple explanation"},"java":{"code":"complete Java code","timeComplexity":"O(...)","spaceComplexity":"O(...)","explanation":"1-2 sentence simple explanation"},"python":{"code":"complete Python code","timeComplexity":"O(...)","spaceComplexity":"O(...)","explanation":"1-2 sentence simple explanation"},"javascript":{"code":"complete JS code","timeComplexity":"O(...)","spaceComplexity":"O(...)","explanation":"1-2 sentence simple explanation"}}`;
 
-  try {
-    const res = await fetch(GEMINI_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.3, maxOutputTokens: 8192 },
-      }),
-    });
+  const parsed = await callGeminiJSON<any>(prompt, { temperature: 0.3, maxOutputTokens: 8192 });
+  if (!parsed) return null;
 
-    if (!res.ok) return null;
-
-    const data = await res.json();
-    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    const cleaned = rawText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-    const parsed = JSON.parse(cleaned);
-
-    // Multi-language format
-    if (parsed.c && parsed.java && parsed.python && parsed.javascript) {
-      return {
-        code: parsed.c.code || "",
-        language: "c",
-        timeComplexity: parsed.c.timeComplexity || "O(?)",
-        spaceComplexity: parsed.c.spaceComplexity || "O(?)",
-        explanation: parsed.c.explanation || "Optimal solution.",
-        generatedAt: new Date().toISOString(),
-        // Multi-language fields (stored as part of the solution object)
-        ...parsed,
-      } as any;
-    }
-
-    // Fallback: single language response
+  // Multi-language format
+  if (parsed.c && parsed.java && parsed.python && parsed.javascript) {
     return {
-      code: parsed.code || "",
-      language: parsed.language || "c",
-      timeComplexity: parsed.timeComplexity || "O(?)",
-      spaceComplexity: parsed.spaceComplexity || "O(?)",
-      explanation: parsed.explanation || "Optimal solution.",
+      code: parsed.c.code || "",
+      language: "c",
+      timeComplexity: parsed.c.timeComplexity || "O(?)",
+      spaceComplexity: parsed.c.spaceComplexity || "O(?)",
+      explanation: parsed.c.explanation || "Optimal solution.",
       generatedAt: new Date().toISOString(),
-    };
-  } catch { return null; }
+      ...parsed,
+    } as any;
+  }
+
+  // Fallback: single language response
+  return {
+    code: parsed.code || "",
+    language: parsed.language || "c",
+    timeComplexity: parsed.timeComplexity || "O(?)",
+    spaceComplexity: parsed.spaceComplexity || "O(?)",
+    explanation: parsed.explanation || "Optimal solution.",
+    generatedAt: new Date().toISOString(),
+  };
 }

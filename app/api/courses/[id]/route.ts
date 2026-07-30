@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
-import { verifyToken } from "@/app/lib/auth";
+import { extractUser } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 import { getSignedFileUrlFromUrl, getS3KeyFromUrl } from "@/app/lib/s3";
 
 export async function GET(
@@ -37,38 +38,24 @@ export async function GET(
       },
     });
 
-    if (!course) {
-      return NextResponse.json(
-        { success: false, message: "Course not found." },
-        { status: 404 }
-      );
-    }
+    if (!course) return apiError(404, "Course not found.");
 
     // Check if user is enrolled (optional — works without token too)
     let isEnrolled = false;
     let userProgress: string[] = [];
 
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
+    const authUser = extractUser(req);
+    if (authUser) {
+      const enrollment = await prisma.enrollment.findUnique({
+        where: { userId_courseId: { userId: authUser.userId, courseId: id } },
+      });
+      isEnrolled = !!enrollment;
 
-    if (token) {
-      try {
-        const payload = verifyToken(token);
-
-        const enrollment = await prisma.enrollment.findUnique({
-          where: { userId_courseId: { userId: payload.userId, courseId: id } },
-        });
-        isEnrolled = !!enrollment;
-
-        // Get completed lesson IDs for this user
-        const progress = await prisma.progress.findMany({
-          where: { userId: payload.userId, completed: true },
-          select: { lessonId: true },
-        });
-        userProgress = progress.map((p) => p.lessonId);
-      } catch {
-        // Invalid token — continue without user context
-      }
+      const progress = await prisma.progress.findMany({
+        where: { userId: authUser.userId, completed: true },
+        select: { lessonId: true },
+      });
+      userProgress = progress.map((p) => p.lessonId);
     }
 
     const signed = req.nextUrl.searchParams.get("signed") === "true";
@@ -157,8 +144,7 @@ export async function GET(
       };
     }
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       course: {
         ...signedCourse,
         isEnrolled,
@@ -167,9 +153,6 @@ export async function GET(
       },
     });
   } catch {
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }

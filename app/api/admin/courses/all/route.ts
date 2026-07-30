@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireSuperAdmin } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 
 /**
  * GET /api/admin/courses/all
@@ -31,12 +32,9 @@ export async function GET(req: NextRequest) {
       creator: c.createdBy ? creatorMap.get(c.createdBy) || null : null,
     }));
 
-    return NextResponse.json({ success: true, courses: coursesWithCreator });
+    return apiSuccess({ courses: coursesWithCreator });
   } catch (err) {
     console.error("Super admin fetch all courses error:", err);
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }

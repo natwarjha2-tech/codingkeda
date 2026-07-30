@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { requireAdmin } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 import AdmZip from "adm-zip";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
@@ -20,21 +21,10 @@ export async function POST(req: NextRequest) {
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
 
-    if (!file) {
-      return NextResponse.json(
-        { success: false, message: "No file uploaded." },
-        { status: 400 }
-      );
-    }
+    if (!file) return apiError(400, "No file uploaded.");
 
-    // Validate file type
     const fileName = file.name.toLowerCase();
-    if (!fileName.endsWith(".pptx")) {
-      return NextResponse.json(
-        { success: false, message: "Only .pptx files are supported." },
-        { status: 400 }
-      );
-    }
+    if (!fileName.endsWith(".pptx")) return apiError(400, "Only .pptx files are supported.");
 
     // Read file buffer
     const buffer = Buffer.from(await file.arrayBuffer());
@@ -43,43 +33,25 @@ export async function POST(req: NextRequest) {
     const slideText = extractPptxText(buffer);
 
     if (!slideText || slideText.trim().length < 20) {
-      return NextResponse.json(
-        { success: false, message: "Could not extract enough text from the PPT. Ensure slides have text content." },
-        { status: 400 }
-      );
+      return apiError(400, "Could not extract enough text from the PPT. Ensure slides have text content.");
     }
 
-    // Check Gemini API key
-    if (!GEMINI_API_KEY) {
-      return NextResponse.json(
-        { success: false, message: "AI service not configured (GEMINI_API_KEY missing)." },
-        { status: 500 }
-      );
-    }
+    if (!GEMINI_API_KEY) return apiError(500, "AI service not configured (GEMINI_API_KEY missing).");
 
     // Send to Gemini AI for structured extraction
     const result = await callGeminiForExtraction(slideText);
 
-    if (!result) {
-      return NextResponse.json(
-        { success: false, message: "AI could not process the content. Try again or use a different PPT." },
-        { status: 500 }
-      );
-    }
+    if (!result) return apiError(500, "AI could not process the content. Try again or use a different PPT.");
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       message: `Extracted ${result.quizzes.length} quiz(zes) and ${result.exercises.length} exercise(s).`,
       quizzes: result.quizzes,
       exercises: result.exercises,
-      extractedText: slideText, // Full extracted text for DB storage
+      extractedText: slideText,
     });
   } catch (err) {
     console.error("Extract PPT error:", err);
-    return NextResponse.json(
-      { success: false, message: "Internal server error: " + (err instanceof Error ? err.message : "Unknown") },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error: " + (err instanceof Error ? err.message : "Unknown"));
   }
 }
 

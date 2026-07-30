@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { uploadToS3, getSignedFileUrl } from "@/app/lib/s3";
 import { prisma } from "@/app/lib/prisma";
 import { MediaType } from "@prisma/client";
 import { requireAdmin } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 import { processVideoHls } from "@/app/lib/hls-processor";
 
 const ALLOWED_TYPES: Record<string, string[]> = {
@@ -39,15 +40,15 @@ export async function POST(req: NextRequest) {
     const categoryId = formData.get("categoryId") as string;
     const moduleId = formData.get("moduleId") as string;
 
-    if (!file) return NextResponse.json({ error: "No file provided" }, { status: 400 });
-    if (!type || !ALLOWED_TYPES[type]) return NextResponse.json({ error: "Invalid type" }, { status: 400 });
+    if (!file) return apiError(400, "No file provided");
+    if (!type || !ALLOWED_TYPES[type]) return apiError(400, "Invalid type");
 
     if (!ALLOWED_TYPES[type].includes(file.type)) {
-      return NextResponse.json({ error: `Invalid file type for ${type}` }, { status: 400 });
+      return apiError(400, `Invalid file type for ${type}`);
     }
 
     if (file.size > MAX_SIZE[type]) {
-      return NextResponse.json({ error: `File too large for ${type}` }, { status: 400 });
+      return apiError(400, `File too large for ${type}`);
     }
 
     const tags = tagsRaw ? tagsRaw.split(",").map((t) => t.trim()).filter(Boolean) : [];
@@ -92,8 +93,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       media: {
         id: media.id,
         title: media.title,
@@ -107,6 +107,6 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     console.error("Upload error:", error);
-    return NextResponse.json({ error: "Upload failed" }, { status: 500 });
+    return apiError(500, "Upload failed");
   }
 }

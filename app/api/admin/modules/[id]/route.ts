@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 import { deleteS3Prefix, deleteFromS3, getS3KeyFromUrl } from "@/app/lib/s3";
 
 /**
@@ -20,21 +21,10 @@ export async function DELETE(
 
     const { id } = await params;
 
-    if (!id) {
-      return NextResponse.json(
-        { success: false, message: "Module ID is required." },
-        { status: 400 }
-      );
-    }
+    if (!id) return apiError(400, "Module ID is required.");
 
-    // Verify module exists
     const mod = await prisma.module.findUnique({ where: { id } });
-    if (!mod) {
-      return NextResponse.json(
-        { success: false, message: "Module not found." },
-        { status: 404 }
-      );
-    }
+    if (!mod) return apiError(404, "Module not found.");
 
     // Get all lessons in this module to delete their S3 files and reference data
     const lessons = await prisma.lesson.findMany({
@@ -103,15 +93,9 @@ export async function DELETE(
       await prisma.media.deleteMany({ where: { id: { in: orphanedMedia.map((m) => m.id) } } });
     }
 
-    return NextResponse.json({
-      success: true,
-      message: `Module and all reference data deleted permanently (${lessons.length} lessons cleaned up).`,
-    });
+    return apiSuccess({ message: `Module and all reference data deleted permanently (${lessons.length} lessons cleaned up).` });
   } catch (err) {
     console.error("Delete module error:", err);
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }

@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { getPresignedUploadUrl } from "@/app/lib/s3";
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 import { MediaType } from "@prisma/client";
 
 const ALLOWED_TYPES: Record<string, string[]> = {
@@ -26,10 +27,10 @@ export async function POST(req: NextRequest) {
   const { fileName, fileType, fileSize, type, title, description, tags, courseId, categoryId, moduleId } = await req.json();
 
   if (!type || !ALLOWED_TYPES[type])
-    return NextResponse.json({ error: "Invalid type" }, { status: 400 });
+    return apiError(400, "Invalid type");
 
   if (!ALLOWED_TYPES[type].includes(fileType))
-    return NextResponse.json({ error: `Invalid file type for ${type}` }, { status: 400 });
+    return apiError(400, `Invalid file type for ${type}`);
 
   const timestamp = Date.now();
   const cleanName = fileName.replace(/[^a-zA-Z0-9.-]/g, "-").toLowerCase();
@@ -60,5 +61,5 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  return NextResponse.json({ uploadUrl, publicUrl, key, mediaId: media.id });
+  return apiSuccess({ uploadUrl, publicUrl, key, mediaId: media.id });
 }

@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
-import { verifyToken } from "@/app/lib/auth";
+import { requireAuth } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 import { syncStudentOnEnroll } from "@/app/lib/sync-student";
 import { randomBytes } from "crypto";
 
@@ -11,53 +12,26 @@ import { randomBytes } from "crypto";
  */
 export async function POST(req: NextRequest) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
+    const { error, user } = requireAuth(req);
+    if (error) return error;
 
-    if (!token) {
-      return NextResponse.json(
-        { success: false, message: "Unauthorized." },
-        { status: 401 }
-      );
-    }
-
-    const payload = verifyToken(token);
     const { courseId } = await req.json();
-
-    if (!courseId?.trim()) {
-      return NextResponse.json(
-        { success: false, message: "courseId is required." },
-        { status: 400 }
-      );
-    }
+    if (!courseId?.trim()) return apiError(400, "courseId is required.");
 
     const course = await prisma.course.findUnique({ where: { id: courseId } });
-    if (!course) {
-      return NextResponse.json(
-        { success: false, message: "Course not found." },
-        { status: 404 }
-      );
-    }
+    if (!course) return apiError(404, "Course not found.");
 
     // Generate secure one-time token
     const enrollToken = randomBytes(32).toString("hex");
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
     await prisma.enrollToken.create({
-      data: {
-        token: enrollToken,
-        userId: payload.userId,
-        courseId,
-        expiresAt,
-      },
+      data: { token: enrollToken, userId: user!.userId, courseId, expiresAt },
     });
 
-    return NextResponse.json({ success: true, enrollToken });
+    return apiSuccess({ enrollToken });
   } catch {
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }
 
@@ -69,42 +43,15 @@ export async function POST(req: NextRequest) {
 export async function GET(req: NextRequest) {
   try {
     const token = req.nextUrl.searchParams.get("token");
-
-    if (!token) {
-      return NextResponse.json(
-        { success: false, message: "Token is required." },
-        { status: 400 }
-      );
-    }
+    if (!token) return apiError(400, "Token is required.");
 
     const record = await prisma.enrollToken.findUnique({ where: { token } });
-
-    if (!record) {
-      return NextResponse.json(
-        { success: false, message: "Invalid token." },
-        { status: 400 }
-      );
-    }
-
-    if (record.used) {
-      return NextResponse.json(
-        { success: false, message: "Token already used." },
-        { status: 400 }
-      );
-    }
-
-    if (new Date() > record.expiresAt) {
-      return NextResponse.json(
-        { success: false, message: "Token expired." },
-        { status: 400 }
-      );
-    }
+    if (!record) return apiError(400, "Invalid token.");
+    if (record.used) return apiError(400, "Token already used.");
+    if (new Date() > record.expiresAt) return apiError(400, "Token expired.");
 
     // Mark token as used
-    await prisma.enrollToken.update({
-      where: { token },
-      data: { used: true },
-    });
+    await prisma.enrollToken.update({ where: { token }, data: { used: true } });
 
     // Enroll user in course
     await prisma.enrollment.upsert({
@@ -116,15 +63,8 @@ export async function GET(req: NextRequest) {
     // Sync Student record
     await syncStudentOnEnroll(record.userId);
 
-    return NextResponse.json({
-      success: true,
-      message: "Enrolled successfully.",
-      courseId: record.courseId,
-    });
+    return apiSuccess({ message: "Enrolled successfully.", courseId: record.courseId });
   } catch {
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }

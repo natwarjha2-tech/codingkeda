@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
-import { verifyToken } from "@/app/lib/auth";
+import { requireAuth } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 
 export async function POST(
   req: NextRequest,
@@ -10,40 +11,20 @@ export async function POST(
     const { id: lessonId } = await params;
     const { completed = true } = await req.json();
 
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
-
-    if (!token) {
-      return NextResponse.json(
-        { success: false, message: "Unauthorized." },
-        { status: 401 }
-      );
-    }
-
-    const payload = verifyToken(token);
+    const { error, user } = requireAuth(req);
+    if (error) return error;
 
     const lesson = await prisma.lesson.findUnique({ where: { id: lessonId } });
-    if (!lesson) {
-      return NextResponse.json(
-        { success: false, message: "Lesson not found." },
-        { status: 404 }
-      );
-    }
+    if (!lesson) return apiError(404, "Lesson not found.");
 
     await prisma.progress.upsert({
-      where: { userId_lessonId: { userId: payload.userId, lessonId } },
+      where: { userId_lessonId: { userId: user!.userId, lessonId } },
       update: { completed },
-      create: { userId: payload.userId, lessonId, completed },
+      create: { userId: user!.userId, lessonId, completed },
     });
 
-    return NextResponse.json({
-      success: true,
-      message: completed ? "Lesson marked complete." : "Lesson marked incomplete.",
-    });
+    return apiSuccess({ message: completed ? "Lesson marked complete." : "Lesson marked incomplete." });
   } catch {
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }

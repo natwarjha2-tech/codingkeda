@@ -1,11 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
-import { verifyToken } from "@/app/lib/auth";
+import { requireAuth } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
+import { callGemini, isGeminiConfigured } from "@/app/lib/gemini";
 import { getSignedFileUrlFromUrl, getS3KeyFromUrl } from "@/app/lib/s3";
 import { logger } from "@/app/lib/logger";
-
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
 /**
  * POST /api/ai-mentor
@@ -14,31 +13,17 @@ const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemi
  */
 export async function POST(req: NextRequest) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
+    const { error, user } = requireAuth(req);
+    if (error) return error;
 
-    if (!token) {
-      return NextResponse.json(
-        { success: false, message: "Unauthorized." },
-        { status: 401 }
-      );
+    if (!isGeminiConfigured()) {
+      return apiError(503, "AI service not configured.");
     }
 
-    if (!GEMINI_API_KEY) {
-      return NextResponse.json(
-        { success: false, message: "AI service not configured." },
-        { status: 503 }
-      );
-    }
-
-    const payload = verifyToken(token);
     const { question, lessonId, mode } = await req.json();
 
     if (!question?.trim()) {
-      return NextResponse.json(
-        { success: false, message: "Question is required." },
-        { status: 400 }
-      );
+      return apiError(400, "Question is required.");
     }
 
     // Build context based on mode
@@ -93,14 +78,14 @@ Student's question: ${question.trim()}`;
 
     } else {
       // General AI assistant (dashboard)
-      const user = await prisma.user.findUnique({
-        where: { id: payload.userId },
+      const studentUser = await prisma.user.findUnique({
+        where: { id: user!.userId },
         select: { name: true },
       });
 
       systemPrompt = `You are an expert AI mentor for CodingKida EdTech platform — an educational app for students.
 
-STUDENT: ${user?.name || "Student"}
+STUDENT: ${studentUser?.name || "Student"}
 
 ALLOWED TOPICS (answer ONLY these):
 - Programming & Coding (all languages: C, Java, Python, JavaScript, etc.)
@@ -139,60 +124,17 @@ INSTRUCTIONS:
 Student's question: ${question.trim()}`;
     }
 
-    // Call Gemini API with retry
-    let answer = "";
-    let attempts = 0;
-    const maxAttempts = 3;
-
-    while (attempts < maxAttempts) {
-      attempts++;
-      try {
-        const res = await fetch(GEMINI_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: systemPrompt }] }],
-            generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
-          }),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          answer = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-          if (answer) break;
-        } else if (res.status === 429) {
-          // Rate limited — wait and retry
-          await new Promise(r => setTimeout(r, attempts * 3000));
-          continue;
-        } else {
-          break;
-        }
-      } catch {
-        if (attempts < maxAttempts) {
-          await new Promise(r => setTimeout(r, 2000));
-          continue;
-        }
-      }
-    }
+    // Call Gemini API (uses centralized client with retry + model fallback)
+    const answer = await callGemini(systemPrompt, { temperature: 0.7, maxOutputTokens: 2048 });
 
     if (!answer) {
-      logger.warn("ai-mentor", "all_retries_failed", { userId: payload.userId, attempts: maxAttempts, mode });
-      return NextResponse.json({
-        success: false,
-        message: "AI is currently busy. Please wait a few seconds and try again.",
-      }, { status: 429 });
+      logger.warn("ai-mentor", "all_retries_failed", { userId: user!.userId, mode });
+      return apiError(429, "AI is currently busy. Please wait a few seconds and try again.");
     }
 
-    logger.success("ai-mentor", "response_generated", { userId: payload.userId, mode, answerLength: answer.length });
-
-    return NextResponse.json({
-      success: true,
-      answer,
-    });
+    logger.success("ai-mentor", "response_generated", { userId: user!.userId, mode, answerLength: answer.length });
+    return apiSuccess({ answer });
   } catch {
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }

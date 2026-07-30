@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
 import { Prisma } from "@prisma/client";
+import { apiSuccess, apiError } from "@/app/lib/response";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
@@ -19,7 +20,7 @@ export async function POST(req: NextRequest) {
     if (error) return error;
 
     if (!GEMINI_API_KEY) {
-      return NextResponse.json({ success: false, message: "GEMINI_API_KEY not configured." }, { status: 500 });
+      return apiError(500, "GEMINI_API_KEY not configured.");
     }
 
     // Find coding exercises without best solution
@@ -34,8 +35,7 @@ export async function POST(req: NextRequest) {
     });
 
     if (exercises.length === 0) {
-      return NextResponse.json({
-        success: true,
+      return apiSuccess({
         message: "All coding exercises already have solutions!",
         generated: 0,
       });
@@ -73,18 +73,14 @@ export async function POST(req: NextRequest) {
       where: { type: "coding", bestSolution: { equals: Prisma.DbNull } },
     });
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       message: `Generated ${generated} solution(s). ${remaining} remaining.`,
       generated,
       remaining,
     });
   } catch (err) {
     console.error("Generate solutions error:", err);
-    return NextResponse.json(
-      { success: false, message: "Failed: " + (err instanceof Error ? err.message : "Unknown") },
-      { status: 500 }
-    );
+    return apiError(500, "Failed: " + (err instanceof Error ? err.message : "Unknown"));
   }
 }
 

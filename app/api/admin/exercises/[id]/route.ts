@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 
 /**
  * PUT /api/admin/exercises/[id] — Update an exercise
@@ -29,12 +30,9 @@ export async function PUT(
       },
     });
 
-    return NextResponse.json({ success: true, exercise: updated });
+    return apiSuccess({ exercise: updated });
   } catch {
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }
 
@@ -51,11 +49,8 @@ export async function DELETE(
     await prisma.testCase.deleteMany({ where: { exerciseId: id } });
     await prisma.exercise.delete({ where: { id } });
 
-    return NextResponse.json({ success: true, message: "Exercise deleted." });
+    return apiSuccess({ message: "Exercise deleted." });
   } catch {
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }

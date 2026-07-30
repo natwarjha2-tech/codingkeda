@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
-import { verifyToken } from "@/app/lib/auth";
+import { requireAuth } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 
 /**
  * POST /api/coding-score/earn
@@ -9,47 +10,26 @@ import { verifyToken } from "@/app/lib/auth";
  * Called from desktop app when user solves a coding practice problem.
  * 
  * Body: { problemId, problemTitle, difficulty, points, coins }
- * 
  * Duplicate prevention: checks if coins already earned for this problemId.
  */
 export async function POST(req: NextRequest) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
+    const { error, user } = requireAuth(req);
+    if (error) return error;
 
-    if (!token) {
-      return NextResponse.json(
-        { success: false, message: "Unauthorized." },
-        { status: 401 }
-      );
-    }
-
-    const payload = verifyToken(token);
-    const { problemId, problemTitle, difficulty, points, coins } =
-      await req.json();
+    const { problemId, problemTitle, difficulty, points, coins } = await req.json();
 
     if (!problemId || !coins || coins <= 0) {
-      return NextResponse.json(
-        { success: false, message: "problemId and coins are required." },
-        { status: 400 }
-      );
+      return apiError(400, "problemId and coins are required.");
     }
 
-    // Duplicate prevention — check if already earned for this problem
+    // Duplicate prevention
     const existing = await prisma.coinTransaction.findFirst({
-      where: {
-        userId: payload.userId,
-        reason: { contains: `Coding:${problemId}` },
-        type: "EARNED",
-      },
+      where: { userId: user!.userId, reason: { contains: `Coding:${problemId}` }, type: "EARNED" },
     });
 
     if (existing) {
-      return NextResponse.json({
-        success: true,
-        alreadyEarned: true,
-        message: "Coins already earned for this problem.",
-      });
+      return apiSuccess({ alreadyEarned: true, message: "Coins already earned for this problem." });
     }
 
     // Award coins (atomic transaction)
@@ -57,41 +37,17 @@ export async function POST(req: NextRequest) {
 
     await prisma.$transaction([
       prisma.userCoins.upsert({
-        where: { userId: payload.userId },
+        where: { userId: user!.userId },
         update: { totalCoins: { increment: Number(coins) } },
-        create: { userId: payload.userId, totalCoins: Number(coins) },
+        create: { userId: user!.userId, totalCoins: Number(coins) },
       }),
       prisma.coinTransaction.create({
-        data: {
-          userId: payload.userId,
-          type: "EARNED",
-          coins: Number(coins),
-          reason: reason,
-        },
+        data: { userId: user!.userId, type: "EARNED", coins: Number(coins), reason },
       }),
     ]);
 
-    return NextResponse.json({
-      success: true,
-      alreadyEarned: false,
-      coinsAwarded: coins,
-      message: `+${coins} coins earned!`,
-    });
-  } catch (err: any) {
-    if (
-      err?.message?.includes("jwt") ||
-      err?.message?.includes("token") ||
-      err?.message?.includes("invalid")
-    ) {
-      return NextResponse.json(
-        { success: false, message: "Unauthorized." },
-        { status: 401 }
-      );
-    }
-    console.error("Coding score earn error:", err);
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiSuccess({ alreadyEarned: false, coinsAwarded: coins, message: `+${coins} coins earned!` });
+  } catch {
+    return apiError(500, "Internal server error.");
   }
 }

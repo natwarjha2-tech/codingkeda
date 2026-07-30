@@ -1,6 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
-import { verifyToken } from "@/app/lib/auth";
+import { requireAuth } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
+import { callGeminiJSON, isGeminiConfigured } from "@/app/lib/gemini";
 
 /**
  * GET /api/exercise?lessonId=xxx
@@ -9,86 +11,48 @@ import { verifyToken } from "@/app/lib/auth";
 export async function GET(req: NextRequest) {
   try {
     const lessonId = req.nextUrl.searchParams.get("lessonId");
-
-    if (!lessonId) {
-      return NextResponse.json(
-        { success: false, message: "lessonId is required." },
-        { status: 400 }
-      );
-    }
+    if (!lessonId) return apiError(400, "lessonId is required.");
 
     const exercises = await prisma.exercise.findMany({
       where: { lessonId },
       orderBy: { order: "asc" },
       select: {
-        id: true,
-        title: true,
-        description: true,
-        difficulty: true,
-        type: true,
-        language: true,
-        starterCode: true,
-        hints: true,
-        timeLimit: true,
-        memoryLimit: true,
-        order: true,
-        // Don't expose solution — check server-side
+        id: true, title: true, description: true, difficulty: true, type: true,
+        language: true, starterCode: true, hints: true, timeLimit: true, memoryLimit: true, order: true,
       },
     });
 
-    return NextResponse.json({ success: true, exercises });
+    return apiSuccess({ exercises });
   } catch {
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }
 
 /**
  * POST /api/exercise
  * Submit an exercise attempt
- * Body: { exerciseId, code, courseId }
+ * Body: { exerciseId, code, courseId, language? }
  */
 export async function POST(req: NextRequest) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
+    const { error, user } = requireAuth(req);
+    if (error) return error;
 
-    if (!token) {
-      return NextResponse.json(
-        { success: false, message: "Unauthorized." },
-        { status: 401 }
-      );
-    }
-
-    const payload = verifyToken(token);
     const { exerciseId, code, courseId, language } = await req.json();
 
     if (!exerciseId || !code?.trim() || !courseId) {
-      return NextResponse.json(
-        { success: false, message: "exerciseId, code, and courseId are required." },
-        { status: 400 }
-      );
+      return apiError(400, "exerciseId, code, and courseId are required.");
     }
 
-    // Get exercise
     const exercise = await prisma.exercise.findUnique({ where: { id: exerciseId } });
-    if (!exercise) {
-      return NextResponse.json(
-        { success: false, message: "Exercise not found." },
-        { status: 404 }
-      );
-    }
+    if (!exercise) return apiError(404, "Exercise not found.");
 
     // Evaluate using Gemini AI
     let passed = false;
     let feedback = "";
 
-    const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
-    if (GEMINI_KEY) {
-      try {
-        const prompt = `You are an expert code reviewer for an EdTech platform. Evaluate this student's exercise submission.
+    if (isGeminiConfigured()) {
+      const prompt = `You are an expert code reviewer for an EdTech platform. Evaluate this student's exercise submission.
 
 EXERCISE: ${exercise.title || exercise.description}
 DESCRIPTION: ${exercise.description}
@@ -100,43 +64,19 @@ ${code}
 Respond ONLY with valid JSON (no markdown):
 {"passed": true/false, "feedback": "Brief 1-2 sentence feedback explaining why correct or what to improve"}`;
 
-        const geminiRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: { temperature: 0.3, maxOutputTokens: 256 },
-            }),
-          }
-        );
+      const aiResult = await callGeminiJSON<{ passed: boolean; feedback: string }>(prompt, {
+        temperature: 0.3,
+        maxOutputTokens: 256,
+      });
 
-        if (geminiRes.ok) {
-          const geminiData = await geminiRes.json();
-          const rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
-          const cleaned = rawText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-          try {
-            const aiResult = JSON.parse(cleaned);
-            passed = !!aiResult.passed;
-            feedback = aiResult.feedback || "";
-          } catch {
-            // JSON parse failed — check if raw text indicates correct
-            passed = rawText.toLowerCase().includes('"passed": true') || rawText.toLowerCase().includes('"passed":true');
-            feedback = "Solution evaluated.";
-          }
-        } else {
-          // API error — accept submission gracefully
-          passed = true;
-          feedback = "Solution submitted successfully.";
-        }
-      } catch {
-        // AI evaluation failed — accept submission
+      if (aiResult) {
+        passed = !!aiResult.passed;
+        feedback = aiResult.feedback || "";
+      } else {
         passed = true;
         feedback = "Solution submitted successfully.";
       }
     } else {
-      // No AI key — accept any meaningful submission
       passed = code.trim().length >= 10;
       feedback = passed ? "Solution submitted." : "Please write a more detailed solution.";
     }
@@ -144,7 +84,7 @@ Respond ONLY with valid JSON (no markdown):
     // Save submission
     const submission = await prisma.exerciseSubmission.create({
       data: {
-        userId: payload.userId,
+        userId: user!.userId,
         exerciseId,
         courseId,
         code: code.trim(),
@@ -153,18 +93,12 @@ Respond ONLY with valid JSON (no markdown):
       },
     });
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       passed,
       submissionId: submission.id,
-      message: passed
-        ? feedback || "Correct! Well done."
-        : feedback || "Not quite right. Keep trying!",
+      message: passed ? feedback || "Correct! Well done." : feedback || "Not quite right. Keep trying!",
     });
   } catch {
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }

@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 
 /**
  * POST /api/admin/courses/[id]/update
@@ -25,10 +26,7 @@ export async function POST(
     });
 
     if (!existingCourse) {
-      return NextResponse.json(
-        { success: false, message: "Course not found." },
-        { status: 404 }
-      );
+      return apiError(404, "Course not found.");
     }
 
     // Extract and validate fields
@@ -59,20 +57,14 @@ export async function POST(
     if (totalHours !== undefined) {
       const parsedHours = parseInt(totalHours);
       if (isNaN(parsedHours) || parsedHours < 0) {
-        return NextResponse.json(
-          { success: false, message: "Invalid totalHours value." },
-          { status: 400 }
-        );
+        return apiError(400, "Invalid totalHours value.");
       }
       updateData.totalHours = parsedHours;
     }
     if (totalVideos !== undefined) {
       const parsedVideos = parseInt(totalVideos);
       if (isNaN(parsedVideos) || parsedVideos < 0) {
-        return NextResponse.json(
-          { success: false, message: "Invalid totalVideos value." },
-          { status: 400 }
-        );
+        return apiError(400, "Invalid totalVideos value.");
       }
       updateData.totalVideos = parsedVideos;
     }
@@ -83,30 +75,21 @@ export async function POST(
     if (rating !== undefined) {
       const parsedRating = parseFloat(rating);
       if (isNaN(parsedRating) || parsedRating < 0 || parsedRating > 5) {
-        return NextResponse.json(
-          { success: false, message: "Invalid rating value. Must be between 0 and 5." },
-          { status: 400 }
-        );
+        return apiError(400, "Invalid rating value. Must be between 0 and 5.");
       }
       updateData.rating = parsedRating;
     }
     if (students !== undefined) {
       const parsedStudents = parseInt(students);
       if (isNaN(parsedStudents) || parsedStudents < 0) {
-        return NextResponse.json(
-          { success: false, message: "Invalid students value." },
-          { status: 400 }
-        );
+        return apiError(400, "Invalid students value.");
       }
       updateData.students = parsedStudents;
     }
 
     // Check if there's anything to update
     if (Object.keys(updateData).length === 0) {
-      return NextResponse.json(
-        { success: false, message: "No valid fields provided for update." },
-        { status: 400 }
-      );
+      return apiError(400, "No valid fields provided for update.");
     }
 
     // Update course
@@ -130,8 +113,7 @@ export async function POST(
       },
     });
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       message: "Course updated successfully.",
       course: {
         id: updatedCourse.id,
@@ -155,9 +137,6 @@ export async function POST(
     });
   } catch (err) {
     console.error("Update course error:", err);
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }

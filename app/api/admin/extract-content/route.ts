@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { requireAdmin } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
@@ -20,43 +21,16 @@ export async function POST(req: NextRequest) {
     const file = formData.get("file") as File | null;
     const type = formData.get("type") as string | null;
 
-    if (!file) {
-      return NextResponse.json(
-        { success: false, message: "No file uploaded." },
-        { status: 400 }
-      );
-    }
+    if (!file) return apiError(400, "No file uploaded.");
 
     if (!type || (type !== "quiz" && type !== "exercise")) {
-      return NextResponse.json(
-        { success: false, message: "type must be 'quiz' or 'exercise'." },
-        { status: 400 }
-      );
+      return apiError(400, "type must be 'quiz' or 'exercise'.");
     }
 
-    // Validate file type
     const fileName = file.name.toLowerCase();
-    if (!fileName.endsWith(".pdf")) {
-      return NextResponse.json(
-        { success: false, message: "Only .pdf files are supported." },
-        { status: 400 }
-      );
-    }
-
-    // Check file size (max 10MB)
-    if (file.size > 10 * 1024 * 1024) {
-      return NextResponse.json(
-        { success: false, message: "PDF file too large. Maximum 10MB allowed." },
-        { status: 400 }
-      );
-    }
-
-    if (!GEMINI_API_KEY) {
-      return NextResponse.json(
-        { success: false, message: "AI service not configured (missing API key)." },
-        { status: 500 }
-      );
-    }
+    if (!fileName.endsWith(".pdf")) return apiError(400, "Only .pdf files are supported.");
+    if (file.size > 10 * 1024 * 1024) return apiError(400, "PDF file too large. Maximum 10MB allowed.");
+    if (!GEMINI_API_KEY) return apiError(500, "AI service not configured (missing API key).");
 
     // Read file buffer
     const buffer = Buffer.from(await file.arrayBuffer());
@@ -86,14 +60,10 @@ export async function POST(req: NextRequest) {
     }
 
     if (!result.success) {
-      return NextResponse.json(
-        { success: false, message: result.error || "AI could not process the content. Try again." },
-        { status: 500 }
-      );
+      return apiError(500, result.error || "AI could not process the content. Try again.");
     }
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       message: type === "quiz"
         ? `Extracted ${result.quizzes.length} quiz(zes).`
         : `Extracted ${result.exercises.length} exercise(s).`,
@@ -102,10 +72,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     console.error("Extract content error:", err);
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }
 

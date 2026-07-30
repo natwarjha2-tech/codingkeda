@@ -1,33 +1,30 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
-import { verifyToken } from "@/app/lib/auth";
+import { requireAuth } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 
 /**
  * POST /api/feedback
  * Submit app rating and optional feedback text.
  * Used by: Desktop app "Rate Us" section, Mobile app
  * 
- * Body: { rating: 1-5, feedback?: string }
+ * Body: { rating: 1-5, feedback?: string, lessonId?, lessonTitle? }
  */
 export async function POST(req: NextRequest) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
-    if (!token) return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
+    const { error, user } = requireAuth(req);
+    if (error) return error;
 
-    const payload = verifyToken(token);
-    const userId = payload.userId;
     const body = await req.json();
     const { rating, feedback, lessonId, lessonTitle } = body;
 
     if (!rating || rating < 1 || rating > 5) {
-      return NextResponse.json({ success: false, message: "Rating must be between 1 and 5" }, { status: 400 });
+      return apiError(400, "Rating must be between 1 and 5");
     }
 
-    // Store in SurveyResponse (reusing existing table — no schema change needed)
     await prisma.surveyResponse.create({
       data: {
-        email: payload.email || userId,
+        email: user!.email || user!.userId,
         answers: {
           type: lessonId ? "lesson_rating" : "app_rating",
           rating: Math.round(rating),
@@ -35,18 +32,15 @@ export async function POST(req: NextRequest) {
           lessonId: lessonId || null,
           lessonTitle: lessonTitle || null,
           platform: "desktop",
-          userId: userId,
+          userId: user!.userId,
           timestamp: new Date().toISOString(),
         },
         result: `${Math.round(rating)} stars`,
       },
     });
 
-    return NextResponse.json({
-      success: true,
-      message: "Thank you for your feedback! 🎉",
-    });
+    return apiSuccess({ message: "Thank you for your feedback! 🎉" });
   } catch {
-    return NextResponse.json({ success: false, message: "Internal server error" }, { status: 500 });
+    return apiError(500, "Internal server error");
   }
 }

@@ -1,15 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
-import { verifyToken } from "@/app/lib/auth";
+import { requireAuth } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 import Razorpay from "razorpay";
 
 const RAZORPAY_KEY_ID = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "";
 const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || "";
 
-const razorpay = new Razorpay({
-  key_id: RAZORPAY_KEY_ID,
-  key_secret: RAZORPAY_KEY_SECRET,
-});
+const razorpay = new Razorpay({ key_id: RAZORPAY_KEY_ID, key_secret: RAZORPAY_KEY_SECRET });
 
 /**
  * POST /api/payment/create-order
@@ -18,121 +16,49 @@ const razorpay = new Razorpay({
  */
 export async function POST(req: NextRequest) {
   try {
-    // Check Razorpay configuration
     if (!RAZORPAY_KEY_ID || !RAZORPAY_KEY_SECRET) {
-      console.error("Razorpay keys not configured");
-      return NextResponse.json(
-        { success: false, message: "Payment gateway not configured. Please contact support." },
-        { status: 503 }
-      );
+      return apiError(503, "Payment gateway not configured. Please contact support.");
     }
 
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
-
-    if (!token) {
-      return NextResponse.json(
-        { success: false, message: "Unauthorized. Please login." },
-        { status: 401 }
-      );
-    }
-
-    let payload;
-    try {
-      payload = verifyToken(token);
-    } catch {
-      return NextResponse.json(
-        { success: false, message: "Session expired. Please login again." },
-        { status: 401 }
-      );
-    }
+    const { error, user } = requireAuth(req);
+    if (error) return error;
 
     const { courseId, amount } = await req.json();
+    if (!courseId?.trim()) return apiError(400, "Course ID is required.");
+    if (!amount || amount <= 0 || isNaN(Number(amount))) return apiError(400, "Valid amount is required.");
 
-    if (!courseId?.trim()) {
-      return NextResponse.json(
-        { success: false, message: "Course ID is required." },
-        { status: 400 }
-      );
-    }
-
-    if (!amount || amount <= 0 || isNaN(Number(amount))) {
-      return NextResponse.json(
-        { success: false, message: "Valid amount is required." },
-        { status: 400 }
-      );
-    }
-
-    // Verify course exists
     const course = await prisma.course.findUnique({ where: { id: courseId } });
-    if (!course) {
-      return NextResponse.json(
-        { success: false, message: "Course not found." },
-        { status: 404 }
-      );
-    }
+    if (!course) return apiError(404, "Course not found.");
 
-    // Check if user is already enrolled
     const existingEnrollment = await prisma.enrollment.findUnique({
-      where: { userId_courseId: { userId: payload.userId, courseId } },
+      where: { userId_courseId: { userId: user!.userId, courseId } },
     });
-    if (existingEnrollment) {
-      return NextResponse.json(
-        { success: false, message: "You are already enrolled in this course." },
-        { status: 409 }
-      );
-    }
+    if (existingEnrollment) return apiError(409, "You are already enrolled in this course.");
 
     // Create Razorpay order
     const amountInPaisa = Math.round(Number(amount) * 100);
     const razorpayOrder = await razorpay.orders.create({
       amount: amountInPaisa,
       currency: "INR",
-      receipt: `order_${payload.userId.slice(0, 8)}_${Date.now()}`,
-      notes: {
-        userId: payload.userId,
-        courseId: courseId,
-        courseName: course.title,
-      },
+      receipt: `order_${user!.userId.slice(0, 8)}_${Date.now()}`,
+      notes: { userId: user!.userId, courseId, courseName: course.title },
     });
 
-    // Store payment record in database with pending status
+    // Store payment record
     const payment = await prisma.payment.create({
-      data: {
-        userId: payload.userId,
-        courseId: courseId,
-        razorpayOrderId: razorpayOrder.id,
-        amount: amountInPaisa,
-        status: "pending",
-      },
+      data: { userId: user!.userId, courseId, razorpayOrderId: razorpayOrder.id, amount: amountInPaisa, status: "pending" },
     });
 
-    return NextResponse.json({
-      success: true,
-      orderId: razorpayOrder.id,
-      amount: Number(amount),
-      currency: "INR",
-      keyId: RAZORPAY_KEY_ID,
-      paymentId: payment.id,
-      userName: payload.email || "User",
-      userEmail: payload.email || "",
+    return apiSuccess({
+      orderId: razorpayOrder.id, amount: Number(amount), currency: "INR", keyId: RAZORPAY_KEY_ID,
+      paymentId: payment.id, userName: user!.email || "User", userEmail: user!.email || "",
     });
-  } catch (error) {
-    console.error("Payment creation error:", error);
-
-    // Provide specific error messages based on error type
-    const errMsg = error instanceof Error ? error.message : "";
-
-    if (errMsg.includes("authentication") || errMsg.includes("unauthorized") || errMsg.includes("401")) {
-      return NextResponse.json(
-        { success: false, message: "Payment gateway authentication failed. Please contact support." },
-        { status: 502 }
-      );
+  } catch (err) {
+    console.error("Payment creation error:", err);
+    const msg = err instanceof Error ? err.message : "";
+    if (msg.includes("authentication") || msg.includes("unauthorized") || msg.includes("401")) {
+      return apiError(502, "Payment gateway authentication failed. Please contact support.");
     }
-
-    return NextResponse.json(
-      { success: false, message: "Failed to create payment order. Please try again." },
-      { status: 500 }
-    );
+    return apiError(500, "Failed to create payment order. Please try again.");
   }
 }

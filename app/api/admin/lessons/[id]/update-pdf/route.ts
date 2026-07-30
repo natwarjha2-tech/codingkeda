@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 
 /**
  * POST /api/admin/lessons/[id]/update-pdf
@@ -22,10 +23,7 @@ export async function POST(
 
     // Validation
     if (!pdfUrl && !mediaId && !notes) {
-      return NextResponse.json(
-        { success: false, message: "Either pdfUrl, mediaId, or notes is required." },
-        { status: 400 }
-      );
+      return apiError(400, "Either pdfUrl, mediaId, or notes is required.");
     }
 
     // Check if lesson exists
@@ -34,10 +32,7 @@ export async function POST(
     });
 
     if (!lesson) {
-      return NextResponse.json(
-        { success: false, message: "Lesson not found." },
-        { status: 404 }
-      );
+      return apiError(404, "Lesson not found.");
     }
 
     // If mediaId is provided, fetch the media URL
@@ -49,10 +44,7 @@ export async function POST(
       });
 
       if (!media) {
-        return NextResponse.json(
-          { success: false, message: "Media not found or not a PDF." },
-          { status: 404 }
-        );
+        return apiError(404, "Media not found or not a PDF.");
       }
 
       finalPdfUrl = media.s3Url;
@@ -75,8 +67,7 @@ export async function POST(
       },
     });
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       message: "PDF URL updated successfully.",
       lesson: {
         id: updatedLesson.id,
@@ -89,9 +80,6 @@ export async function POST(
     });
   } catch (err) {
     console.error("Update PDF error:", err);
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }

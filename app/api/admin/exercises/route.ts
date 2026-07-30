@@ -1,10 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 
 /**
- * POST /api/admin/exercises — Add single exercise
  * GET /api/admin/exercises?lessonId=xxx — List exercises for edit UI
+ * POST /api/admin/exercises — Add single exercise
  */
 export async function GET(req: NextRequest) {
   try {
@@ -12,19 +13,14 @@ export async function GET(req: NextRequest) {
     if (error) return error;
 
     const lessonId = req.nextUrl.searchParams.get("lessonId");
-    if (!lessonId) {
-      return NextResponse.json({ success: false, message: "lessonId required." }, { status: 400 });
-    }
+    if (!lessonId) return apiError(400, "lessonId required.");
 
     const exercises = await prisma.exercise.findMany({
-      where: { lessonId },
-      orderBy: { order: "asc" },
-      include: { testCases: { orderBy: { order: "asc" } } },
+      where: { lessonId }, orderBy: { order: "asc" }, include: { testCases: { orderBy: { order: "asc" } } },
     });
-
-    return NextResponse.json({ success: true, exercises });
+    return apiSuccess({ exercises });
   } catch {
-    return NextResponse.json({ success: false, message: "Internal server error." }, { status: 500 });
+    return apiError(500, "Internal server error.");
   }
 }
 
@@ -33,60 +29,29 @@ export async function POST(req: NextRequest) {
     const { error } = requireAdmin(req);
     if (error) return error;
 
-    const { lessonId, title, description, difficulty, type, language } =
-      await req.json();
-
+    const { lessonId, title, description, difficulty, type, language } = await req.json();
     if (!lessonId || !title || !description || !type) {
-      return NextResponse.json(
-        { success: false, message: "lessonId, title, description, and type are required." },
-        { status: 400 }
-      );
+      return apiError(400, "lessonId, title, description, and type are required.");
     }
 
     const exercise = await prisma.exercise.create({
-      data: {
-        lessonId,
-        title,
-        description,
-        difficulty: difficulty || "medium",
-        type,
-        language: type === "coding" ? (language || "c") : null,
-        order: 0,
-      },
+      data: { lessonId, title, description, difficulty: difficulty || "medium", type, language: type === "coding" ? (language || "c") : null, order: 0 },
     });
 
-    // If type = coding → auto-trigger best solution generation (non-blocking)
+    // Auto-trigger best solution generation for coding exercises (non-blocking)
     if (type === "coding") {
-      triggerBestSolutionGeneration(exercise.id, title, description).catch(
-        () => {}
-      );
+      triggerBestSolutionGeneration(exercise.id).catch(() => {});
     }
 
-    return NextResponse.json({ success: true, exercise });
+    return apiSuccess({ exercise });
   } catch {
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }
 
-/**
- * Auto-trigger AI best solution generation for coding exercises
- */
-async function triggerBestSolutionGeneration(
-  exerciseId: string,
-  title: string,
-  description: string
-) {
-  const baseUrl =
-    process.env.NEXT_PUBLIC_BASE_URL ||
-    process.env.BASE_URL ||
-    "http://localhost:3000";
-
+async function triggerBestSolutionGeneration(exerciseId: string) {
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || process.env.BASE_URL || "http://localhost:3000";
   await fetch(`${baseUrl}/api/coding-problems/best-solution`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ problemId: exerciseId }),
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ problemId: exerciseId }),
   });
 }

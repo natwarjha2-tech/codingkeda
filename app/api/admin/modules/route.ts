@@ -1,62 +1,35 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 
 /**
  * POST /api/admin/modules
  * Create a new module inside a course
- * Requires admin authentication
  */
 export async function POST(req: NextRequest) {
   try {
     const { error } = requireAdmin(req);
     if (error) return error;
 
-    const body = await req.json();
-    const { courseId, title, order } = body;
-
-    if (!courseId?.trim() || !title?.trim()) {
-      return NextResponse.json(
-        { success: false, message: "courseId and title are required." },
-        { status: 400 }
-      );
-    }
+    const { courseId, title, order } = await req.json();
+    if (!courseId?.trim() || !title?.trim()) return apiError(400, "courseId and title are required.");
 
     const course = await prisma.course.findUnique({ where: { id: courseId } });
-    if (!course) {
-      return NextResponse.json(
-        { success: false, message: "Course not found." },
-        { status: 404 }
-      );
-    }
+    if (!course) return apiError(404, "Course not found.");
 
-    // Auto-assign order if not provided
     let moduleOrder = parseInt(order ?? "0");
     if (!order) {
-      const lastModule = await prisma.module.findFirst({
-        where: { courseId },
-        orderBy: { order: "desc" },
-      });
+      const lastModule = await prisma.module.findFirst({ where: { courseId }, orderBy: { order: "desc" } });
       moduleOrder = (lastModule?.order ?? 0) + 1;
     }
 
     const module = await prisma.module.create({
-      data: {
-        courseId: courseId.trim(),
-        title: title.trim(),
-        order: moduleOrder,
-      },
+      data: { courseId: courseId.trim(), title: title.trim(), order: moduleOrder },
     });
 
-    return NextResponse.json(
-      { success: true, message: "Module created successfully.", module },
-      { status: 201 }
-    );
-  } catch (err) {
-    console.error("Create module error:", err);
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiSuccess({ message: "Module created successfully.", module }, 201);
+  } catch {
+    return apiError(500, "Internal server error.");
   }
 }

@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 
 /**
  * POST /api/admin/migrate-problems
@@ -19,7 +20,7 @@ export async function POST(req: NextRequest) {
     const res = await fetch(`${baseUrl}/api/coding-problems`, { cache: "no-store" });
     const data = await res.json();
     if (!data.success || !data.problems || data.problems.length === 0) {
-      return NextResponse.json({ success: false, message: "Could not fetch problems." }, { status: 500 });
+      return apiError(500, "Could not fetch problems.");
     }
 
     const problems = data.problems;
@@ -139,17 +140,13 @@ export async function POST(req: NextRequest) {
       inserted++;
     }
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       message: `Migration complete. Inserted: ${inserted}, Skipped (already exists): ${skipped}`,
       lessonId: dummyLesson.id,
       totalProblems: problems.length,
     });
   } catch (err) {
     console.error("Migration error:", err);
-    return NextResponse.json(
-      { success: false, message: "Migration failed: " + (err instanceof Error ? err.message : "Unknown") },
-      { status: 500 }
-    );
+    return apiError(500, "Migration failed: " + (err instanceof Error ? err.message : "Unknown"));
   }
 }

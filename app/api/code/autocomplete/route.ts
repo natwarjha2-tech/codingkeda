@@ -1,7 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
-
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+import { NextRequest } from "next/server";
+import { apiSuccess } from "@/app/lib/response";
+import { callGemini, isGeminiConfigured } from "@/app/lib/gemini";
 
 /**
  * POST /api/code/autocomplete
@@ -14,13 +13,8 @@ export async function POST(req: NextRequest) {
   try {
     const { code, language, cursorLine, problemTitle, problemDesc } = await req.json();
 
-    // Validation
-    if (!code || code.trim().length < 3) {
-      return NextResponse.json({ success: true, suggestion: "" });
-    }
-
-    if (!GEMINI_API_KEY) {
-      return NextResponse.json({ success: true, suggestion: "" });
+    if (!code || code.trim().length < 3 || !isGeminiConfigured()) {
+      return apiSuccess({ suggestion: "" });
     }
 
     // Truncate code to keep tokens low (keep area around cursor)
@@ -28,7 +22,6 @@ export async function POST(req: NextRequest) {
     const startLine = Math.max(0, (cursorLine || lines.length) - 30);
     const relevantCode = lines.slice(startLine).join("\n").slice(-2000);
 
-    // Build prompt
     const langLabel = language || "code";
     const problemContext = problemTitle
       ? `\nProblem: ${problemTitle}${problemDesc ? " — " + problemDesc.slice(0, 150) : ""}`
@@ -52,42 +45,22 @@ RULES:
 Code so far:
 ${relevantCode}`;
 
-    const res = await fetch(GEMINI_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 512,
-          stopSequences: ["\n\n\n"],
-        },
-      }),
-    });
+    const rawText = await callGemini(prompt, { temperature: 0.2, maxOutputTokens: 512 });
 
-    if (!res.ok) {
-      // Rate limit or error — return empty (no error to user)
-      return NextResponse.json({ success: true, suggestion: "" });
-    }
-
-    const data = await res.json();
-    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-
-    // Clean the response — remove markdown code blocks if present
+    // Clean the response
     let suggestion = rawText
       .replace(/^```[\w]*\n?/gm, "")
       .replace(/```$/gm, "")
-      .replace(/^\n/, ""); // Remove leading newline
+      .replace(/^\n/, "");
 
-    // Limit to max 15 lines (safety cap for very long suggestions)
+    // Limit to max 15 lines
     const suggestionLines = suggestion.split("\n");
     if (suggestionLines.length > 15) {
       suggestion = suggestionLines.slice(0, 15).join("\n");
     }
 
-    return NextResponse.json({ success: true, suggestion });
+    return apiSuccess({ suggestion });
   } catch {
-    // Silent fail — non-critical feature
-    return NextResponse.json({ success: true, suggestion: "" });
+    return apiSuccess({ suggestion: "" });
   }
 }

@@ -1,42 +1,29 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
-import { verifyToken } from "@/app/lib/auth";
+import { requireAuth } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 import { getSignedFileUrlFromUrl, getS3KeyFromUrl } from "@/app/lib/s3";
 
 /**
  * GET /api/student/dashboard
  * Returns enrolled courses with progress + completed videos count + last watched lesson
- * Requires valid user token
  */
 export async function GET(req: NextRequest) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
+    const { error, user } = requireAuth(req);
+    if (error) return error;
 
-    if (!token) {
-      return NextResponse.json(
-        { success: false, message: "Unauthorized." },
-        { status: 401 }
-      );
-    }
-
-    const payload = verifyToken(token);
     const signed = new URL(req.url).searchParams.get("signed") === "true";
 
     // Get all enrollments with course + modules + lessons
     const enrollments = await prisma.enrollment.findMany({
-      where: { userId: payload.userId },
+      where: { userId: user!.userId },
       include: {
         course: {
           include: {
             modules: {
               orderBy: { order: "asc" },
-              include: {
-                lessons: {
-                  orderBy: { order: "asc" },
-                  select: { id: true, title: true, duration: true, order: true, videoUrl: true },
-                },
-              },
+              include: { lessons: { orderBy: { order: "asc" }, select: { id: true, title: true, duration: true, order: true, videoUrl: true } } },
             },
           },
         },
@@ -46,13 +33,12 @@ export async function GET(req: NextRequest) {
 
     // Get all completed lessons for this user
     const completedProgress = await prisma.progress.findMany({
-      where: { userId: payload.userId, completed: true },
+      where: { userId: user!.userId, completed: true },
       select: { lessonId: true, updatedAt: true },
       orderBy: { updatedAt: "desc" },
     });
 
     const completedLessonIds = new Set(completedProgress.map((p) => p.lessonId));
-    const totalCompletedVideos = completedProgress.length;
 
     // Build enrolled courses with progress
     const enrolledCourses = enrollments.map((enrollment) => {
@@ -60,16 +46,10 @@ export async function GET(req: NextRequest) {
       const allLessons = course.modules.flatMap((m) => m.lessons);
       const totalLessons = allLessons.length;
       const completedCount = allLessons.filter((l) => completedLessonIds.has(l.id)).length;
-      const progressPercent = totalLessons > 0 ? Math.round((completedCount / totalLessons) * 100) : 0;
-
       return {
-        id: course.id,
-        title: course.title,
-        color: course.color,
-        icon: course.icon,
-        totalLessons,
-        completedLessons: completedCount,
-        progressPercent,
+        id: course.id, title: course.title, color: course.color, icon: course.icon,
+        totalLessons, completedLessons: completedCount,
+        progressPercent: totalLessons > 0 ? Math.round((completedCount / totalLessons) * 100) : 0,
       };
     });
 
@@ -82,17 +62,11 @@ export async function GET(req: NextRequest) {
           const lesson = mod.lessons.find((l) => l.id === lastLessonId);
           if (lesson) {
             let videoUrl = lesson.videoUrl;
-            if (signed && getS3KeyFromUrl(videoUrl)) {
-              videoUrl = await getSignedFileUrlFromUrl(videoUrl);
-            }
+            if (signed && getS3KeyFromUrl(videoUrl)) videoUrl = await getSignedFileUrlFromUrl(videoUrl);
             lastWatched = {
-              courseId: enrollment.course.id,
-              courseTitle: enrollment.course.title,
-              moduleId: mod.id,
-              moduleTitle: mod.title,
-              lessonId: lesson.id,
-              lessonTitle: lesson.title,
-              videoUrl,
+              courseId: enrollment.course.id, courseTitle: enrollment.course.title,
+              moduleId: mod.id, moduleTitle: mod.title,
+              lessonId: lesson.id, lessonTitle: lesson.title, videoUrl,
               progressPercent: enrolledCourses.find((c) => c.id === enrollment.course.id)?.progressPercent || 0,
             };
             break;
@@ -102,17 +76,8 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({
-      success: true,
-      enrolledCount: enrollments.length,
-      completedVideos: totalCompletedVideos,
-      enrolledCourses,
-      lastWatched,
-    });
+    return apiSuccess({ enrolledCount: enrollments.length, completedVideos: completedProgress.length, enrolledCourses, lastWatched });
   } catch {
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }

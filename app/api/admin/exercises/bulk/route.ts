@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 
 /**
  * POST /api/admin/exercises/bulk
@@ -17,10 +18,7 @@ export async function POST(req: NextRequest) {
     const { lessonId, exercises } = await req.json();
 
     if (!lessonId || !exercises || !Array.isArray(exercises) || exercises.length === 0) {
-      return NextResponse.json(
-        { success: false, message: "lessonId and exercises array required." },
-        { status: 400 }
-      );
+      return apiError(400, "lessonId and exercises array required.");
     }
 
     // Get current max order
@@ -71,16 +69,12 @@ export async function POST(req: NextRequest) {
       created.push(exercise);
     }
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       count: created.length,
       message: `${created.length} exercise(s) added.`,
     });
   } catch {
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }
 

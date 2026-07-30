@@ -1,72 +1,49 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
-import { verifyToken } from "@/app/lib/auth";
+import { requireAuth } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 
 /**
  * GET /api/student/subscription
  * Returns current subscription/plan status for the logged-in student.
- * Used by: Desktop app, Mobile app
- * 
- * Note: Currently CodingKida uses per-course purchase model.
- * This endpoint returns enrollment-based "subscription" info.
- * Can be extended later for monthly/yearly subscription plans.
+ * Per-course purchase model — enrollment = active access.
  */
 export async function GET(req: NextRequest) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
-    if (!token) return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
+    const { error, user } = requireAuth(req);
+    if (error) return error;
 
-    const payload = verifyToken(token);
-    const userId = payload.userId;
-
-    // Get user info
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
+    const dbUser = await prisma.user.findUnique({
+      where: { id: user!.userId },
       select: { name: true, email: true, createdAt: true },
     });
 
-    // Get all enrollments (active courses = current plan)
     const enrollments = await prisma.enrollment.findMany({
-      where: { userId },
-      include: {
-        course: {
-          select: { id: true, title: true, icon: true, color: true },
-        },
-      },
+      where: { userId: user!.userId },
+      include: { course: { select: { id: true, title: true, icon: true, color: true } } },
       orderBy: { createdAt: "desc" },
     });
 
-    // Get successful payments
     const payments = await prisma.payment.findMany({
-      where: { userId, status: "success" },
+      where: { userId: user!.userId, status: "success" },
       select: { amount: true, createdAt: true },
       orderBy: { createdAt: "desc" },
     });
 
     const totalSpent = payments.reduce((sum, p) => sum + p.amount, 0) / 100;
-    const memberSince = user?.createdAt;
-    const lastPayment = payments[0]?.createdAt || null;
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       subscription: {
         plan: enrollments.length > 0 ? "Active Learner" : "Free",
         status: enrollments.length > 0 ? "active" : "inactive",
-        memberSince,
+        memberSince: dbUser?.createdAt,
         coursesEnrolled: enrollments.length,
         totalSpent,
-        lastPaymentDate: lastPayment,
-        enrolledCourses: enrollments.map(e => ({
-          courseId: e.course.id,
-          title: e.course.title,
-          icon: e.course.icon,
-          color: e.course.color,
-          enrolledAt: e.createdAt,
-        })),
+        lastPaymentDate: payments[0]?.createdAt || null,
+        enrolledCourses: enrollments.map(e => ({ courseId: e.course.id, title: e.course.title, icon: e.course.icon, color: e.course.color, enrolledAt: e.createdAt })),
       },
     });
   } catch {
-    return NextResponse.json({ success: false, message: "Internal server error" }, { status: 500 });
+    return apiError(500, "Internal server error");
   }
 }

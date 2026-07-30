@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
-import { verifyToken } from "@/app/lib/auth";
+import { requireAuth } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 import { syncStudentOnEnroll } from "@/app/lib/sync-student";
 
 export async function POST(
@@ -9,45 +10,21 @@ export async function POST(
 ) {
   try {
     const { id: courseId } = await params;
-
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
-
-    if (!token) {
-      return NextResponse.json(
-        { success: false, message: "Unauthorized." },
-        { status: 401 }
-      );
-    }
-
-    const payload = verifyToken(token);
+    const { error, user } = requireAuth(req);
+    if (error) return error;
 
     const course = await prisma.course.findUnique({ where: { id: courseId } });
-    if (!course) {
-      return NextResponse.json(
-        { success: false, message: "Course not found." },
-        { status: 404 }
-      );
-    }
+    if (!course) return apiError(404, "Course not found.");
 
-    // Upsert — safe to call multiple times
     await prisma.enrollment.upsert({
-      where: { userId_courseId: { userId: payload.userId, courseId } },
+      where: { userId_courseId: { userId: user!.userId, courseId } },
       update: {},
-      create: { userId: payload.userId, courseId },
+      create: { userId: user!.userId, courseId },
     });
 
-    // Sync Student record
-    await syncStudentOnEnroll(payload.userId);
-
-    return NextResponse.json({
-      success: true,
-      message: "Enrolled successfully.",
-    });
+    await syncStudentOnEnroll(user!.userId);
+    return apiSuccess({ message: "Enrolled successfully." });
   } catch {
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }

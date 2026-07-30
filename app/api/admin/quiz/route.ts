@@ -1,10 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 
 /**
+ * GET /api/admin/quiz?lessonId=xxx — List quizzes for a lesson
  * POST /api/admin/quiz — Add single quiz
- * GET /api/admin/quiz?lessonId=xxx — List all quizzes for a lesson (for edit UI)
  */
 export async function GET(req: NextRequest) {
   try {
@@ -12,18 +13,12 @@ export async function GET(req: NextRequest) {
     if (error) return error;
 
     const lessonId = req.nextUrl.searchParams.get("lessonId");
-    if (!lessonId) {
-      return NextResponse.json({ success: false, message: "lessonId required." }, { status: 400 });
-    }
+    if (!lessonId) return apiError(400, "lessonId required.");
 
-    const quizzes = await prisma.quiz.findMany({
-      where: { lessonId },
-      orderBy: { order: "asc" },
-    });
-
-    return NextResponse.json({ success: true, quizzes });
+    const quizzes = await prisma.quiz.findMany({ where: { lessonId }, orderBy: { order: "asc" } });
+    return apiSuccess({ quizzes });
   } catch {
-    return NextResponse.json({ success: false, message: "Internal server error." }, { status: 500 });
+    return apiError(500, "Internal server error.");
   }
 }
 
@@ -33,30 +28,16 @@ export async function POST(req: NextRequest) {
     if (error) return error;
 
     const { lessonId, question, options, answer, explanation } = await req.json();
-
     if (!lessonId || !question || !options || answer === undefined) {
-      return NextResponse.json(
-        { success: false, message: "lessonId, question, options, and answer are required." },
-        { status: 400 }
-      );
+      return apiError(400, "lessonId, question, options, and answer are required.");
     }
 
     const quiz = await prisma.quiz.create({
-      data: {
-        lessonId,
-        question,
-        options,
-        answer: Number(answer),
-        explanation: explanation || null,
-        order: 0,
-      },
+      data: { lessonId, question, options, answer: Number(answer), explanation: explanation || null, order: 0 },
     });
 
-    return NextResponse.json({ success: true, quiz });
+    return apiSuccess({ quiz });
   } catch {
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }

@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
-import { verifyToken } from "@/app/lib/auth";
+import { requireAuth } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
 import { logger } from "@/app/lib/logger";
 
 /**
@@ -10,33 +11,17 @@ import { logger } from "@/app/lib/logger";
 export async function GET(req: NextRequest) {
   try {
     const lessonId = req.nextUrl.searchParams.get("lessonId");
-
-    if (!lessonId) {
-      return NextResponse.json(
-        { success: false, message: "lessonId is required." },
-        { status: 400 }
-      );
-    }
+    if (!lessonId) return apiError(400, "lessonId is required.");
 
     const quizzes = await prisma.quiz.findMany({
       where: { lessonId },
       orderBy: { order: "asc" },
-      select: {
-        id: true,
-        question: true,
-        options: true,
-        answer: true,
-        explanation: true,
-        order: true,
-      },
+      select: { id: true, question: true, options: true, answer: true, explanation: true, order: true },
     });
 
-    return NextResponse.json({ success: true, quizzes });
+    return apiSuccess({ quizzes });
   } catch {
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }
 
@@ -54,37 +39,23 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
-
-    if (!token) {
+    const { error, user } = requireAuth(req);
+    if (error) {
       logger.warn("quiz-submit", "unauthorized_attempt", {});
-      return NextResponse.json(
-        { success: false, message: "Unauthorized." },
-        { status: 401 }
-      );
+      return error;
     }
 
-    const payload = verifyToken(token);
     const { quizId, selected, courseId, lessonId, timeTaken } = await req.json();
-    logger.info("quiz-submit", "request_received", { userId: payload.userId, quizId, courseId, lessonId });
+    logger.info("quiz-submit", "request_received", { userId: user!.userId, quizId, courseId, lessonId });
 
     if (!quizId || selected === undefined || !courseId) {
-      logger.warn("quiz-submit", "validation_failed", { userId: payload.userId, quizId, selected, courseId });
-      return NextResponse.json(
-        { success: false, message: "quizId, selected, and courseId are required." },
-        { status: 400 }
-      );
+      logger.warn("quiz-submit", "validation_failed", { userId: user!.userId, quizId, selected, courseId });
+      return apiError(400, "quizId, selected, and courseId are required.");
     }
 
     // Get quiz to check answer
     const quiz = await prisma.quiz.findUnique({ where: { id: quizId } });
-    if (!quiz) {
-      return NextResponse.json(
-        { success: false, message: "Quiz not found." },
-        { status: 404 }
-      );
-    }
+    if (!quiz) return apiError(404, "Quiz not found.");
 
     const correct = quiz.answer === Number(selected);
 
@@ -93,7 +64,7 @@ export async function POST(req: NextRequest) {
     
     const attempt = await prisma.quizAttempt.create({
       data: {
-        userId: payload.userId,
+        userId: user!.userId,
         quizId,
         courseId,
         lessonId: effectiveLessonId || null,
@@ -102,7 +73,7 @@ export async function POST(req: NextRequest) {
         timeTaken: timeTaken ? Number(timeTaken) : null,
       },
     });
-    logger.success("quiz-submit", "attempt_saved", { userId: payload.userId, attemptId: attempt.id, correct, lessonId: effectiveLessonId });
+    logger.success("quiz-submit", "attempt_saved", { userId: user!.userId, attemptId: attempt.id, correct, lessonId: effectiveLessonId });
 
     // After saving, recalculate lesson leaderboard and award coins
     let coinsAwarded = 0;
@@ -110,17 +81,16 @@ export async function POST(req: NextRequest) {
     let rank: number | null = null;
 
     if (effectiveLessonId) {
-      const rankResult = await _recalculateAndAwardCoins(payload.userId, effectiveLessonId, courseId);
+      const rankResult = await _recalculateAndAwardCoins(user!.userId, effectiveLessonId, courseId);
       coinsAwarded = rankResult.coinsAwarded;
       badge = rankResult.badge;
       rank = rankResult.rank;
       if (coinsAwarded > 0) {
-        logger.success("quiz-submit", "coins_awarded", { userId: payload.userId, coins: coinsAwarded, rank, badge, lessonId: effectiveLessonId });
+        logger.success("quiz-submit", "coins_awarded", { userId: user!.userId, coins: coinsAwarded, rank, badge, lessonId: effectiveLessonId });
       }
     }
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       correct,
       correctAnswer: quiz.answer,
       explanation: quiz.explanation,
@@ -130,10 +100,7 @@ export async function POST(req: NextRequest) {
       rank,
     });
   } catch {
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }
 

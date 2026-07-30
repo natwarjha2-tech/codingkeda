@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
 import { deleteS3Prefix, deleteFromS3, getS3KeyFromUrl } from "@/app/lib/s3";
+import { apiSuccess, apiError } from "@/app/lib/response";
 
 /**
  * DELETE /api/admin/courses/[id]
@@ -22,26 +23,17 @@ export async function DELETE(
     const { id } = await params;
 
     if (!id) {
-      return NextResponse.json(
-        { success: false, message: "Course ID is required." },
-        { status: 400 }
-      );
+      return apiError(400, "Course ID is required.");
     }
 
     // Verify course exists and belongs to this admin
     const course = await prisma.course.findUnique({ where: { id } });
     if (!course) {
-      return NextResponse.json(
-        { success: false, message: "Course not found." },
-        { status: 404 }
-      );
+      return apiError(404, "Course not found.");
     }
 
     if (course.createdBy !== user!.userId && user!.role !== "super-admin") {
-      return NextResponse.json(
-        { success: false, message: "You can only delete your own courses." },
-        { status: 403 }
-      );
+      return apiError(403, "You can only delete your own courses.");
     }
 
     // Get all lessons across all modules in this course
@@ -117,15 +109,11 @@ export async function DELETE(
       await prisma.media.deleteMany({ where: { id: { in: orphanedMedia.map((m) => m.id) } } });
     }
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       message: `Course and all reference data deleted permanently (${lessons.length} lessons cleaned up).`,
     });
   } catch (err) {
     console.error("Delete course error:", err);
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+    return apiError(500, "Internal server error.");
   }
 }
