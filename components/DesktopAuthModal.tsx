@@ -244,9 +244,8 @@ export default function DesktopAuthModal({ isOpen, onClose }: DesktopAuthModalPr
                 {/* Stats Card - overlapping image bottom */}
                 <div className="relative z-20 -mt-6 bg-white rounded-2xl shadow-lg border border-slate-100 px-6 py-4 flex items-center justify-between w-full max-w-sm">
                 {[
-                  { icon: <Users size={16} className="text-purple-500" />, value: "5,000+", label: "Happy Students" },
-                  { icon: <BookOpen size={16} className="text-purple-500" />, value: "20+", label: "Courses" },
-                  { icon: <TrendingUp size={16} className="text-yellow-500" />, value: "4.8/5", label: "Average Rating" },
+                  { icon: <BookOpen size={16} className="text-purple-500" />, value: "3+", label: "Courses" },
+                  { icon: <TrendingUp size={16} className="text-yellow-500" />, value: "Free", label: "To Start" },
                 ].map((s) => (
                   <div key={s.label} className="text-center">
                     <div className="flex items-center justify-center gap-1 mb-1">{s.icon}<span className="text-lg font-extrabold text-slate-900">{s.value}</span></div>

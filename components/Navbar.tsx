@@ -119,8 +119,8 @@ export default function Navbar() {
             {open ? <X size={20} /> : <Menu size={20} />}
           </button>
           <Link href="/" className="flex items-center gap-1.5 font-extrabold text-sm text-white">
-            <Image src="/logo.jpg" alt="CodingKeda" width={26} height={26} className="rounded-md object-contain" />
-            CodingKeda
+            <Image src="/logo.jpg" alt="CodingKida" width={26} height={26} className="rounded-md object-contain" />
+            CodingKida
           </Link>
         </div>
 
@@ -149,8 +149,8 @@ export default function Navbar() {
 
         {/* DESKTOP: Logo (left) — UNCHANGED */}
         <Link href="/" className="hidden md:flex items-center gap-2 font-extrabold text-xl text-white flex-shrink-0">
-          <Image src="/logo.jpg" alt="CodingKeda" width={36} height={36} className="rounded-md object-contain" />
-          CodingKeda
+          <Image src="/logo.jpg" alt="CodingKida" width={36} height={36} className="rounded-md object-contain" />
+          CodingKida
         </Link>
 
         {/* Search Bar - near logo */}

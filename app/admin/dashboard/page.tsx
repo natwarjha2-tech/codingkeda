@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { LogOut, Plus, BookOpen, Users, Tag, X, Loader2 } from "lucide-react";
+import { LogOut, Plus, BookOpen, Users, Tag, X, Loader2, Video, Upload, CheckCircle } from "lucide-react";
 import Navbar from "@/components/Navbar";
 
 interface Course {
@@ -147,6 +147,9 @@ export default function AdminDashboard() {
             <Plus size={18} /> Create New Course
           </motion.button>
 
+          {/* Super Admin: Demo Video Upload */}
+          {isSuperAdmin && <DemoVideoUpload token={token || ""} />}
+
           {/* Super Admin Tabs */}
           {isSuperAdmin && (
             <div className="flex gap-2 mb-6">
@@ -289,5 +292,104 @@ export default function AdminDashboard() {
         )}
       </AnimatePresence>
     </>
+  );
+}
+
+/* ── Demo Video Upload (Super Admin Only) ── */
+function DemoVideoUpload({ token }: { token: string }) {
+  const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState("");
+  const [hasVideo, setHasVideo] = useState(false);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Check if demo video already exists
+    fetch("/api/admin/demo-video", { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => { if (d.success && d.hasVideo) { setHasVideo(true); setVideoUrl(d.url); } })
+      .catch(() => {});
+  }, [token]);
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = ""; // Reset input
+
+    const allowed = ["video/mp4", "video/quicktime", "video/x-msvideo"];
+    if (!allowed.includes(file.type)) { setError("Only MP4, MOV, AVI allowed."); return; }
+    if (file.size > 500 * 1024 * 1024) { setError("Max file size 500MB."); return; }
+
+    setError("");
+    setSuccess(false);
+    setUploading(true);
+    setProgress(0);
+
+    try {
+      // Step 1: Get presigned upload URL
+      const res = await fetch("/api/admin/demo-video", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ fileName: file.name, fileType: file.type, fileSize: file.size }),
+      });
+      const data = await res.json();
+      if (!data.success) { setError(data.message || "Failed to get upload URL."); setUploading(false); return; }
+
+      // Step 2: Upload to S3 using presigned PUT URL (with progress via XMLHttpRequest)
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("PUT", data.uploadUrl, true);
+        xhr.setRequestHeader("Content-Type", file.type);
+        xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) setProgress(Math.round((ev.loaded / ev.total) * 100)); };
+        xhr.onload = () => { if (xhr.status >= 200 && xhr.status < 300) resolve(); else reject(new Error("Upload failed")); };
+        xhr.onerror = () => reject(new Error("Network error"));
+        xhr.send(file);
+      });
+
+      setSuccess(true);
+      setHasVideo(true);
+      // Refresh video URL
+      const refresh = await fetch("/api/admin/demo-video", { headers: { Authorization: `Bearer ${token}` } });
+      const refreshData = await refresh.json();
+      if (refreshData.success && refreshData.url) setVideoUrl(refreshData.url);
+    } catch (err) {
+      setError("Upload failed. Please try again.");
+    }
+    setUploading(false);
+  };
+
+  return (
+    <div className="mb-8 p-5 bg-[#16213e] border border-white/10 rounded-2xl">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Video size={18} className="text-purple-400" />
+          <h3 className="text-white font-bold text-sm">Website Demo Video</h3>
+          {hasVideo && <span className="text-[10px] font-semibold text-green-400 bg-green-500/10 border border-green-500/20 px-2 py-0.5 rounded-full">✓ Uploaded</span>}
+        </div>
+      </div>
+      <p className="text-slate-400 text-xs mb-4">Upload the platform demo video. This will appear on the website &quot;Watch Demo&quot; button for all visitors.</p>
+
+      {error && <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-xs px-3 py-2 rounded-lg mb-3">⚠️ {error}</div>}
+      {success && <div className="bg-green-500/10 border border-green-500/30 text-green-400 text-xs px-3 py-2 rounded-lg mb-3 flex items-center gap-1"><CheckCircle size={12} /> Video uploaded successfully!</div>}
+
+      <div className="flex items-center gap-3">
+        <label className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold cursor-pointer transition-all ${uploading ? "bg-white/5 text-slate-500" : "bg-purple-600 hover:bg-purple-700 text-white"}`}>
+          <Upload size={14} /> {hasVideo ? "Replace Video" : "Upload Video"}
+          <input type="file" accept="video/mp4,video/quicktime,video/x-msvideo" className="hidden" onChange={handleUpload} disabled={uploading} />
+        </label>
+        {uploading && (
+          <div className="flex items-center gap-2">
+            <div className="w-32 h-2 bg-white/10 rounded-full overflow-hidden">
+              <div className="h-full bg-purple-500 rounded-full transition-all duration-300" style={{ width: `${progress}%` }} />
+            </div>
+            <span className="text-xs text-slate-400">{progress}%</span>
+          </div>
+        )}
+        {hasVideo && videoUrl && (
+          <a href={videoUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-purple-400 hover:text-purple-300 underline">Preview</a>
+        )}
+      </div>
+    </div>
   );
 }

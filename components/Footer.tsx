@@ -14,8 +14,8 @@ export default function Footer() {
       <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-10 mb-10">
         <div>
           <Link href="/" className="flex items-center gap-2 font-extrabold text-xl text-white mb-3">
-            <Image src="/logo.jpg" alt="CodingKeda" width={32} height={32} className="rounded-md" />
-            CodingKeda
+            <Image src="/logo.jpg" alt="CodingKida" width={32} height={32} className="rounded-md" />
+            CodingKida
           </Link>
           <p className="text-slate-400 text-sm mb-5 max-w-xs">India&apos;s most loved tech learning platform. Building the next generation of software engineers.</p>
           <div className="flex gap-4">
@@ -43,7 +43,7 @@ export default function Footer() {
         ))}
       </div>
       <div className="border-t border-white/8 pt-6 text-center text-slate-500 text-xs">
-        © 2025 CodingKeda (www.codingkeda.com). All rights reserved. Made with ❤️ in India.
+        © 2025 CodingKida (www.codingkida.com). All rights reserved. Made with ❤️ in India.
       </div>
     </footer>
   );

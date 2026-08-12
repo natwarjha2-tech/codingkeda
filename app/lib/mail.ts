@@ -20,7 +20,7 @@ function sanitize(val: string): string {
 export async function sendEmail(to: string, subject: string, html: string) {
   try {
     const info = await transporter.sendMail({
-      from: `"CodingKeda" <${process.env.SMTP_USER}>`,
+      from: `"CodingKida" <${process.env.SMTP_USER}>`,
       to,
       subject,
       html,

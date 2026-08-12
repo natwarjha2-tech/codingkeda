@@ -147,7 +147,7 @@ function PaymentContent() {
         key: orderData.keyId,
         amount: orderData.amount * 100, // Convert to paisa
         currency: orderData.currency,
-        name: "CodingKeda",
+        name: "CodingKida",
         description: `Payment for ${pkg.name}`,
         order_id: orderData.orderId,
         handler: async (response: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) => {

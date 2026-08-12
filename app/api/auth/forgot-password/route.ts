@@ -30,13 +30,13 @@ export async function POST(req: NextRequest) {
     const html = `
       <div style="font-family:Arial,sans-serif;max-width:500px;margin:0 auto;background:#0f0f1a;color:#e2e8f0;padding:32px;border-radius:16px;">
         <h2 style="color:#a78bfa;margin-bottom:8px;">Password Reset</h2>
-        <p style="color:#94a3b8;margin-bottom:24px;">You requested a password reset for your CodingKeda account.</p>
+        <p style="color:#94a3b8;margin-bottom:24px;">You requested a password reset for your CodingKida account.</p>
         <a href="${resetUrl}" style="display:inline-block;background:linear-gradient(135deg,#7c3aed,#ec4899);color:#fff;font-weight:700;padding:14px 32px;border-radius:10px;text-decoration:none;font-size:15px;">Reset Password</a>
         <p style="color:#64748b;font-size:12px;margin-top:24px;">This link expires in 15 minutes. If you didn't request this, ignore this email.</p>
-        <p style="color:#475569;font-size:12px;margin-top:16px;">— CodingKeda Team</p>
+        <p style="color:#475569;font-size:12px;margin-top:16px;">— CodingKida Team</p>
       </div>`;
 
-    await sendEmail(normalizedEmail, "Reset Your Password — CodingKeda", html);
+    await sendEmail(normalizedEmail, "Reset Your Password — CodingKida", html);
     return apiSuccess({ message: "If this email is registered, you will receive a reset link shortly." });
   } catch {
     return apiError(500, "Internal server error.");

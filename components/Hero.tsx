@@ -1,19 +1,19 @@
 "use client";
 import Link from "next/link";
 import { useState, useEffect } from "react";
-import { Zap, CheckCircle, Users, Star, BookOpen, PlayCircle } from "lucide-react";
+import { Zap, CheckCircle, BookOpen, PlayCircle } from "lucide-react";
 import { AnimatePresence } from "framer-motion";
 import SurveyModal from "./SurveyModal";
 
-const COMPANIES = ["TCS", "Google", "Amazon", "Infosys", "Wipro", "Microsoft", "Flipkart", "Volvo"];
+const SKILLS = ["Java", "Python", "DSA", "Web Dev", "Projects", "Problem Solving", "Logic Building", "App Dev"];
 
 function TypewriterText() {
-  const [companyIndex, setCompanyIndex] = useState(0);
+  const [skillIndex, setSkillIndex] = useState(0);
   const [displayed, setDisplayed] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
-    const current = COMPANIES[companyIndex];
+    const current = SKILLS[skillIndex];
     let timeout: ReturnType<typeof setTimeout>;
 
     if (!isDeleting && displayed.length < current.length) {
@@ -24,15 +24,15 @@ function TypewriterText() {
       timeout = setTimeout(() => setDisplayed(current.slice(0, displayed.length - 1)), 60);
     } else if (isDeleting && displayed.length === 0) {
       setIsDeleting(false);
-      setCompanyIndex((i) => (i + 1) % COMPANIES.length);
+      setSkillIndex((i) => (i + 1) % SKILLS.length);
     }
 
     return () => clearTimeout(timeout);
-  }, [displayed, isDeleting, companyIndex]);
+  }, [displayed, isDeleting, skillIndex]);
 
   return (
     <span className="gradient-text whitespace-nowrap">
-      Get Placed at{" "}
+      Master{" "}
       <span className="inline-block min-w-[3ch]">
         {displayed}<span className="animate-pulse text-current">|</span>
       </span>
@@ -76,8 +76,8 @@ export default function Hero() {
               <Zap size={14} className="md:hidden" /><Zap size={18} className="hidden md:block" /> Find My Course ⚡
             </button>
             <Link
-              href="#free-video"
-              onClick={(e) => { e.preventDefault(); document.getElementById("free-video")?.scrollIntoView({ behavior: "smooth" }); }}
+              href="#demo-video"
+              onClick={(e) => { e.preventDefault(); document.getElementById("demo-video")?.scrollIntoView({ behavior: "smooth" }); }}
               className="inline-flex items-center justify-center gap-1.5 bg-white/8 hover:bg-white/14 text-white font-semibold px-4 md:px-7 py-3 md:py-4 rounded-xl transition-all text-xs md:text-base border border-white/10 whitespace-nowrap"
             >
               <PlayCircle size={14} className="md:hidden" /><PlayCircle size={18} className="hidden md:block" /> Watch Demo
@@ -87,10 +87,10 @@ export default function Hero() {
           {/* Feature Chips */}
           <div className="w-full grid grid-cols-2 gap-2 md:flex md:flex-wrap mb-10">
             {[
-              { icon: <CheckCircle size={13} />, text: "5,000+ Students" },
               { icon: <CheckCircle size={13} />, text: "Beginner Friendly" },
               { icon: <CheckCircle size={13} />, text: "Learn → Practice → Build" },
               { icon: <CheckCircle size={13} />, text: "Free to Start" },
+              { icon: <CheckCircle size={13} />, text: "AI Doubt Support" },
             ].map((p) => (
               <span key={p.text} className="inline-flex items-center justify-center gap-1.5 bg-white/5 border border-white/10 text-slate-300 text-xs font-medium px-3 py-1.5 rounded-full">
                 <span className="text-green-400">{p.icon}</span> {p.text}
@@ -99,11 +99,10 @@ export default function Hero() {
           </div>
 
           {/* Stats Row */}
-          <div className="w-full grid grid-cols-3 gap-2 md:flex md:items-center md:gap-8">
+          <div className="w-full grid grid-cols-2 gap-2 md:flex md:items-center md:gap-8">
             {[
-              { icon: <Users size={16} className="text-purple-400 md:w-[18px] md:h-[18px]" />, value: "5,000+", label: "Students" },
-              { icon: <BookOpen size={16} className="text-orange-400 md:w-[18px] md:h-[18px]" />, value: "20+", label: "Courses" },
-              { icon: <Star size={16} className="text-yellow-400 md:w-[18px] md:h-[18px]" />, value: "4.8★", label: "Rating" },
+              { icon: <BookOpen size={16} className="text-orange-400 md:w-[18px] md:h-[18px]" />, value: "3+", label: "Courses" },
+              { icon: <CheckCircle size={16} className="text-green-400 md:w-[18px] md:h-[18px]" />, value: "100%", label: "Free to Start" },
             ].map((s, i) => (
               <div key={s.label} className="flex flex-col items-center md:flex-row md:items-center gap-1 md:gap-2">
                 {i > 0 && <div className="hidden md:block w-px h-8 bg-white/10 mr-6" />}
@@ -127,17 +126,17 @@ export default function Hero() {
               <span className="w-3 h-3 rounded-full bg-red-400" />
               <span className="w-3 h-3 rounded-full bg-yellow-400" />
               <span className="w-3 h-3 rounded-full bg-green-400" />
-              <span className="ml-auto text-slate-500 text-xs font-mono">HelloCodingKeda.java</span>
+              <span className="ml-auto text-slate-500 text-xs font-mono">HelloCodingKida.java</span>
             </div>
 
             {/* Code block */}
             <div className="px-4 md:px-6 py-5">
               <pre className="font-mono text-[11px] md:text-sm leading-6 md:leading-7 overflow-x-auto">
-<span className="text-purple-400">public class </span><span className="text-cyan-300">HelloCodingKeda </span><span className="text-white">{"{"}</span>{"\n"}
+<span className="text-purple-400">public class </span><span className="text-cyan-300">HelloCodingKida </span><span className="text-white">{"{"}</span>{"\n"}
 {"  "}<span className="text-purple-400">public static void </span><span className="text-yellow-300">main</span><span className="text-white">(String[] args) {"{"}</span>{"\n"}
 {"    "}<span className="text-slate-500">// 🚀 Your journey starts here</span>{"\n"}
 {"    "}<span className="text-white">String dream = </span><span className="text-green-300">"Software Engineer"</span><span className="text-white">;</span>{"\n"}
-{"    "}<span className="text-cyan-400">String platform = </span><span className="text-green-300">"CodingKeda"</span><span className="text-white">;</span>{"\n"}
+{"    "}<span className="text-cyan-400">String platform = </span><span className="text-green-300">"CodingKida"</span><span className="text-white">;</span>{"\n"}
 {"    "}<span className="text-white">System.out.println(</span><span className="text-green-300">"Welcome! 🎯"</span><span className="text-white">);</span>{"\n"}
 {"    "}<span className="text-white">System.out.println(</span><span className="text-green-300">"Let's build your future!"</span><span className="text-white">);</span>{"\n"}
 {"  "}<span className="text-white">{"}"}</span>{"\n"}

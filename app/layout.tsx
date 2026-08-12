@@ -7,8 +7,8 @@ import Providers from "@/components/Providers";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "CodingKeda – Learn. Code. Get Placed.",
-  description: "India's #1 tech learning platform. Learn Java, Python, Web Dev, DSA & more. Join 5,00,000+ learners at CodingKeda.",
+  title: "CodingKida – Learn. Code. Build.",
+  description: "India's #1 tech learning platform for students. Learn Java, Python, Web Dev, DSA & more with structured roadmaps at CodingKida.",
   keywords: "coding, java, python, web development, DSA, online learning, India",
 };
 

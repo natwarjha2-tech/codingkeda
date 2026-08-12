@@ -391,3 +391,10 @@ model Homework {
 
   @@index([lessonId])
 }
+
+model SiteConfig {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}

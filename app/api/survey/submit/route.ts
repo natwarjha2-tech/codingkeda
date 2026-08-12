@@ -67,7 +67,7 @@ function buildRecommendationEmail(name: string, pkg: typeof PACKAGES.zenz): stri
         🚀 Login & Start Learning
       </a>
 
-      <p style="color:#475569;font-size:12px;margin-top:24px;">— The CodingKeda Team</p>
+      <p style="color:#475569;font-size:12px;margin-top:24px;">— The CodingKida Team</p>
     </div>
   `;
 }

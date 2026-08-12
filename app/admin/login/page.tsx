@@ -85,7 +85,7 @@ export default function AdminLogin() {
               <label className="text-sm font-semibold text-slate-300 block mb-1.5">Email</label>
               <input
                 type="email"
-                placeholder="admin@codingkeda.com"
+                placeholder="admin@codingkida.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className={`w-full bg-white/5 border ${error && !email ? "border-red-500" : "border-white/10"} focus:border-red-500 rounded-xl px-4 py-3 text-white text-sm outline-none transition-colors placeholder:text-slate-500`}

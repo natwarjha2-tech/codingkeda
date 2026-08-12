@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 
-const TEXT = "CodingKeda";
+const TEXT = "CodingKida";
 const COLORS = [
   "#7c3aed","#8b35e8","#9a30e3","#a92bde","#b826d9",
   "#c721d4","#d41cbf","#e117aa","#ec4899","#f472b6",
