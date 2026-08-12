@@ -28,7 +28,7 @@ export default function Footer() {
         </div>
 
         {[
-          { title: "Courses", links: ["Java Development", "Web Development", "Data Science", "DSA & Algorithms", "DevOps & Cloud"] },
+          { title: "Courses", links: ["C Programming", "Java Development", "Python", "DSA & Algorithms"] },
           { title: "Company", links: ["About Us", "Careers", "Blog", "Press", "Contact"] },
           { title: "Support", links: ["Help Center", "Privacy Policy", "Terms of Service", "Refund Policy"] },
         ].map((col) => (

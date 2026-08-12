@@ -4,7 +4,7 @@ const steps = [
   { num: "01", icon: <Lightbulb size={28} />, title: "Understand Concepts", desc: "Simple, fun explanations of coding concepts designed for school students — no prior experience needed" },
   { num: "02", icon: <Code2 size={28} />, title: "Code Along", desc: "Follow along with live coding exercises. Write your first program in minutes, not months" },
   { num: "03", icon: <FlaskConical size={28} />, title: "Build Cool Projects", desc: "Create games, websites & apps that you can show your friends and family — learning by doing" },
-  { num: "04", icon: <Trophy size={28} />, title: "Earn & Excel", desc: "Get certificates, build a portfolio and stay ahead of your peers in school & competitive exams" },
+  { num: "04", icon: <Trophy size={28} />, title: "Excel Your Skills", desc: "Master concepts through practice, build confidence and stay ahead of your peers in school & competitive exams" },
 ];
 
 export default function HowItWorks() {

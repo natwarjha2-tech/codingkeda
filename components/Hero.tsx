@@ -5,7 +5,7 @@ import { Zap, CheckCircle, BookOpen, PlayCircle } from "lucide-react";
 import { AnimatePresence } from "framer-motion";
 import SurveyModal from "./SurveyModal";
 
-const SKILLS = ["Java", "Python", "DSA", "Web Dev", "Projects", "Problem Solving", "Logic Building", "App Dev"];
+const SKILLS = ["Java", "Python", "DSA", "C", "Problem Solving", "Logic Building"];
 
 function TypewriterText() {
   const [skillIndex, setSkillIndex] = useState(0);
@@ -64,7 +64,7 @@ export default function Hero() {
 
           {/* Subtext */}
           <p className="text-slate-400 text-lg mb-8 max-w-lg">
-            Get a <strong className="text-white">structured roadmap</strong> + real projects from Day 1. No confusion, no overwhelm — just clear progress.
+            Get a <strong className="text-white">structured roadmap</strong> from Day 1. No confusion, no overwhelm — just clear progress.
           </p>
 
           {/* CTA Buttons */}
