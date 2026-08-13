@@ -120,7 +120,7 @@ export default function Navbar() {
           </button>
           <Link href="/" className="flex items-center gap-1.5 font-extrabold text-sm text-white">
             <Image src="/logo.jpg" alt="CodingKida" width={26} height={26} className="rounded-md object-contain" />
-            CodingKida
+            <span>Coding<span style={{color:"#ef4444"}}>K</span><span style={{color:"#f59e0b"}}>i</span><span style={{color:"#22c55e"}}>d</span>a</span>
           </Link>
         </div>
 
@@ -150,7 +150,7 @@ export default function Navbar() {
         {/* DESKTOP: Logo (left) — UNCHANGED */}
         <Link href="/" className="hidden md:flex items-center gap-2 font-extrabold text-xl text-white flex-shrink-0">
           <Image src="/logo.jpg" alt="CodingKida" width={36} height={36} className="rounded-md object-contain" />
-          CodingKida
+          <span>Coding<span style={{color:"#ef4444"}}>K</span><span style={{color:"#f59e0b"}}>i</span><span style={{color:"#22c55e"}}>d</span>a</span>
         </Link>
 
         {/* Search Bar - near logo */}

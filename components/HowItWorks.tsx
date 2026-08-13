@@ -12,7 +12,7 @@ export default function HowItWorks() {
     <section className="bg-[#1a1a2e] py-20 px-6">
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-14">
-          <h2 className="text-3xl md:text-4xl font-extrabold mb-3">How <span className="gradient-text">CodingKida</span> Works</h2>
+          <h2 className="text-3xl md:text-4xl font-extrabold mb-3">How <span className="font-extrabold">Coding<span style={{color:"#ef4444"}}>K</span><span style={{color:"#f59e0b"}}>i</span><span style={{color:"#22c55e"}}>d</span>a</span> Works</h2>
           <p className="text-slate-400">A simple 4-step journey built for Class 6–12 students</p>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">

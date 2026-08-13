@@ -52,7 +52,7 @@ export default function Hero() {
 
           {/* Badge */}
           <div className="inline-flex items-center gap-2 bg-purple-500/15 border border-purple-500/30 text-purple-300 px-4 py-1.5 rounded-full text-sm font-semibold mb-6">
-            <Zap size={14} /> India&apos;s #1 Coding Platform for Students
+            <Zap size={14} /> Learn Today. Build Tomorrow.
           </div>
 
           {/* Heading */}
@@ -101,7 +101,7 @@ export default function Hero() {
           {/* Stats Row */}
           <div className="w-full grid grid-cols-2 gap-2 md:flex md:items-center md:gap-8">
             {[
-              { icon: <BookOpen size={16} className="text-orange-400 md:w-[18px] md:h-[18px]" />, value: "3+", label: "Courses" },
+              { icon: <BookOpen size={16} className="text-orange-400 md:w-[18px] md:h-[18px]" />, value: "10+", label: "Courses" },
               { icon: <CheckCircle size={16} className="text-green-400 md:w-[18px] md:h-[18px]" />, value: "100%", label: "Free to Start" },
             ].map((s, i) => (
               <div key={s.label} className="flex flex-col items-center md:flex-row md:items-center gap-1 md:gap-2">
@@ -135,10 +135,10 @@ export default function Hero() {
 <span className="text-purple-400">public class </span><span className="text-cyan-300">HelloCodingKida </span><span className="text-white">{"{"}</span>{"\n"}
 {"  "}<span className="text-purple-400">public static void </span><span className="text-yellow-300">main</span><span className="text-white">(String[] args) {"{"}</span>{"\n"}
 {"    "}<span className="text-slate-500">// 🚀 Your journey starts here</span>{"\n"}
-{"    "}<span className="text-white">String dream = </span><span className="text-green-300">"Software Engineer"</span><span className="text-white">;</span>{"\n"}
+{"    "}<span className="text-white">String goal = </span><span className="text-green-300">"Code. Create. Conquer."</span><span className="text-white">;</span>{"\n"}
 {"    "}<span className="text-cyan-400">String platform = </span><span className="text-green-300">"CodingKida"</span><span className="text-white">;</span>{"\n"}
 {"    "}<span className="text-white">System.out.println(</span><span className="text-green-300">"Welcome! 🎯"</span><span className="text-white">);</span>{"\n"}
-{"    "}<span className="text-white">System.out.println(</span><span className="text-green-300">"Let's build your future!"</span><span className="text-white">);</span>{"\n"}
+{"    "}<span className="text-white">System.out.println(</span><span className="text-green-300">"Let's build our future!"</span><span className="text-white">);</span>{"\n"}
 {"  "}<span className="text-white">{"}"}</span>{"\n"}
 <span className="text-white">{"}"}</span>
               </pre>
@@ -147,7 +147,7 @@ export default function Hero() {
               <div className="mt-5 bg-[#020817] rounded-xl px-4 py-3 font-mono text-xs border border-white/6">
                 <div className="text-slate-500 mb-2 text-[10px] uppercase tracking-widest">Terminal</div>
                 <div><span className="text-green-400">▶ </span><span className="text-white">Welcome! 🎯</span></div>
-                <div><span className="text-green-400">▶ </span><span className="text-white">Let&apos;s build your future!</span><span className="animate-pulse text-green-400 ml-1">|</span></div>
+                <div><span className="text-green-400">▶ </span><span className="text-white">Let&apos;s build our future!</span><span className="animate-pulse text-green-400 ml-1">|</span></div>
               </div>
             </div>
 

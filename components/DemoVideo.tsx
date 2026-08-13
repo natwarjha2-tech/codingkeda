@@ -56,7 +56,7 @@ export default function DemoVideo() {
           <div className="inline-flex items-center gap-2 bg-purple-500/15 border border-purple-500/30 text-purple-300 px-4 py-1.5 rounded-full text-sm font-semibold mb-6">
             🎬 Platform Demo
           </div>
-          <h2 className="text-3xl md:text-4xl font-extrabold text-white mb-3">See How CodingKida Works</h2>
+          <h2 className="text-3xl md:text-4xl font-extrabold text-white mb-3">See How <span>Coding<span style={{color:"#ef4444"}}>K</span><span style={{color:"#f59e0b"}}>i</span><span style={{color:"#22c55e"}}>d</span>a</span> Works</h2>
           <p className="text-slate-400 mb-10 max-w-lg mx-auto">Watch a quick walkthrough of our platform — how courses, AI mentors, and coding practice work together.</p>
 
           {/* Play Button */}

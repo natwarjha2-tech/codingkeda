@@ -3,7 +3,6 @@ import Hero from "@/components/Hero";
 import CoursesSection from "@/components/CoursesSection";
 import HowItWorks from "@/components/HowItWorks";
 import Pricing from "@/components/Pricing";
-import Founders from "@/components/Founders";
 import Footer from "@/components/Footer";
 import BrandText from "@/components/BrandText";
 import ScrollToHash from "@/components/ScrollToHash";
@@ -29,7 +28,7 @@ export default function Home() {
       {/* 6. Why CodingKida */}
       <section className="max-w-7xl mx-auto px-6 py-20">
         <div className="text-center mb-12">
-          <h2 className="text-3xl md:text-4xl font-extrabold mb-3">Why <span className="gradient-text">CodingKida?</span></h2>
+          <h2 className="text-3xl md:text-4xl font-extrabold mb-3">Why <span className="font-extrabold">Coding<span style={{color:"#ef4444"}}>K</span><span style={{color:"#f59e0b"}}>i</span><span style={{color:"#22c55e"}}>d</span>a</span>?</h2>
           <p className="text-slate-400">What makes us different from other platforms</p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -48,16 +47,13 @@ export default function Home() {
         </div>
       </section>
 
-      {/* 7. Founders */}
-      <Founders />
-
-      {/* 8. Pricing */}
+      {/* 7. Pricing */}
       <Pricing />
 
       {/* 9. CTA Banner */}
       <section className="bg-gradient-to-r from-purple-600 to-orange-500 py-20 px-6 text-center">
-        <h2 className="text-3xl md:text-4xl font-extrabold text-white mb-3">Ready to Start Your Tech Journey?</h2>
-        <p className="text-white/85 mb-8">Start learning today. First 7 days completely free.</p>
+        <h2 className="text-3xl md:text-4xl font-extrabold text-white mb-3">Learn Today, Build Tomorrow</h2>
+        <p className="text-white/85 mb-8">Build the future. Start learning today — first 7 days completely free.</p>
         <Link href="/signup" className="inline-flex items-center gap-2 bg-white text-purple-600 font-bold px-8 py-4 rounded-xl hover:-translate-y-0.5 hover:shadow-xl transition-all">
           Start Learning Today <ArrowRight size={18} />
         </Link>
