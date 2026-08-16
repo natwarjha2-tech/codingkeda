@@ -25,6 +25,7 @@ model User {
   coins                UserCoins?
   coinTransactions     CoinTransaction[]
   achievements         Achievement[]
+  lessonReactions      LessonReaction[]
 }
 
 model Course {
@@ -73,11 +74,13 @@ model Lesson {
   exercisePdfUrl String     @default("") // S3 URL of uploaded Exercise PDF
   isFree         Boolean    @default(false)
   order          Int
+  viewCount      Int        @default(0)
   module         Module     @relation(fields: [moduleId], references: [id], onDelete: Cascade)
   progress       Progress[]
   quizzes        Quiz[]
   exercises      Exercise[]
   homeworks      Homework[]
+  reactions      LessonReaction[]
 
   @@index([moduleId])
 }
@@ -397,4 +400,19 @@ model SiteConfig {
   key       String   @unique
   value     String
   updatedAt DateTime @updatedAt
+}
+
+model LessonReaction {
+  id        String   @id @default(uuid())
+  userId    String
+  lessonId  String
+  type      String   // "like" or "dislike"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson    Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonId])
+  @@index([lessonId])
+  @@index([userId])
 }
