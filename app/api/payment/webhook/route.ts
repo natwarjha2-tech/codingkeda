@@ -7,19 +7,32 @@ import crypto from "crypto";
 
 /**
  * POST /api/payment/webhook
- * Handle Razorpay webhook for payment status updates
- * Signature verification required (no auth — Razorpay calls this)
+ * Handle Razorpay webhook for payment status updates.
+ * Signature verification required (no auth — Razorpay calls this directly).
+ * Hard-fails if RAZORPAY_WEBHOOK_SECRET is not configured.
  */
 export async function POST(req: NextRequest) {
   try {
+    // Hard-fail if webhook secret is not configured — prevents signature bypass
+    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    if (!webhookSecret || webhookSecret.trim().length === 0) {
+      logger.error("payment-webhook", "secret_not_configured", {});
+      return apiError(503, "Payment webhook is not configured.");
+    }
+
     const body = await req.json();
     const signature = req.headers.get("x-razorpay-signature");
-    if (!signature) return apiError(400, "Signature verification failed.");
+    if (!signature) {
+      logger.warn("payment-webhook", "missing_signature", {});
+      return apiError(400, "Signature verification failed.");
+    }
 
-    // Verify webhook signature
-    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || "";
+    // Verify webhook signature using timing-safe comparison
     const expectedSignature = crypto.createHmac("sha256", webhookSecret).update(JSON.stringify(body)).digest("hex");
-    if (signature !== expectedSignature) return apiError(401, "Signature verification failed.");
+    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature))) {
+      logger.warn("payment-webhook", "signature_mismatch", {});
+      return apiError(401, "Signature verification failed.");
+    }
 
     const event = body.event;
     const paymentData = body.payload?.payment?.entity;

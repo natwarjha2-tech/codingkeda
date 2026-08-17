@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { apiSuccess, apiError } from "@/app/lib/response";
+import { validatePassword } from "@/app/lib/validation";
 import bcrypt from "bcryptjs";
 
 /**
@@ -12,7 +13,8 @@ export async function POST(req: NextRequest) {
   try {
     const { token, password } = await req.json();
     if (!token?.trim() || !password?.trim()) return apiError(400, "Token and password are required.");
-    if (password.length < 8) return apiError(400, "Password must be at least 8 characters.");
+    const passwordError = validatePassword(password);
+    if (passwordError) return apiError(400, passwordError);
 
     const resetRecord = await prisma.passwordReset.findUnique({ where: { token } });
     if (!resetRecord) return apiError(400, "Invalid or expired reset link.");

@@ -5,22 +5,40 @@ import { apiSuccess, apiError } from "@/app/lib/response";
 
 /**
  * GET /api/achievements
- * Get all achievements for the authenticated user with full details
- * Returns: certificate-style data with lesson, course, instructor info
+ * Get achievements for the authenticated user with full details.
+ * Returns: certificate-style data with lesson, course, instructor info.
+ * 
+ * Pagination (optional, backward-compatible):
+ *   ?page=1&limit=20 → paginated response
+ *   No params → returns all achievements (legacy behavior)
  */
 export async function GET(req: NextRequest) {
   try {
     const { error, user } = requireAuth(req);
     if (error) return error;
 
+    // Parse optional pagination params
+    const pageParam = req.nextUrl.searchParams.get("page");
+    const limitParam = req.nextUrl.searchParams.get("limit");
+    const page = pageParam ? Math.max(1, parseInt(pageParam, 10) || 1) : null;
+    const limit = limitParam ? Math.min(100, Math.max(1, parseInt(limitParam, 10) || 20)) : null;
+    const isPaginated = page !== null && limit !== null;
+
+    // Get total count for pagination metadata
+    const totalCount = await prisma.achievement.count({
+      where: { userId: user!.userId },
+    });
+
+    if (totalCount === 0) {
+      return apiSuccess({ achievements: [], totalCount: 0, ...(isPaginated && { page, limit, totalPages: 0 }) });
+    }
+
+    // Fetch achievements with optional pagination
     const achievements = await prisma.achievement.findMany({
       where: { userId: user!.userId },
       orderBy: { createdAt: "desc" },
+      ...(isPaginated && { skip: (page - 1) * limit, take: limit }),
     });
-
-    if (achievements.length === 0) {
-      return apiSuccess({ achievements: [], totalCount: 0 });
-    }
 
     // Get lesson details for each achievement
     const lessonIds = [...new Set(achievements.map(a => a.lessonId))];
@@ -62,17 +80,25 @@ export async function GET(req: NextRequest) {
       select: { name: true, email: true },
     });
 
-    // Get quiz scores for each lesson achievement
+    // Get quiz scores for all lesson achievements in a single query (no N+1)
+    const allAttempts = await prisma.quizAttempt.findMany({
+      where: { userId: user!.userId, lessonId: { in: lessonIds } },
+      select: { lessonId: true, correct: true },
+    });
+
+    // Group by lessonId and calculate scores in-memory
     const quizScores: Record<string, number> = {};
-    for (const lessonId of lessonIds) {
-      const attempts = await prisma.quizAttempt.findMany({
-        where: { userId: user!.userId, lessonId },
-        select: { correct: true },
-      });
-      if (attempts.length > 0) {
-        const correct = attempts.filter(a => a.correct).length;
-        quizScores[lessonId] = Math.round((correct / attempts.length) * 100);
+    const attemptsByLesson: Record<string, { total: number; correct: number }> = {};
+    for (const attempt of allAttempts) {
+      if (!attempt.lessonId) continue;
+      if (!attemptsByLesson[attempt.lessonId]) {
+        attemptsByLesson[attempt.lessonId] = { total: 0, correct: 0 };
       }
+      attemptsByLesson[attempt.lessonId].total++;
+      if (attempt.correct) attemptsByLesson[attempt.lessonId].correct++;
+    }
+    for (const [lessonId, data] of Object.entries(attemptsByLesson)) {
+      quizScores[lessonId] = Math.round((data.correct / data.total) * 100);
     }
 
     // Build certificate-style achievement data
@@ -99,7 +125,11 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    return apiSuccess({ achievements: certificateData, totalCount: certificateData.length });
+    return apiSuccess({
+      achievements: certificateData,
+      totalCount,
+      ...(isPaginated && { page, limit, totalPages: Math.ceil(totalCount / limit) }),
+    });
   } catch {
     return apiError(500, "Internal server error.");
   }

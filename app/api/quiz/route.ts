@@ -3,6 +3,7 @@ import { prisma } from "@/app/lib/prisma";
 import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { logger } from "@/app/lib/logger";
+import { recalculateAndAwardCoins } from "@/app/services/quiz-leaderboard.service";
 
 /**
  * GET /api/quiz?lessonId=xxx
@@ -30,6 +31,8 @@ export async function GET(req: NextRequest) {
  * Submit a quiz attempt
  * Body: { quizId, selected, courseId, lessonId?, timeTaken? }
  * 
+ * Authorization: User must be enrolled in the course OR the lesson must be free.
+ * 
  * After saving attempt, recalculates lesson leaderboard and awards coins:
  * - Rank 1: Super Master + 10 coins
  * - Rank 2: Master + 7 coins
@@ -53,9 +56,24 @@ export async function POST(req: NextRequest) {
       return apiError(400, "quizId, selected, and courseId are required.");
     }
 
-    // Get quiz to check answer
-    const quiz = await prisma.quiz.findUnique({ where: { id: quizId } });
+    // Get quiz to check answer (also fetch lesson for free-check)
+    const quiz = await prisma.quiz.findUnique({
+      where: { id: quizId },
+      include: { lesson: { select: { isFree: true, module: { select: { courseId: true } } } } },
+    });
     if (!quiz) return apiError(404, "Quiz not found.");
+
+    // Verify enrollment: user must be enrolled in the course OR lesson must be free
+    const isLessonFree = quiz.lesson?.isFree === true;
+    if (!isLessonFree) {
+      const enrollment = await prisma.enrollment.findUnique({
+        where: { userId_courseId: { userId: user!.userId, courseId } },
+      });
+      if (!enrollment) {
+        logger.warn("quiz-submit", "enrollment_missing", { userId: user!.userId, courseId });
+        return apiError(403, "Access denied. You are not enrolled in this course.");
+      }
+    }
 
     const correct = quiz.answer === Number(selected);
 
@@ -81,7 +99,7 @@ export async function POST(req: NextRequest) {
     let rank: number | null = null;
 
     if (effectiveLessonId) {
-      const rankResult = await _recalculateAndAwardCoins(user!.userId, effectiveLessonId, courseId);
+      const rankResult = await recalculateAndAwardCoins(user!.userId, effectiveLessonId, courseId);
       coinsAwarded = rankResult.coinsAwarded;
       badge = rankResult.badge;
       rank = rankResult.rank;
@@ -101,143 +119,5 @@ export async function POST(req: NextRequest) {
     });
   } catch {
     return apiError(500, "Internal server error.");
-  }
-}
-
-/**
- * Recalculate lesson leaderboard and award coins if rank improved
- * Returns: { rank, coinsAwarded, badge }
- */
-async function _recalculateAndAwardCoins(
-  userId: string,
-  lessonId: string,
-  courseId: string
-): Promise<{ rank: number | null; coinsAwarded: number; badge: string | null }> {
-  try {
-    // Get all attempts for this lesson (direct match or via Quiz relationship)
-    let allAttempts = await prisma.quizAttempt.findMany({
-      where: { lessonId },
-      select: { userId: true, correct: true, createdAt: true, timeTaken: true },
-    });
-
-    // Fallback: if direct lessonId match returns empty, find via Quiz→Lesson
-    if (allAttempts.length === 0) {
-      const quizzesForLesson = await prisma.quiz.findMany({
-        where: { lessonId },
-        select: { id: true },
-      });
-      if (quizzesForLesson.length > 0) {
-        const quizIds = quizzesForLesson.map(q => q.id);
-        allAttempts = await prisma.quizAttempt.findMany({
-          where: { quizId: { in: quizIds } },
-          select: { userId: true, correct: true, createdAt: true, timeTaken: true },
-        });
-      }
-    }
-
-    // Group by user
-    const userScores: Record<string, { total: number; correct: number; totalTime: number; earliestSubmit: Date }> = {};
-    allAttempts.forEach((a) => {
-      if (!userScores[a.userId]) {
-        userScores[a.userId] = { total: 0, correct: 0, totalTime: 0, earliestSubmit: a.createdAt };
-      }
-      userScores[a.userId].total++;
-      if (a.correct) userScores[a.userId].correct++;
-      if (a.timeTaken) userScores[a.userId].totalTime += a.timeTaken;
-      if (a.createdAt < userScores[a.userId].earliestSubmit) {
-        userScores[a.userId].earliestSubmit = a.createdAt;
-      }
-    });
-
-    // Sort: score DESC → correct DESC → time ASC → earlier ASC
-    const ranked = Object.entries(userScores)
-      .map(([uid, data]) => ({
-        userId: uid,
-        score: Math.round((data.correct / data.total) * 100),
-        correctCount: data.correct,
-        totalTime: data.totalTime,
-        earliestSubmit: data.earliestSubmit,
-      }))
-      .sort((a, b) => {
-        if (b.score !== a.score) return b.score - a.score;
-        if (b.correctCount !== a.correctCount) return b.correctCount - a.correctCount;
-        if (a.totalTime !== b.totalTime) return a.totalTime - b.totalTime;
-        return a.earliestSubmit.getTime() - b.earliestSubmit.getTime();
-      });
-
-    // Find user's rank
-    const userIndex = ranked.findIndex((e) => e.userId === userId);
-    if (userIndex === -1) return { rank: null, coinsAwarded: 0, badge: null };
-
-    const rank = userIndex + 1;
-
-    // Determine coins and badge based on rank
-    let coins = 0;
-    let badgeType: string | null = null;
-    let badgeTitle: string | null = null;
-
-    if (rank === 1) {
-      coins = 10;
-      badgeType = "super-master";
-      badgeTitle = "Super Master";
-    } else if (rank === 2) {
-      coins = 7;
-      badgeType = "master";
-      badgeTitle = "Master";
-    } else if (rank >= 3 && rank <= 10) {
-      coins = 5;
-      badgeType = "pro";
-      badgeTitle = "Pro";
-    }
-
-    if (coins === 0) return { rank, coinsAwarded: 0, badge: null };
-
-    // Check if already rewarded for this lesson at this rank or better
-    const existingTransaction = await prisma.coinTransaction.findFirst({
-      where: {
-        userId,
-        lessonId,
-        type: "EARNED",
-      },
-    });
-
-    if (existingTransaction) {
-      // Already rewarded for this lesson — no duplicate coins
-      return { rank, coinsAwarded: 0, badge: badgeType };
-    }
-
-    // Award coins (atomic transaction)
-    await prisma.$transaction([
-      prisma.userCoins.upsert({
-        where: { userId },
-        update: { totalCoins: { increment: coins } },
-        create: { userId, totalCoins: coins },
-      }),
-      prisma.coinTransaction.create({
-        data: {
-          userId,
-          type: "EARNED",
-          coins,
-          reason: `Quiz Rank #${rank} - Lesson reward`,
-          lessonId,
-          courseId,
-        },
-      }),
-      prisma.achievement.upsert({
-        where: { userId_lessonId_badgeType: { userId, lessonId, badgeType: badgeType! } },
-        update: {},
-        create: {
-          userId,
-          title: badgeTitle!,
-          badgeType: badgeType!,
-          lessonId,
-          courseId,
-        },
-      }),
-    ]);
-
-    return { rank, coinsAwarded: coins, badge: badgeType };
-  } catch {
-    return { rank: null, coinsAwarded: 0, badge: null };
   }
 }

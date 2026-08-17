@@ -3,9 +3,8 @@ import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
 import { Prisma } from "@prisma/client";
 import { apiSuccess, apiError } from "@/app/lib/response";
-
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+import { callGeminiJSON, isGeminiConfigured } from "@/app/lib/gemini";
+import { logger } from "@/app/lib/logger";
 
 /**
  * POST /api/admin/generate-solutions
@@ -19,8 +18,8 @@ export async function POST(req: NextRequest) {
     const { error } = requireAdmin(req);
     if (error) return error;
 
-    if (!GEMINI_API_KEY) {
-      return apiError(500, "GEMINI_API_KEY not configured.");
+    if (!isGeminiConfigured()) {
+      return apiError(503, "AI service not configured (GEMINI_API_KEY missing).");
     }
 
     // Find coding exercises without best solution
@@ -29,7 +28,7 @@ export async function POST(req: NextRequest) {
       select: {
         id: true, title: true, description: true,
         testCases: { select: { input: true, expectedOutput: true }, take: 2 },
-        solution: true, // Contains metadata like constraints, TC, SC
+        solution: true,
       },
       take: 10, // Process 10 at a time to avoid timeout
     });
@@ -59,7 +58,7 @@ export async function POST(req: NextRequest) {
       if (solution) {
         await prisma.exercise.update({
           where: { id: ex.id },
-          data: { bestSolution: solution as any },
+          data: { bestSolution: solution as unknown as Prisma.JsonValue },
         });
         generated++;
       }
@@ -73,18 +72,43 @@ export async function POST(req: NextRequest) {
       where: { type: "coding", bestSolution: { equals: Prisma.DbNull } },
     });
 
+    logger.success("admin-generate-solutions", "batch_complete", { generated, remaining });
+
     return apiSuccess({
       message: `Generated ${generated} solution(s). ${remaining} remaining.`,
       generated,
       remaining,
     });
   } catch (err) {
-    console.error("Generate solutions error:", err);
-    return apiError(500, "Failed: " + (err instanceof Error ? err.message : "Unknown"));
+    logger.error("admin-generate-solutions", "unhandled_error", { error: err instanceof Error ? err.message : "Unknown" });
+    return apiError(500, "Failed to generate solutions. Please try again.");
   }
 }
 
-async function generateMultiLangSolution(problem: any) {
+interface SolutionLanguage {
+  code: string;
+  timeComplexity: string;
+  spaceComplexity: string;
+  explanation: string;
+}
+
+interface MultiLangSolution {
+  c: SolutionLanguage;
+  java: SolutionLanguage;
+  python: SolutionLanguage;
+  javascript: SolutionLanguage;
+}
+
+async function generateMultiLangSolution(problem: {
+  title: string;
+  description: string;
+  constraints: string;
+  inputFormat: string;
+  outputFormat: string;
+  timeComplexity: string;
+  spaceComplexity: string;
+  testCases: { input: string; expectedOutput: string }[];
+}): Promise<MultiLangSolution | null> {
   const prompt = `You are an expert competitive programmer and coding teacher for beginners. Generate the BEST optimized solution for this coding problem in ALL 4 LANGUAGES: C, Java, Python, JavaScript.
 
 PROBLEM: ${problem.title}
@@ -110,23 +134,8 @@ IMPORTANT RULES:
 Respond ONLY with valid JSON (no markdown):
 {"c":{"code":"complete C code","timeComplexity":"O(...)","spaceComplexity":"O(...)","explanation":"1-2 sentence simple explanation"},"java":{"code":"complete Java code","timeComplexity":"O(...)","spaceComplexity":"O(...)","explanation":"1-2 sentence simple explanation"},"python":{"code":"complete Python code","timeComplexity":"O(...)","spaceComplexity":"O(...)","explanation":"1-2 sentence simple explanation"},"javascript":{"code":"complete JS code","timeComplexity":"O(...)","spaceComplexity":"O(...)","explanation":"1-2 sentence simple explanation"}}`;
 
-  try {
-    const res = await fetch(GEMINI_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.3, maxOutputTokens: 8192 },
-      }),
-    });
-
-    if (!res.ok) return null;
-
-    const data = await res.json();
-    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    const cleaned = rawText.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
-    return JSON.parse(cleaned);
-  } catch {
-    return null;
-  }
+  return callGeminiJSON<MultiLangSolution>(prompt, {
+    temperature: 0.3,
+    maxOutputTokens: 8192,
+  });
 }

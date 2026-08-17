@@ -108,6 +108,7 @@ model Progress {
 
   @@unique([userId, lessonId])
   @@index([userId])
+  @@index([userId, completed]) // Composite: fetch completed lessons for a user
 }
 
 model SurveyLead {
@@ -290,6 +291,7 @@ model QuizAttempt {
   @@index([userId])
   @@index([courseId])
   @@index([lessonId])
+  @@index([userId, lessonId]) // Composite: achievements + leaderboard queries
 }
 
 model ExerciseSubmission {

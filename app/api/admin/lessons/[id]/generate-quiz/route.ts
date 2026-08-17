@@ -3,14 +3,34 @@ import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
 import { getSignedFileUrlFromUrl, getS3KeyFromUrl } from "@/app/lib/s3";
 import { apiSuccess, apiError } from "@/app/lib/response";
+import { callGeminiJSON, isGeminiConfigured } from "@/app/lib/gemini";
+import { logger } from "@/app/lib/logger";
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+interface GeneratedQuiz {
+  question: string;
+  options: string[];
+  answer: number;
+  explanation?: string;
+}
+
+interface GeneratedExercise {
+  title: string;
+  description: string;
+  difficulty?: string;
+  starterCode?: string;
+  solution?: string;
+  hints?: string[];
+}
+
+interface GenerateQuizResponse {
+  quizzes: GeneratedQuiz[];
+  exercises?: GeneratedExercise[];
+}
 
 /**
  * POST /api/admin/lessons/[id]/generate-quiz
- * Auto-generate quiz and exercise from lesson PDF using Gemini AI
- * Requires admin authentication
+ * Auto-generate quiz and exercise from lesson PDF using Gemini AI.
+ * Requires admin authentication.
  */
 export async function POST(
   req: NextRequest,
@@ -20,7 +40,7 @@ export async function POST(
     const { error } = requireAdmin(req);
     if (error) return error;
 
-    if (!GEMINI_API_KEY) {
+    if (!isGeminiConfigured()) {
       return apiError(503, "AI service not configured. Add GEMINI_API_KEY to environment.");
     }
 
@@ -32,13 +52,8 @@ export async function POST(
       include: { module: { select: { courseId: true, title: true } } },
     });
 
-    if (!lesson) {
-      return apiError(404, "Lesson not found.");
-    }
-
-    if (!lesson.notes) {
-      return apiError(400, "No PDF notes found for this lesson. Upload notes first.");
-    }
+    if (!lesson) return apiError(404, "Lesson not found.");
+    if (!lesson.notes) return apiError(400, "No PDF notes found for this lesson. Upload notes first.");
 
     // Extract text from PDF
     let pdfText = "";
@@ -52,13 +67,11 @@ export async function POST(
       if (!pdfResponse.ok) throw new Error("Failed to fetch PDF");
       const pdfBuffer = Buffer.from(await pdfResponse.arrayBuffer());
 
-      // Use pdf-parse
       const pdf = require("pdf-parse");
       const pdfData = await pdf(pdfBuffer);
       pdfText = pdfData.text;
-    } catch (pdfErr) {
-      console.error("PDF extraction error:", pdfErr);
-      // Fallback: use lesson title + notes URL as context for AI
+    } catch {
+      // Fallback: use lesson title + module context
       pdfText = `Lesson: ${lesson.title}. Module: ${lesson.module.title}. This is a coding/programming lesson. Generate relevant quiz questions and exercises based on the topic "${lesson.title}".`;
     }
 
@@ -69,7 +82,7 @@ export async function POST(
     // Truncate to avoid token limits (max ~8000 chars)
     const truncatedText = pdfText.substring(0, 8000);
 
-    // Call Gemini API
+    // Call Gemini AI via centralized client
     const prompt = `You are an expert educator. Based on the following lesson content, generate exactly 5 multiple-choice quiz questions and 2 coding/practice exercises.
 
 LESSON TITLE: "${lesson.title}"
@@ -106,35 +119,13 @@ Rules:
 - Make questions test real understanding, not just memorization
 - Exercises should be practical and related to the lesson content`;
 
-    let aiResponse;
-    try {
-      const geminiRes = await fetch(GEMINI_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.7, maxOutputTokens: 4096 },
-        }),
-      });
+    const aiResponse = await callGeminiJSON<GenerateQuizResponse>(prompt, {
+      temperature: 0.7,
+      maxOutputTokens: 4096,
+    });
 
-      if (!geminiRes.ok) {
-        throw new Error(`Gemini API error: ${geminiRes.status}`);
-      }
-
-      const geminiData = await geminiRes.json();
-      const rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
-
-      // Clean response — remove markdown code blocks if present
-      const cleaned = rawText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-      aiResponse = JSON.parse(cleaned);
-    } catch (err) {
-      console.error("Gemini API error:", err);
-      return apiError(502, "AI failed to generate content. Please try again.");
-    }
-
-    // Validate response structure
-    if (!aiResponse.quizzes || !Array.isArray(aiResponse.quizzes) || aiResponse.quizzes.length === 0) {
-      return apiError(502, "AI generated invalid quiz data. Please try again.");
+    if (!aiResponse || !aiResponse.quizzes || !Array.isArray(aiResponse.quizzes) || aiResponse.quizzes.length === 0) {
+      return apiError(502, "AI failed to generate valid content. Please try again.");
     }
 
     // Save quizzes to DB
@@ -177,13 +168,15 @@ Rules:
       }
     }
 
+    logger.success("admin-generate-quiz", "generated", { lessonId, quizzes: createdQuizzes.length, exercises: createdExercises.length });
+
     return apiSuccess({
       message: `Generated ${createdQuizzes.length} quizzes and ${createdExercises.length} exercises.`,
       quizzes: createdQuizzes,
       exercises: createdExercises,
     });
   } catch (err) {
-    console.error("Generate quiz error:", err);
+    logger.error("admin-generate-quiz", "unhandled_error", { error: err instanceof Error ? err.message : "Unknown" });
     return apiError(500, "Internal server error.");
   }
 }

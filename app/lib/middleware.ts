@@ -95,3 +95,11 @@ export function requireSuperAdmin(req: NextRequest): {
 
   return { user };
 }
+
+/**
+ * Extract the request correlation ID set by the edge middleware.
+ * Useful for adding to log entries in route handlers.
+ */
+export function getRequestId(req: NextRequest): string {
+  return req.headers.get("x-request-id") || "unknown";
+}

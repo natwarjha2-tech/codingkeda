@@ -40,21 +40,22 @@ export async function GET(
 
     if (!course) return apiError(404, "Course not found.");
 
-    // Check if user is enrolled (optional — works without token too)
+    // Check if user is enrolled + get progress (parallel — both independent)
     let isEnrolled = false;
     let userProgress: string[] = [];
 
     const authUser = extractUser(req);
     if (authUser) {
-      const enrollment = await prisma.enrollment.findUnique({
-        where: { userId_courseId: { userId: authUser.userId, courseId: id } },
-      });
+      const [enrollment, progress] = await Promise.all([
+        prisma.enrollment.findUnique({
+          where: { userId_courseId: { userId: authUser.userId, courseId: id } },
+        }),
+        prisma.progress.findMany({
+          where: { userId: authUser.userId, completed: true },
+          select: { lessonId: true },
+        }),
+      ]);
       isEnrolled = !!enrollment;
-
-      const progress = await prisma.progress.findMany({
-        where: { userId: authUser.userId, completed: true },
-        select: { lessonId: true },
-      });
       userProgress = progress.map((p) => p.lessonId);
     }
 
@@ -103,14 +104,20 @@ export async function GET(
                       mediaId = media.id;
                       hlsStatus = media.hlsStatus || 'none';
                       hlsQualities = media.hlsQualities || [];
-                      // Generate signed URLs for each quality MP4
+                      // Generate signed URLs for each quality MP4 in parallel
                       if (media.hlsStatus === 'ready' && media.hlsS3Prefix && hlsQualities.length > 0) {
-                        for (const q of hlsQualities) {
-                          const qKey = `${media.hlsS3Prefix}/${q}.mp4`;
-                          qualityUrls[q] = await getSignedFileUrlFromUrl(
-                            `https://${process.env.AWS_S3_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${qKey}`,
-                            3600
-                          );
+                        const qualityEntries = await Promise.all(
+                          hlsQualities.map(async (q) => {
+                            const qKey = `${media.hlsS3Prefix}/${q}.mp4`;
+                            const url = await getSignedFileUrlFromUrl(
+                              `https://${process.env.AWS_S3_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${qKey}`,
+                              3600
+                            );
+                            return [q, url] as const;
+                          })
+                        );
+                        for (const [q, url] of qualityEntries) {
+                          qualityUrls[q] = url;
                         }
                       }
                     }

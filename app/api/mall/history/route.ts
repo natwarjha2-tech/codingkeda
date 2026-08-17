@@ -1,6 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
-import { verifyToken } from "@/app/lib/auth";
+import { requireAuth } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
+import { logger } from "@/app/lib/logger";
 
 /**
  * GET /api/mall/history
@@ -9,15 +11,11 @@ import { verifyToken } from "@/app/lib/auth";
  */
 export async function GET(req: NextRequest) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
-    if (!token) return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
-
-    const payload = verifyToken(token);
-    const userId = payload.userId;
+    const { error, user } = requireAuth(req);
+    if (error) return error;
 
     const transactions = await prisma.coinTransaction.findMany({
-      where: { userId },
+      where: { userId: user!.userId },
       orderBy: { createdAt: "desc" },
       take: 50,
       select: {
@@ -29,16 +27,16 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    const userCoins = await prisma.userCoins.findUnique({ where: { userId } });
+    const userCoins = await prisma.userCoins.findUnique({ where: { userId: user!.userId } });
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       balance: userCoins?.totalCoins || 0,
       transactions,
       totalEarned: transactions.filter(t => t.type === "EARNED").reduce((s, t) => s + t.coins, 0),
       totalSpent: transactions.filter(t => t.type === "SPENT").reduce((s, t) => s + t.coins, 0),
     });
-  } catch {
-    return NextResponse.json({ success: false, message: "Internal server error" }, { status: 500 });
+  } catch (err) {
+    logger.error("mall-history", "unhandled_error", { error: err instanceof Error ? err.message : "Unknown" });
+    return apiError(500, "Internal server error.");
   }
 }

@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
+import { logger } from "@/app/lib/logger";
 import Razorpay from "razorpay";
 
 const RAZORPAY_KEY_ID = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "";
@@ -54,8 +55,8 @@ export async function POST(req: NextRequest) {
       paymentId: payment.id, userName: user!.email || "User", userEmail: user!.email || "",
     });
   } catch (err) {
-    console.error("Payment creation error:", err);
     const msg = err instanceof Error ? err.message : "";
+    logger.error("payment-create-order", "unhandled_error", { error: msg });
     if (msg.includes("authentication") || msg.includes("unauthorized") || msg.includes("401")) {
       return apiError(502, "Payment gateway authentication failed. Please contact support.");
     }

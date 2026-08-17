@@ -3,6 +3,7 @@ import { prisma } from "@/app/lib/prisma";
 import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { createRateLimiter } from "@/app/lib/rate-limit";
+import { logger } from "@/app/lib/logger";
 import {
   executeCode,
   isExecutionAvailable,
@@ -45,9 +46,23 @@ export async function POST(req: NextRequest) {
     // 4. Get exercise and test cases
     const exercise = await prisma.exercise.findUnique({
       where: { id: exerciseId },
-      include: { testCases: { orderBy: { order: "asc" }, take: MAX_TEST_CASES_PER_RUN } },
+      include: {
+        testCases: { orderBy: { order: "asc" }, take: MAX_TEST_CASES_PER_RUN },
+        lesson: { select: { isFree: true } },
+      },
     });
     if (!exercise) return apiError(404, "Exercise not found.");
+
+    // 5. Verify enrollment: user must be enrolled in the course OR lesson must be free
+    const isLessonFree = exercise.lesson?.isFree === true;
+    if (!isLessonFree) {
+      const enrollment = await prisma.enrollment.findUnique({
+        where: { userId_courseId: { userId: user!.userId, courseId } },
+      });
+      if (!enrollment) {
+        return apiError(403, "Access denied. You are not enrolled in this course.");
+      }
+    }
 
     const testCases = exercise.testCases;
 
@@ -59,48 +74,97 @@ export async function POST(req: NextRequest) {
       return apiSuccess({ passed: true, total_tests: 0, passed_tests: 0, results: [], submission_id: submission.id, message: "Solution submitted successfully. No test cases configured." });
     }
 
-    // 5. Execute against all test cases
-    const results: Array<{ test_case: number; passed: boolean; input: string; expected: string; actual: string; status: string; time: string | null; memory: number | null; is_hidden: boolean }> = [];
+    // 6. Execute against all test cases (parallel with early compile-error abort)
+    type TestResult = { test_case: number; passed: boolean; input: string; expected: string; actual: string; status: string; time: string | null; memory: number | null; is_hidden: boolean };
+    const results: TestResult[] = [];
     let allPassed = true;
     let totalTime = 0;
     let maxMemory = 0;
 
-    for (let i = 0; i < testCases.length; i++) {
-      const tc = testCases[i];
-      try {
-        const execResult = await executeCode({ sourceCode: source_code, languageId: Number(language_id), stdin: tc.input });
-        const stdout = execResult.stdout.trim();
-        const expected = tc.expectedOutput.trim();
-        let statusStr = execResult.status;
-        const tcPassed = statusStr === "accepted" && stdout === expected;
+    // Step A: Run first test case to detect compilation errors early
+    const firstTC = testCases[0];
+    let compilationFailed = false;
+    try {
+      const firstResult = await executeCode({ sourceCode: source_code, languageId: Number(language_id), stdin: firstTC.input });
+      const stdout = firstResult.stdout.trim();
+      const expected = firstTC.expectedOutput.trim();
+      let statusStr = firstResult.status;
+      const tcPassed = statusStr === "accepted" && stdout === expected;
 
-        if (!tcPassed) { allPassed = false; if (statusStr === "accepted") statusStr = "wrong_answer"; }
-        if (execResult.time) totalTime += parseFloat(execResult.time) * 1000;
-        if (execResult.memory && execResult.memory > maxMemory) maxMemory = execResult.memory;
+      if (!tcPassed) { allPassed = false; if (statusStr === "accepted") statusStr = "wrong_answer"; }
+      if (firstResult.time) totalTime += parseFloat(firstResult.time) * 1000;
+      if (firstResult.memory && firstResult.memory > maxMemory) maxMemory = firstResult.memory;
 
-        results.push({
-          test_case: i + 1, passed: tcPassed,
-          input: tc.isHidden ? "(hidden)" : tc.input,
-          expected: tc.isHidden ? "(hidden)" : tc.expectedOutput,
-          actual: tc.isHidden ? (tcPassed ? "(correct)" : "(wrong)") : (stdout || execResult.stderr || execResult.compile_output || "No output"),
-          status: statusStr, time: execResult.time, memory: execResult.memory, is_hidden: tc.isHidden,
-        });
+      results.push({
+        test_case: 1, passed: tcPassed,
+        input: firstTC.isHidden ? "(hidden)" : firstTC.input,
+        expected: firstTC.isHidden ? "(hidden)" : firstTC.expectedOutput,
+        actual: firstTC.isHidden ? (tcPassed ? "(correct)" : "(wrong)") : (stdout || firstResult.stderr || firstResult.compile_output || "No output"),
+        status: statusStr, time: firstResult.time, memory: firstResult.memory, is_hidden: firstTC.isHidden,
+      });
 
-        // Stop on compilation error — skip remaining
-        if (statusStr === "compilation_error") {
-          for (let j = i + 1; j < testCases.length; j++) {
-            results.push({ test_case: j + 1, passed: false, input: testCases[j].isHidden ? "(hidden)" : testCases[j].input, expected: testCases[j].isHidden ? "(hidden)" : testCases[j].expectedOutput, actual: "Skipped (compilation error)", status: "compilation_error", time: null, memory: null, is_hidden: testCases[j].isHidden });
-          }
-          allPassed = false;
-          break;
+      if (statusStr === "compilation_error") {
+        compilationFailed = true;
+      }
+    } catch {
+      results.push({ test_case: 1, passed: false, input: firstTC.isHidden ? "(hidden)" : firstTC.input, expected: firstTC.isHidden ? "(hidden)" : firstTC.expectedOutput, actual: "Execution service error", status: "internal_error", time: null, memory: null, is_hidden: firstTC.isHidden });
+      allPassed = false;
+    }
+
+    // Step B: If compilation failed, skip all remaining (no point re-compiling same code)
+    if (compilationFailed) {
+      for (let j = 1; j < testCases.length; j++) {
+        results.push({ test_case: j + 1, passed: false, input: testCases[j].isHidden ? "(hidden)" : testCases[j].input, expected: testCases[j].isHidden ? "(hidden)" : testCases[j].expectedOutput, actual: "Skipped (compilation error)", status: "compilation_error", time: null, memory: null, is_hidden: testCases[j].isHidden });
+      }
+      allPassed = false;
+    }
+
+    // Step C: Run remaining test cases in parallel (batches of 5 for controlled concurrency)
+    if (!compilationFailed && testCases.length > 1) {
+      const CONCURRENCY = 5;
+      const remainingTCs = testCases.slice(1);
+
+      for (let batchStart = 0; batchStart < remainingTCs.length; batchStart += CONCURRENCY) {
+        const batch = remainingTCs.slice(batchStart, batchStart + CONCURRENCY);
+        const batchResults = await Promise.all(
+          batch.map(async (tc, batchIdx) => {
+            const globalIdx = batchStart + batchIdx + 1; // 0-indexed offset (test_case starts at 2)
+            try {
+              const execResult = await executeCode({ sourceCode: source_code, languageId: Number(language_id), stdin: tc.input });
+              const stdout = execResult.stdout.trim();
+              const expected = tc.expectedOutput.trim();
+              let statusStr = execResult.status;
+              const tcPassed = statusStr === "accepted" && stdout === expected;
+
+              if (!tcPassed) { if (statusStr === "accepted") statusStr = "wrong_answer"; }
+              return {
+                test_case: globalIdx + 1, passed: tcPassed,
+                input: tc.isHidden ? "(hidden)" : tc.input,
+                expected: tc.isHidden ? "(hidden)" : tc.expectedOutput,
+                actual: tc.isHidden ? (tcPassed ? "(correct)" : "(wrong)") : (stdout || execResult.stderr || execResult.compile_output || "No output"),
+                status: statusStr, time: execResult.time, memory: execResult.memory, is_hidden: tc.isHidden,
+              } as TestResult;
+            } catch {
+              return {
+                test_case: globalIdx + 1, passed: false,
+                input: tc.isHidden ? "(hidden)" : tc.input,
+                expected: tc.isHidden ? "(hidden)" : tc.expectedOutput,
+                actual: "Execution service error", status: "internal_error", time: null, memory: null, is_hidden: tc.isHidden,
+              } as TestResult;
+            }
+          })
+        );
+
+        for (const r of batchResults) {
+          results.push(r);
+          if (!r.passed) allPassed = false;
+          if (r.time) totalTime += parseFloat(r.time) * 1000;
+          if (r.memory && r.memory > maxMemory) maxMemory = r.memory;
         }
-      } catch {
-        results.push({ test_case: i + 1, passed: false, input: tc.isHidden ? "(hidden)" : tc.input, expected: tc.isHidden ? "(hidden)" : tc.expectedOutput, actual: "Execution service error", status: "internal_error", time: null, memory: null, is_hidden: tc.isHidden });
-        allPassed = false;
       }
     }
 
-    // 6. Determine overall status
+    // 7. Determine overall status
     const passedCount = results.filter((r) => r.passed).length;
     let overallStatus = "wrong_answer";
     if (allPassed) overallStatus = "accepted";
@@ -108,7 +172,7 @@ export async function POST(req: NextRequest) {
     else if (results.some((r) => r.status === "time_limit")) overallStatus = "time_limit";
     else if (results.some((r) => r.status === "runtime_error")) overallStatus = "runtime_error";
 
-    // 7. Save submission
+    // 8. Save submission
     const submission = await prisma.exerciseSubmission.create({
       data: {
         userId: user!.userId, exerciseId, courseId,
@@ -134,7 +198,7 @@ export async function POST(req: NextRequest) {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "";
     if (msg.includes("jwt") || msg.includes("token")) return apiError(401, "Unauthorized.");
-    console.error("Code submit error:", err);
+    logger.error("code-submit", "unhandled_error", { error: msg });
     return apiError(500, "Internal server error.");
   }
 }

@@ -1,32 +1,28 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
-import { verifyToken } from "@/app/lib/auth";
+import { requireAuth } from "@/app/lib/middleware";
+import { apiSuccess, apiError } from "@/app/lib/response";
+import { logger } from "@/app/lib/logger";
 
 /**
  * GET /api/coding-problems/leaderboard?problemId=xxx
  * 
  * Returns leaderboard for a specific coding problem.
- * Ranks users by: solution quality (TC match) → submission time (earlier = better)
+ * Ranks users by: submission order (earlier = better rank)
  * 
  * POST /api/coding-problems/leaderboard
  * Submit user's ranking entry after successful submission.
  * Awards coins: Top 20 = 20 coins, Rank 21-50 = 10 coins.
  * 
- * Body: { problemId, problemTitle, qualityTag, userId? }
+ * Body: { problemId, problemTitle, qualityTag }
  */
 
 export async function GET(req: NextRequest) {
   try {
     const problemId = req.nextUrl.searchParams.get("problemId");
-    if (!problemId) {
-      return NextResponse.json(
-        { success: false, message: "problemId is required." },
-        { status: 400 }
-      );
-    }
+    if (!problemId) return apiError(400, "problemId is required.");
 
     // Fetch all submissions for this problem from CoinTransaction
-    // (we store coding submissions as coin transactions with reason containing problemId)
     const transactions = await prisma.coinTransaction.findMany({
       where: {
         reason: { contains: `Coding:${problemId}` },
@@ -61,17 +57,14 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({
-      success: true,
+    return apiSuccess({
       problemId,
       leaderboard: leaderboard.slice(0, 50),
       totalParticipants: leaderboard.length,
     });
-  } catch {
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+  } catch (err) {
+    logger.error("coding-leaderboard", "get_error", { error: err instanceof Error ? err.message : "Unknown" });
+    return apiError(500, "Internal server error.");
   }
 }
 
@@ -80,40 +73,23 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
-    if (!token) {
-      return NextResponse.json(
-        { success: false, message: "Unauthorized." },
-        { status: 401 }
-      );
-    }
+    const { error, user } = requireAuth(req);
+    if (error) return error;
 
-    const payload = verifyToken(token);
     const { problemId, problemTitle, qualityTag } = await req.json();
-
-    if (!problemId) {
-      return NextResponse.json(
-        { success: false, message: "problemId is required." },
-        { status: 400 }
-      );
-    }
+    if (!problemId) return apiError(400, "problemId is required.");
 
     // Check if user already has a leaderboard entry for this problem
     const existing = await prisma.coinTransaction.findFirst({
       where: {
-        userId: payload.userId,
+        userId: user!.userId,
         reason: { contains: `CodingLB:${problemId}` },
         type: "EARNED",
       },
     });
 
     if (existing) {
-      return NextResponse.json({
-        success: true,
-        alreadyRanked: true,
-        message: "Already ranked for this problem.",
-      });
+      return apiSuccess({ alreadyRanked: true, message: "Already ranked for this problem." });
     }
 
     // Count how many users submitted before this user (determines rank)
@@ -137,16 +113,16 @@ export async function POST(req: NextRequest) {
 
       await prisma.$transaction([
         prisma.userCoins.upsert({
-          where: { userId: payload.userId },
+          where: { userId: user!.userId },
           update: { totalCoins: { increment: coins } },
-          create: { userId: payload.userId, totalCoins: coins },
+          create: { userId: user!.userId, totalCoins: coins },
         }),
         prisma.coinTransaction.create({
           data: {
-            userId: payload.userId,
+            userId: user!.userId,
             type: "EARNED",
-            coins: coins,
-            reason: reason,
+            coins,
+            reason,
           },
         }),
       ]);
@@ -154,7 +130,7 @@ export async function POST(req: NextRequest) {
       // Still record entry (no coins, rank > 50)
       await prisma.coinTransaction.create({
         data: {
-          userId: payload.userId,
+          userId: user!.userId,
           type: "EARNED",
           coins: 0,
           reason: `CodingLB:${problemId} — Rank #${rank} — ${problemTitle || "Problem"}`,
@@ -162,22 +138,16 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({
-      success: true,
-      rank: rank,
+    return apiSuccess({
+      rank,
       coinsAwarded: coins,
       qualityTag: qualityTag || "green",
       message: coins > 0
         ? `Rank #${rank}! +${coins} coins earned!`
         : `Rank #${rank} — keep practicing!`,
     });
-  } catch (err: any) {
-    if (err?.message?.includes("jwt") || err?.message?.includes("token")) {
-      return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
-    }
-    return NextResponse.json(
-      { success: false, message: "Internal server error." },
-      { status: 500 }
-    );
+  } catch (err) {
+    logger.error("coding-leaderboard", "post_error", { error: err instanceof Error ? err.message : "Unknown" });
+    return apiError(500, "Internal server error.");
   }
 }
