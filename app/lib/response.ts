@@ -15,7 +15,8 @@ import { NextResponse } from "next/server";
  * @param data - Response payload (merged with { success: true })
  * @param status - HTTP status code (default 200)
  */
-export function apiSuccess(data: Record<string, unknown> = {}, status = 200): NextResponse {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function apiSuccess(data: Record<string, any> = {}, status = 200): NextResponse {
   return NextResponse.json({ success: true, ...data }, { status });
 }
 
