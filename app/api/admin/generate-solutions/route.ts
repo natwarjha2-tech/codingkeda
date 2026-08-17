@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
       if (solution) {
         await prisma.exercise.update({
           where: { id: ex.id },
-          data: { bestSolution: solution },
+          data: { bestSolution: JSON.parse(JSON.stringify(solution)) },
         });
         generated++;
       }
