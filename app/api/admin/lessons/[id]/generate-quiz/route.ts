@@ -137,7 +137,7 @@ Rules:
         data: {
           lessonId,
           question: q.question,
-          options: q.options,
+          options: JSON.parse(JSON.stringify(q.options)),
           answer: Number(q.answer),
           explanation: q.explanation || null,
           order: i + 1,
@@ -160,7 +160,7 @@ Rules:
             difficulty: ex.difficulty || "medium",
             starterCode: ex.starterCode || null,
             solution: ex.solution || null,
-            hints: ex.hints || null,
+            hints: ex.hints ? JSON.parse(JSON.stringify(ex.hints)) : undefined,
             order: i + 1,
           },
         });
