@@ -19,6 +19,8 @@ export async function GET(req: NextRequest) {
       select: {
         id: true, title: true, description: true, difficulty: true, type: true,
         language: true, starterCode: true, hints: true, timeLimit: true, memoryLimit: true, order: true,
+        bestSolution: true, inputFormat: true, outputFormat: true, constraints: true,
+        explanation: true, tags: true, timeComplexity: true, spaceComplexity: true,
       },
     });
 

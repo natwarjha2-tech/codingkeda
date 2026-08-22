@@ -42,6 +42,14 @@ export async function POST(req: NextRequest) {
           type: ex.type,
           language: ex.type === "coding" ? (ex.language || "c") : null,
           solution: ex.type === "theory" ? (ex.solution || null) : null,
+          bestSolution: ex.type === "coding" && ex.bestSolution ? ex.bestSolution : undefined,
+          inputFormat: ex.inputFormat || null,
+          outputFormat: ex.outputFormat || null,
+          constraints: ex.constraints || null,
+          explanation: ex.explanation || null,
+          tags: ex.tags || undefined,
+          timeComplexity: ex.timeComplexity || null,
+          spaceComplexity: ex.spaceComplexity || null,
           order: startOrder++,
         },
       });
@@ -61,9 +69,6 @@ export async function POST(req: NextRequest) {
             },
           });
         }
-
-        // Auto-trigger AI best solution generation (non-blocking)
-        triggerAISolution(exercise.id).catch(() => {});
       }
 
       created.push(exercise);
@@ -76,13 +81,4 @@ export async function POST(req: NextRequest) {
   } catch {
     return apiError(500, "Internal server error.");
   }
-}
-
-async function triggerAISolution(exerciseId: string) {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || process.env.BASE_URL || "http://localhost:3000";
-  await fetch(`${baseUrl}/api/coding-problems/best-solution`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ problemId: exerciseId }),
-  }).catch(() => {});
 }

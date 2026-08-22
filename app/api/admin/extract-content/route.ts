@@ -125,11 +125,12 @@ RULES:
 - Generate exercises that test the ACTUAL SUBJECT in the content (not about the PDF itself)
 - Determine if exercises should be "theory" or "coding" type based on content
 - For THEORY: provide title, description (question), solution (correct answer), difficulty (easy/medium/hard)
-- For CODING: provide title, description, difficulty, category, constraints, timeComplexity, spaceComplexity, language (default "c"), and testCases with input/expectedOutput (2 visible + 2 hidden)
+- For CODING: provide title, description (clear problem statement), difficulty, language (default "c"), inputFormat (describe stdin format), outputFormat (describe expected output format), constraints (e.g. "1 ≤ N ≤ 10^5"), explanation (brief approach explanation), tags (array of relevant tags like ["array","sorting"]), timeComplexity (e.g. "O(n)"), spaceComplexity (e.g. "O(1)"), and testCases with input/expectedOutput in RAW STDIN format (2 visible + 2 hidden)
+- IMPORTANT: testCases input must be RAW STDIN (e.g. "5 10 15" NOT "a=5, b=10, c=15")
 - Generate between 2 and 5 exercises
 
 Respond ONLY with valid JSON (no markdown, no code blocks):
-{"exercises":[{"title":"...","description":"...","type":"theory","difficulty":"medium","solution":"...","category":"general","constraints":null,"timeComplexity":null,"spaceComplexity":null,"language":null,"testCases":[]}]}`;
+{"exercises":[{"title":"...","description":"...","type":"coding","difficulty":"medium","language":"c","inputFormat":"...","outputFormat":"...","constraints":"...","explanation":"...","tags":["..."],"timeComplexity":"O(n)","spaceComplexity":"O(1)","testCases":[{"input":"5 10 15","expectedOutput":"Sum = 30","isHidden":false}]}]}`;
 }
 
 // ─── Send request to Gemini API ───
