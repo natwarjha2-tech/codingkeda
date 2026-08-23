@@ -55,13 +55,37 @@ export interface ExecuteResult {
  * Throws Error if no engine configured.
  */
 export async function executeCode(input: ExecuteInput): Promise<ExecuteResult> {
+  // Java: normalize public class name to "Main" (Judge0/Piston expect Main.java)
+  let processedInput = input;
+  if (input.languageId === 62) {
+    processedInput = { ...input, sourceCode: normalizeJavaClassName(input.sourceCode) };
+  }
+
   if (PISTON_API_URL) {
-    return executeWithPiston(input);
+    return executeWithPiston(processedInput);
   }
   if (JUDGE0_API_URL) {
-    return executeWithJudge0(input);
+    return executeWithJudge0(processedInput);
   }
   throw new Error("No code execution engine configured.");
+}
+
+/**
+ * Normalize Java public class name to "Main".
+ * Judge0 saves code as Main.java — so public class must be named Main.
+ * If user writes "public class Abc", silently replace with "public class Main".
+ * Handles: public class, class (non-public), and class name in constructors.
+ */
+function normalizeJavaClassName(code: string): string {
+  // Match "public class <ClassName>" — must rename to Main
+  const publicClassMatch = code.match(/public\s+class\s+([A-Za-z_]\w*)/);
+  if (!publicClassMatch || publicClassMatch[1] === "Main") return code;
+
+  const originalName = publicClassMatch[1];
+  // Replace all occurrences of the class name with "Main"
+  // This handles: class declaration, constructor calls (new ClassName()), constructor definitions
+  const nameRegex = new RegExp("\\b" + originalName + "\\b", "g");
+  return code.replace(nameRegex, "Main");
 }
 
 /**
