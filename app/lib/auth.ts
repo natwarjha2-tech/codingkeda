@@ -17,7 +17,8 @@ export type JwtPayload = {
 };
 
 export function signToken(payload: JwtPayload, expiresIn?: string | number): string {
-  return jwt.sign(payload, SECRET, { algorithm: "HS256", expiresIn: expiresIn ?? "365d" });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return jwt.sign(payload, SECRET, { algorithm: "HS256", expiresIn: (expiresIn ?? "365d") as any });
 }
 
 export function verifyToken(token: string): JwtPayload {
