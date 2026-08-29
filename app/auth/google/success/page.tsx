@@ -1,12 +1,8 @@
 "use client";
-import { useEffect } from "react";
+import { useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-/**
- * Google OAuth success page
- * Receives token + user data from callback, stores in localStorage, redirects to dashboard
- */
-export default function GoogleSuccessPage() {
+function GoogleSuccessContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -22,13 +18,11 @@ export default function GoogleSuccessPage() {
     try {
       const user = JSON.parse(decodeURIComponent(userRaw));
 
-      // Store token using the same keys as the web app's auth service
-      localStorage.setItem("token", token);           // web dashboard uses this key
-      localStorage.setItem("ck_token", token);        // desktop app uses this key
+      localStorage.setItem("token", token);
+      localStorage.setItem("ck_token", token);
       localStorage.setItem("userEmail", user.email || "");
       localStorage.setItem("user", JSON.stringify({ ...user, loginMethod: "google" }));
 
-      // Hard redirect — ensures the dashboard picks up fresh localStorage state
       window.location.href = "/dashboard";
     } catch {
       router.replace("/login?error=google_failed");
@@ -57,5 +51,17 @@ export default function GoogleSuccessPage() {
       </p>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
+  );
+}
+
+export default function GoogleSuccessPage() {
+  return (
+    <Suspense fallback={
+      <div style={{ minHeight: "100vh", background: "#0f0f1a", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <p style={{ color: "rgba(255,255,255,0.6)" }}>Loading...</p>
+      </div>
+    }>
+      <GoogleSuccessContent />
+    </Suspense>
   );
 }
