@@ -16,8 +16,8 @@ export type JwtPayload = {
   role: string;
 };
 
-export function signToken(payload: JwtPayload, expiresIn: string = "365d"): string {
-  return jwt.sign(payload, SECRET, { algorithm: "HS256", expiresIn });
+export function signToken(payload: JwtPayload, expiresIn?: string | number): string {
+  return jwt.sign(payload, SECRET, { algorithm: "HS256", expiresIn: expiresIn ?? "365d" });
 }
 
 export function verifyToken(token: string): JwtPayload {
