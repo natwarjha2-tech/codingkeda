@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
     // Reset email limiter on successful login (reward correct credentials)
     emailLimiter.reset(email.toLowerCase());
 
-    const token = signToken({ userId: user.id, email: user.email, role: user.role });
+    const token = signToken({ userId: user.id, email: user.email, role: user.role }, "365d");
 
     // Generate fresh presigned URL if avatar exists (private S3 bucket)
     let avatarUrl: string | null = null;

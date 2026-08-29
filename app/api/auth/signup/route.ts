@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
       data: { name: name?.trim() || "", email, password: hashedPassword, role: "user" },
     });
 
-    const token = signToken({ userId: user.id, email: user.email, role: user.role });
+    const token = signToken({ userId: user.id, email: user.email, role: user.role }, "365d");
 
     return apiSuccess({
       message: "Account created successfully.",

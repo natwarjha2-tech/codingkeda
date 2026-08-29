@@ -271,63 +271,24 @@ export default function ProfilePage() {
               </div>
             </div>
 
-            {/* Change Password */}
+            {/* Change Password — hidden for Google users */}
+            {typeof window !== 'undefined' && (() => {
+              try { const u = JSON.parse(localStorage.getItem("user") || "{}"); if (u.loginMethod === "google") return null; } catch {}
+              return (
             <div className="pt-4 border-t border-white/8">
               <h3 className="text-sm font-semibold text-white mb-3">Change Password</h3>
               <div className="space-y-3">
-                <input
-                  type="password"
-                  value={currentPwd}
-                  onChange={(e) => setCurrentPwd(e.target.value)}
-                  placeholder="Current password"
-                  className="w-full bg-white/5 border border-white/10 focus:border-purple-500 rounded-xl px-4 py-3 text-white text-sm outline-none transition-colors placeholder:text-slate-500"
-                />
-                <input
-                  type="password"
-                  value={newPwd}
-                  onChange={(e) => setNewPwd(e.target.value)}
-                  placeholder="New password (min 8 characters)"
-                  className="w-full bg-white/5 border border-white/10 focus:border-purple-500 rounded-xl px-4 py-3 text-white text-sm outline-none transition-colors placeholder:text-slate-500"
-                />
-                <input
-                  type="password"
-                  id="confirmNewPwd"
-                  placeholder="Confirm new password"
-                  className="w-full bg-white/5 border border-white/10 focus:border-purple-500 rounded-xl px-4 py-3 text-white text-sm outline-none transition-colors placeholder:text-slate-500"
-                />
-                {pwdSuccess && (
-                  <p className="text-green-400 text-xs">{pwdSuccess}</p>
-                )}
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setError(""); setPwdSuccess("");
-                    const confirmPwd = (document.getElementById("confirmNewPwd") as HTMLInputElement)?.value || "";
-                    if (!currentPwd.trim() || !newPwd.trim() || !confirmPwd.trim()) { setError("All password fields are required."); return; }
-                    if (newPwd.length < 8) { setError("New password must be at least 8 characters."); return; }
-                    if (newPwd !== confirmPwd) { setError("New passwords do not match."); return; }
-                    setPwdChanging(true);
-                    try {
-                      const token = getToken();
-                      const res = await fetch("/api/auth/change-password", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                        body: JSON.stringify({ currentPassword: currentPwd, newPassword: newPwd }),
-                      });
-                      const data = await res.json();
-                      if (data.success) { setPwdSuccess("Password changed successfully!"); setCurrentPwd(""); setNewPwd(""); (document.getElementById("confirmNewPwd") as HTMLInputElement).value = ""; }
-                      else { setError(data.message || "Failed to change password."); }
-                    } catch { setError("Something went wrong."); }
-                    setPwdChanging(false);
-                  }}
-                  disabled={pwdChanging}
-                  className="w-full py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-60"
-                  style={{ background: "linear-gradient(135deg,#7c3aed,#6d28d9)" }}
-                >
+                <input type="password" value={currentPwd} onChange={(e) => setCurrentPwd(e.target.value)} placeholder="Current password" className="w-full bg-white/5 border border-white/10 focus:border-purple-500 rounded-xl px-4 py-3 text-white text-sm outline-none transition-colors placeholder:text-slate-500" />
+                <input type="password" value={newPwd} onChange={(e) => setNewPwd(e.target.value)} placeholder="New password (min 8 characters)" className="w-full bg-white/5 border border-white/10 focus:border-purple-500 rounded-xl px-4 py-3 text-white text-sm outline-none transition-colors placeholder:text-slate-500" />
+                <input type="password" id="confirmNewPwd" placeholder="Confirm new password" className="w-full bg-white/5 border border-white/10 focus:border-purple-500 rounded-xl px-4 py-3 text-white text-sm outline-none transition-colors placeholder:text-slate-500" />
+                {pwdSuccess && <p className="text-green-400 text-xs">{pwdSuccess}</p>}
+                <button type="button" onClick={async () => { setError(""); setPwdSuccess(""); const confirmPwd = (document.getElementById("confirmNewPwd") as HTMLInputElement)?.value || ""; if (!currentPwd.trim() || !newPwd.trim() || !confirmPwd.trim()) { setError("All password fields are required."); return; } if (newPwd.length < 8) { setError("New password must be at least 8 characters."); return; } if (newPwd !== confirmPwd) { setError("New passwords do not match."); return; } setPwdChanging(true); try { const token = getToken(); const res = await fetch("/api/auth/change-password", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ currentPassword: currentPwd, newPassword: newPwd }) }); const data = await res.json(); if (data.success) { setPwdSuccess("Password changed successfully!"); setCurrentPwd(""); setNewPwd(""); (document.getElementById("confirmNewPwd") as HTMLInputElement).value = ""; } else { setError(data.message || "Failed to change password."); } } catch { setError("Something went wrong."); } setPwdChanging(false); }} disabled={pwdChanging} className="w-full py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-60" style={{ background: "linear-gradient(135deg,#7c3aed,#6d28d9)" }}>
                   {pwdChanging ? "Changing..." : "Change Password"}
                 </button>
               </div>
             </div>
+              );
+            })()}
 
             {/* Error */}
             {error && (
