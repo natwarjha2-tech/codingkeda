@@ -52,12 +52,13 @@ model Course {
 }
 
 model Module {
-  id       String   @id @default(uuid())
-  courseId String
-  title    String
-  order    Int
-  lessons  Lesson[]
-  course   Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  id        String            @id @default(uuid())
+  courseId  String
+  title     String
+  order     Int
+  lessons   Lesson[]
+  materials ModuleMaterial[]
+  course    Course            @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
   @@index([courseId])
 }
@@ -425,4 +426,30 @@ model LessonReaction {
   @@unique([userId, lessonId])
   @@index([lessonId])
   @@index([userId])
+}
+
+model ModuleMaterial {
+  id        String   @id @default(uuid())
+  moduleId  String
+  title     String
+  fileUrl   String
+  fileType  String   @default("pdf") // pdf, ppt, doc, image
+  fileSize  Int      @default(0)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  module    Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@index([moduleId])
+}
+
+model EmailOtp {
+  id        String   @id @default(uuid())
+  email     String
+  otp       String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([email, otp])
 }

@@ -27,6 +27,7 @@ interface Module {
   title: string;
   order: number;
   lessons: Lesson[];
+  materials?: { id: string; title: string; fileUrl: string; fileType: string; fileSize: number; order: number }[];
 }
 
 interface Course {
@@ -1094,9 +1095,16 @@ export default function ManageCoursePage() {
                         exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }}>
                         <div className="px-6 pb-5 border-t border-white/5">
 
+                          {/* Lesson Videos Section */}
+                          <div className="mt-4 mb-2">
+                            <span className="text-sm font-semibold text-slate-300 flex items-center gap-2 mb-3">
+                              <FileVideo size={14} className="text-purple-400" /> Lesson Videos
+                            </span>
+                          </div>
+
                           {/* Lessons */}
                           {mod.lessons.length > 0 && (
-                            <div className="space-y-2 mt-4 mb-4">
+                            <div className="space-y-2 mb-4">
                               {mod.lessons.map((lesson, li) => (
                                 <div key={lesson.id}
                                   className="flex items-center justify-between bg-white/5 rounded-xl px-4 py-3">
@@ -1153,6 +1161,88 @@ export default function ManageCoursePage() {
                             className="flex items-center gap-2 text-sm text-purple-400 hover:text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 px-4 py-2 rounded-xl transition-all mt-2">
                             <Plus size={14} /> Add Lesson
                           </button>
+
+                          {/* Study Material Section */}
+                          <div className="mt-4 pt-4 border-t border-white/5">
+                            <div className="flex items-center justify-between mb-3">
+                              <span className="text-sm font-semibold text-slate-300 flex items-center gap-2">
+                                <FileText size={14} className="text-purple-400" /> Study Material
+                              </span>
+                              <label className="flex items-center gap-2 text-xs text-green-400 hover:text-green-300 bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 px-3 py-1.5 rounded-lg cursor-pointer transition-all">
+                                <Plus size={12} /> Upload Material
+                                <input type="file" accept=".pdf,.ppt,.pptx,.doc,.docx,.jpg,.png" className="hidden"
+                                  onChange={async (e) => {
+                                    const file = e.target.files?.[0];
+                                    if (!file) return;
+                                    const title = prompt("Enter a title for this material:", file.name.replace(/\.[^.]+$/, ""));
+                                    if (!title) return;
+                                    try {
+                                      // Upload to S3 via presigned
+                                      const fileType = file.name.endsWith(".ppt") || file.name.endsWith(".pptx") ? "ppt" : file.type.startsWith("image/") ? "image" : "pdf";
+                                      const presignRes = await fetch("/api/admin/upload/presigned", {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+                                        body: JSON.stringify({ fileName: file.name, fileType: file.type, fileSize: file.size, type: "pdf" }),
+                                      });
+                                      const presignData = await presignRes.json();
+                                      if (!presignRes.ok) { alert("Upload failed: " + (presignData.error || "Unknown error")); return; }
+                                      const s3Res = await fetch(presignData.uploadUrl, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
+                                      if (!s3Res.ok) { alert("S3 upload failed."); return; }
+                                      // Save material to DB
+                                      const matRes = await fetch(`/api/admin/modules/${mod.id}/materials`, {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+                                        body: JSON.stringify({ title: title.trim(), fileUrl: presignData.publicUrl, fileType, fileSize: file.size }),
+                                      });
+                                      const matData = await matRes.json();
+                                      if (matData.success) {
+                                        alert("✅ Material uploaded!");
+                                        fetchCourse(); // refresh
+                                      } else {
+                                        alert("⚠️ " + (matData.message || "Failed to save material."));
+                                      }
+                                    } catch { alert("⚠️ Something went wrong."); }
+                                    e.target.value = "";
+                                  }}
+                                />
+                              </label>
+                            </div>
+                            {(mod as any).materials && (mod as any).materials.length > 0 ? (
+                              <div className="space-y-2">
+                                {(mod as any).materials.map((mat: any) => (
+                                  <div key={mat.id} className="flex items-center justify-between bg-white/5 rounded-xl px-4 py-2.5">
+                                    <div className="flex items-center gap-3">
+                                      <FileText size={13} className="text-pink-400" />
+                                      <span className="text-white text-sm">{mat.title}</span>
+                                      <span className="text-slate-500 text-xs">{mat.fileType}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <button onClick={() => handlePreviewPdf(mat.fileUrl)}
+                                        className="flex items-center gap-1 text-xs text-pink-400 hover:text-pink-300 bg-pink-500/10 px-2 py-1 rounded-lg transition-colors">
+                                        <Eye size={11} /> View
+                                      </button>
+                                      <button onClick={async () => {
+                                        if (!confirm("Delete this material?")) return;
+                                        try {
+                                          await fetch(`/api/admin/modules/${mod.id}/materials`, {
+                                            method: "DELETE",
+                                            headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+                                            body: JSON.stringify({ materialId: mat.id }),
+                                          });
+                                          fetchCourse();
+                                        } catch { alert("Failed to delete."); }
+                                      }}
+                                        className="flex items-center gap-1 text-xs text-red-400 hover:text-red-300 bg-red-500/10 px-2 py-1 rounded-lg transition-colors">
+                                        <Trash2 size={11} />
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-slate-500 text-xs">No study materials uploaded yet.</p>
+                            )}
+                          </div>
                         </div>
                       </motion.div>
                     )}

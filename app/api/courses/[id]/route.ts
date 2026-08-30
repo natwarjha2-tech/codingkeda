@@ -33,6 +33,17 @@ export async function GET(
                 exercisePdfUrl: true,
               },
             },
+            materials: {
+              orderBy: { order: "asc" },
+              select: {
+                id: true,
+                title: true,
+                fileUrl: true,
+                fileType: true,
+                fileSize: true,
+                order: true,
+              },
+            },
           },
         },
       },
