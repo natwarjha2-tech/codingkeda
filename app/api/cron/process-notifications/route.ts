@@ -10,11 +10,11 @@ import { sendExpoPush, isDesktopDevice, isValidExpoPushToken } from "@/app/lib/p
  * sends push notifications to registered devices, handles retries.
  * 
  * Triggered by:
- *   - Vercel Cron (vercel.json: every 1 minute)
- *   - External cron service (cron-job.org free tier)
+ *   - External cron service (cron-job.org free tier) — every 1 minute
+ *     (Vercel Hobby plan only allows daily cron, so external cron is used)
  *   - EC2: internal setInterval or node-cron
  * 
- * Security: Validated via CRON_SECRET header (prevents unauthorized triggers).
+ * Security: Validated via CRON_SECRET header (x-cron-secret or Authorization: Bearer).
  * 
  * Batch size: 50 per invocation (stays within Vercel 10s function limit).
  */

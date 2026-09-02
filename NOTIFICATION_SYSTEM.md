@@ -150,16 +150,34 @@ CRON_SECRET=<random-string>   # e.g. openssl rand -hex 32
 
 ## 8. Deployment Setup
 
-### Vercel
-1. Add `CRON_SECRET` env var in Vercel dashboard
-2. `vercel.json` cron auto-runs `/api/cron/process-notifications` every minute
-3. Vercel automatically sends `Authorization: Bearer $CRON_SECRET`
+**Note:** Vercel Hobby (free) plan only allows daily cron jobs. Since notifications need
+frequent delivery, we use an **external cron service** instead of Vercel Cron.
+
+### Step 1: Add CRON_SECRET
+Add `CRON_SECRET` env var in Vercel dashboard (Settings → Environment Variables).
+Generate: `openssl rand -hex 32`
+
+### Step 2: Set up external cron (cron-job.org — free)
+1. Sign up at https://cron-job.org (free)
+2. Create a new cron job:
+   - **URL:** `https://www.codingkida.com/api/cron/process-notifications`
+   - **Schedule:** Every 1 minute
+   - **Method:** POST
+   - **Header:** `x-cron-secret: YOUR_CRON_SECRET`
+3. Save — notifications will now be delivered every minute
 
 ### EC2 (alternative)
 Run a cron/node-cron job:
 ```bash
 * * * * * curl -X POST https://www.codingkida.com/api/cron/process-notifications -H "x-cron-secret: YOUR_SECRET"
 ```
+
+### Vercel Pro (alternative — if upgraded)
+If you upgrade to Vercel Pro, you can use `vercel.json` cron instead:
+```json
+{ "crons": [{ "path": "/api/cron/process-notifications", "schedule": "* * * * *" }] }
+```
+(Vercel auto-sends `Authorization: Bearer $CRON_SECRET`)
 
 ---
 
