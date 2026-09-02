@@ -4,6 +4,7 @@ import { requireAuth } from "@/app/lib/middleware";
 import { extractUser } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { callGeminiJSON, isGeminiConfigured } from "@/app/lib/gemini";
+import { notifyWeeklyStreak } from "@/app/lib/notification";
 
 /**
  * GET /api/weekly-streak?lessonId=xxx
@@ -132,6 +133,18 @@ Respond ONLY with valid JSON (no markdown):
         feedback,
       },
     });
+
+    // Notification: streak passed (non-blocking, idempotent)
+    if (passed) {
+      // Fetch course name for notification
+      const streakCourse = await prisma.course.findFirst({ where: { id: streak.courseId }, select: { title: true } });
+      notifyWeeklyStreak({
+        userId: user!.userId,
+        streakId,
+        courseName: streakCourse?.title || "Course",
+        weekNumber: streak.weekNumber,
+      }).catch(() => {});
+    }
 
     return apiSuccess({ passed, feedback, attemptId: attempt.id });
   } catch {

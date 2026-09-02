@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
+import { notifyLeaderboardWinner } from "@/app/lib/notification";
 import { logger } from "@/app/lib/logger";
 
 /**
@@ -136,6 +137,17 @@ export async function POST(req: NextRequest) {
           reason: `CodingLB:${problemId} — Rank #${rank} — ${problemTitle || "Problem"}`,
         },
       });
+    }
+
+    // Notification: leaderboard rank (non-blocking, idempotent, only for rank <= 50)
+    if (coins > 0) {
+      notifyLeaderboardWinner({
+        userId: user!.userId,
+        problemId,
+        problemTitle: problemTitle || "Coding Problem",
+        rank,
+        coinsAwarded: coins,
+      }).catch(() => {});
     }
 
     return apiSuccess({

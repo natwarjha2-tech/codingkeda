@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { syncStudentOnEnroll } from "@/app/lib/sync-student";
+import { notifyCourseEnrolled, notifyPaymentFailed } from "@/app/lib/notification";
 import { logger } from "@/app/lib/logger";
 import crypto from "crypto";
 
@@ -58,12 +59,30 @@ export async function POST(req: NextRequest) {
 
       await syncStudentOnEnroll(payment.userId);
       logger.success("payment-webhook", "enrollment_complete", { userId: payment.userId, courseId: payment.courseId, paymentId: razorpayPaymentId });
+
+      // Notification: course enrolled successfully (non-blocking, idempotent)
+      notifyCourseEnrolled({
+        userId: payment.userId,
+        courseId: payment.courseId,
+        courseName: payment.course.title,
+        paymentId: razorpayPaymentId,
+      }).catch(() => {});
+
       return apiSuccess({ message: "Payment verified and user enrolled." });
     }
 
     if (event === "payment.failed") {
       await prisma.payment.update({ where: { id: payment.id }, data: { status: "failed", razorpayPaymentId } });
       logger.error("payment-webhook", "payment_failed", { orderId: razorpayOrderId, paymentId: razorpayPaymentId });
+
+      // Notification: payment failed (non-blocking, idempotent)
+      notifyPaymentFailed({
+        userId: payment.userId,
+        courseId: payment.courseId,
+        courseName: payment.course.title,
+        orderId: razorpayOrderId,
+      }).catch(() => {});
+
       return apiSuccess({ message: "Payment failure recorded." });
     }
 

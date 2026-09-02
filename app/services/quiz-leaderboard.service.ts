@@ -1,4 +1,5 @@
 import { prisma } from "@/app/lib/prisma";
+import { notifyAchievement } from "@/app/lib/notification";
 
 /**
  * Quiz Leaderboard Service
@@ -150,6 +151,15 @@ export async function recalculateAndAwardCoins(
         },
       }),
     ]);
+
+    // Notification: achievement earned (non-blocking, idempotent)
+    notifyAchievement({
+      userId,
+      title: badgeTitle!,
+      badgeType: badgeType!,
+      lessonId,
+      courseId,
+    }).catch(() => {});
 
     return { rank, coinsAwarded: coins, badge: badgeType };
   } catch {
