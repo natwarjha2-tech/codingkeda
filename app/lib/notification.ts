@@ -11,6 +11,7 @@
  * - User-scoped access (all queries filtered by userId)
  */
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/app/lib/prisma";
 import {
   CreateNotificationInput,
@@ -39,8 +40,8 @@ export async function createNotification(
         priority: input.priority || NOTIF_PRIORITIES.NORMAL,
         title: input.title,
         body: input.body,
-        metadata: input.metadata || undefined,
-        action: input.action || undefined,
+        metadata: (input.metadata as Prisma.InputJsonValue) ?? Prisma.JsonNull,
+        action: (input.action as unknown as Prisma.InputJsonValue) ?? Prisma.JsonNull,
         idempotencyKey: input.idempotencyKey,
         expiresAt: input.expiresAt || null,
       },
