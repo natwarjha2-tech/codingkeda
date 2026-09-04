@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
+import { notifyCoinsSpent, notifyCouponRedeemed } from "@/app/lib/notification";
 
 /**
  * POST /api/mall/redeem
@@ -25,6 +26,17 @@ export async function POST(req: NextRequest) {
       };
 
       if (!validCoupons[code]) return apiError(400, "Invalid coupon code");
+
+      // Coupon redeemed notification (non-blocking)
+      try {
+        await notifyCouponRedeemed({
+          userId: user!.userId,
+          label: `Coupon ${code}`,
+          detail: validCoupons[code].description,
+          idempotencyKey: `${user!.userId}:${code}`,
+        });
+      } catch { /* notification failure must not block coupon */ }
+
       return apiSuccess({ message: "Coupon applied successfully!", coupon: { code, ...validCoupons[code] } });
     }
 
@@ -45,6 +57,16 @@ export async function POST(req: NextRequest) {
       await prisma.coinTransaction.create({
         data: { userId: user!.userId, coins: cost, type: "SPENT", reason: `Redeemed offer: ${body.offerId}` },
       });
+
+      // Coins spent (offer redeem) notification (non-blocking)
+      try {
+        await notifyCoinsSpent({
+          userId: user!.userId,
+          coins: cost,
+          reason: `CK Mall offer redeemed`,
+          idempotencyKey: `${user!.userId}:${body.offerId}:${Date.now()}`,
+        });
+      } catch { /* notification failure must not block offer redeem */ }
 
       return apiSuccess({ message: "Offer redeemed successfully!", newBalance: userCoins.totalCoins - cost });
     }

@@ -3,6 +3,7 @@ import { prisma } from "@/app/lib/prisma";
 import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { validatePassword } from "@/app/lib/validation";
+import { notifyPasswordChanged } from "@/app/lib/notification";
 import bcrypt from "bcryptjs";
 
 /**
@@ -28,6 +29,11 @@ export async function POST(req: NextRequest) {
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     await prisma.user.update({ where: { id: authUser!.userId }, data: { password: hashedPassword } });
+
+    // Security notification (non-blocking)
+    try {
+      await notifyPasswordChanged({ userId: authUser!.userId });
+    } catch { /* notification failure must not block password change */ }
 
     return apiSuccess({ message: "Password changed successfully." });
   } catch {

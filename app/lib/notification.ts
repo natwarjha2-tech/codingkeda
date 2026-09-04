@@ -335,6 +335,164 @@ export async function notifyLeaderboardWinner(opts: {
 }
 
 /**
+ * Notify: Coins earned (quiz reward, coding solve, leaderboard).
+ * idempotencyKey should be unique per earning event (e.g., transaction source).
+ */
+export async function notifyCoinsEarned(opts: {
+  userId: string;
+  coins: number;
+  reason: string;
+  idempotencyKey: string;
+}) {
+  return createNotification({
+    userId: opts.userId,
+    type: "coins_earned",
+    category: "achievement",
+    priority: "NORMAL",
+    title: `Coins Earned 🪙 +${opts.coins}`,
+    body: `You earned ${opts.coins} CodingKida coins — ${opts.reason}. Keep learning to earn more!`,
+    metadata: { coins: opts.coins, reason: opts.reason },
+    action: { type: "deeplink", target: "/coins" },
+    idempotencyKey: `coins_earned:${opts.idempotencyKey}`,
+  });
+}
+
+/**
+ * Notify: Coins spent (course discount / mall offer redeem).
+ */
+export async function notifyCoinsSpent(opts: {
+  userId: string;
+  coins: number;
+  reason: string;
+  idempotencyKey: string;
+}) {
+  return createNotification({
+    userId: opts.userId,
+    type: "coins_spent",
+    category: "system",
+    priority: "NORMAL",
+    title: `Coins Redeemed 🪙 -${opts.coins}`,
+    body: `You spent ${opts.coins} CodingKida coins — ${opts.reason}.`,
+    metadata: { coins: opts.coins, reason: opts.reason },
+    action: { type: "deeplink", target: "/coins" },
+    idempotencyKey: `coins_spent:${opts.idempotencyKey}`,
+  });
+}
+
+/**
+ * Notify: Badge lost / rank dropped (achievement changed due to leaderboard shift).
+ */
+export async function notifyBadgeLost(opts: {
+  userId: string;
+  lessonId: string;
+  oldBadge: string;
+  newBadge: string;
+  newRank: number;
+}) {
+  return createNotification({
+    userId: opts.userId,
+    type: "badge_lost",
+    category: "achievement",
+    priority: "NORMAL",
+    title: "Leaderboard Updated 📊",
+    body: `Your rank changed to #${opts.newRank}. Your badge is now "${opts.newBadge}". Re-attempt other quizzes to climb back up! (Your earned coins stay with you.)`,
+    metadata: { lessonId: opts.lessonId, oldBadge: opts.oldBadge, newBadge: opts.newBadge, newRank: opts.newRank },
+    action: { type: "deeplink", target: "/achievements" },
+    // Unique per rank/badge change so each real change notifies once
+    idempotencyKey: `badge_lost:${opts.userId}:${opts.lessonId}:${opts.newBadge}:${opts.newRank}`,
+  });
+}
+
+/**
+ * Notify: Password changed successfully (security alert).
+ */
+export async function notifyPasswordChanged(opts: {
+  userId: string;
+}) {
+  return createNotification({
+    userId: opts.userId,
+    type: "password_changed",
+    category: "system",
+    priority: "HIGH",
+    title: "Password Changed 🔒",
+    body: `Your CodingKida account password was changed successfully. If this wasn't you, please reset your password immediately.`,
+    metadata: { changedAt: new Date().toISOString() },
+    // One notification per change event (timestamp-based key)
+    idempotencyKey: `password_changed:${opts.userId}:${Date.now()}`,
+  });
+}
+
+/**
+ * Notify: New homework assigned by admin (for a specific user).
+ */
+export async function notifyNewHomework(opts: {
+  userId: string;
+  homeworkId: string;
+  title: string;
+  courseId?: string;
+  courseName?: string;
+}) {
+  return createNotification({
+    userId: opts.userId,
+    type: "new_homework",
+    category: "course",
+    priority: "NORMAL",
+    title: "New Homework Assigned 📝",
+    body: opts.courseName
+      ? `New homework "${opts.title}" was added in ${opts.courseName}. Complete it to keep your progress up!`
+      : `New homework "${opts.title}" has been assigned. Complete it to keep your progress up!`,
+    metadata: { homeworkId: opts.homeworkId, title: opts.title, courseId: opts.courseId, courseName: opts.courseName },
+    action: opts.courseId
+      ? { type: "deeplink", target: `/courses/${opts.courseId}` }
+      : { type: "deeplink", target: "/courses" },
+    idempotencyKey: `new_homework:${opts.homeworkId}:${opts.userId}`,
+  });
+}
+
+/**
+ * Notify: Coupon / offer redeemed successfully (CK Mall).
+ */
+export async function notifyCouponRedeemed(opts: {
+  userId: string;
+  label: string;      // coupon code or offer name
+  detail: string;     // e.g., "10% discount unlocked" / "Offer redeemed"
+  idempotencyKey: string;
+}) {
+  return createNotification({
+    userId: opts.userId,
+    type: "coupon_redeemed",
+    category: "announcement",
+    priority: "NORMAL",
+    title: "Offer Redeemed 🎁",
+    body: `${opts.label} — ${opts.detail}. Enjoy your reward on CodingKida!`,
+    metadata: { label: opts.label, detail: opts.detail },
+    action: { type: "deeplink", target: "/mall" },
+    idempotencyKey: `coupon_redeemed:${opts.idempotencyKey}`,
+  });
+}
+
+/**
+ * Notify: Welcome notification on first signup.
+ */
+export async function notifyWelcome(opts: {
+  userId: string;
+  name?: string;
+}) {
+  const who = opts.name ? `, ${opts.name}` : "";
+  return createNotification({
+    userId: opts.userId,
+    type: "welcome",
+    category: "announcement",
+    priority: "NORMAL",
+    title: "Welcome to CodingKida 🚀",
+    body: `Hi${who}! Welcome aboard. Explore courses, solve coding challenges, earn coins, and climb the leaderboard. Your learning journey starts now!`,
+    metadata: {},
+    action: { type: "deeplink", target: "/courses" },
+    idempotencyKey: `welcome:${opts.userId}`,
+  });
+}
+
+/**
  * Notify: Custom admin notification (for a specific user).
  */
 export async function notifyCustom(opts: {

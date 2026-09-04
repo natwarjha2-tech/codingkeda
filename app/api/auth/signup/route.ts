@@ -6,6 +6,7 @@ import { apiSuccess, apiError } from "@/app/lib/response";
 import { createRateLimiter } from "@/app/lib/rate-limit";
 import { logger } from "@/app/lib/logger";
 import { validatePassword, parseBody, emailSchema } from "@/app/lib/validation";
+import { notifyWelcome } from "@/app/lib/notification";
 import { z } from "zod";
 
 // Rate limiter: 3 signups per hour per IP (prevents mass account creation)
@@ -44,6 +45,11 @@ export async function POST(req: NextRequest) {
     });
 
     const token = signToken({ userId: user.id, email: user.email, role: user.role }, "365d");
+
+    // Welcome notification (non-blocking — never fail signup)
+    try {
+      await notifyWelcome({ userId: user.id, name: user.name || undefined });
+    } catch { /* notification failure must not block signup */ }
 
     return apiSuccess({
       message: "Account created successfully.",

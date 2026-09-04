@@ -1,5 +1,5 @@
 import { prisma } from "@/app/lib/prisma";
-import { notifyAchievement } from "@/app/lib/notification";
+import { notifyAchievement, notifyBadgeLost } from "@/app/lib/notification";
 
 /**
  * Quiz Leaderboard Service
@@ -43,6 +43,7 @@ export async function recalculateAndAwardCoins(
     let allAttempts = await prisma.quizAttempt.findMany({
       where: { lessonId },
       select: { userId: true, correct: true, createdAt: true, timeTaken: true },
+      orderBy: { createdAt: "asc" },
     });
 
     // Fallback: if direct lessonId match returns empty, find via Quiz→Lesson
@@ -56,15 +57,26 @@ export async function recalculateAndAwardCoins(
         allAttempts = await prisma.quizAttempt.findMany({
           where: { quizId: { in: quizIds } },
           select: { userId: true, correct: true, createdAt: true, timeTaken: true },
+          orderBy: { createdAt: "asc" },
         });
       }
     }
 
     if (allAttempts.length === 0) return { rank: null, coinsAwarded: 0, badge: null };
 
-    // Group by user — aggregate scores
+    // ── FIRST ATTEMPT ONLY per user ──
+    // Each user's leaderboard position is determined by their FIRST attempt only.
+    // Subsequent attempts are practice and do NOT affect ranking.
+    const firstAttemptSeen: Record<string, boolean> = {};
+    const firstAttempts = allAttempts.filter(a => {
+      if (firstAttemptSeen[a.userId]) return false; // Already counted first attempt
+      firstAttemptSeen[a.userId] = true;
+      return true;
+    });
+
+    // Group by user — aggregate ONLY first-attempt scores
     const userScores: Record<string, { total: number; correct: number; totalTime: number; earliestSubmit: Date }> = {};
-    for (const a of allAttempts) {
+    for (const a of firstAttempts) {
       if (!userScores[a.userId]) {
         userScores[a.userId] = { total: 0, correct: 0, totalTime: 0, earliestSubmit: a.createdAt };
       }
@@ -98,31 +110,81 @@ export async function recalculateAndAwardCoins(
 
     const rank = userIndex + 1;
 
-    // Determine coins and badge based on rank
-    let coins = 0;
+    // Determine badge based on current live rank
     let badgeType: string | null = null;
     let badgeTitle: string | null = null;
 
     if (rank === 1) {
-      coins = 10; badgeType = "super-master"; badgeTitle = "Super Master";
+      badgeType = "super-master"; badgeTitle = "Super Master";
     } else if (rank === 2) {
-      coins = 7; badgeType = "master"; badgeTitle = "Master";
+      badgeType = "master"; badgeTitle = "Master";
     } else if (rank >= 3 && rank <= 10) {
-      coins = 5; badgeType = "pro"; badgeTitle = "Pro";
+      badgeType = "pro"; badgeTitle = "Pro";
     }
 
-    if (coins === 0) return { rank, coinsAwarded: 0, badge: null };
+    // ── LIVE BADGE SYNC ──
+    // Always update the achievement badge to match current rank.
+    // If user was rank 1 before (Super Master) but now rank 3 (Pro), badge updates to Pro.
 
-    // Check if already rewarded for this lesson (prevent duplicate awards)
+    // Fetch previous badge for this lesson to detect a downgrade/loss (#13)
+    const prevAchievement = await prisma.achievement.findFirst({
+      where: { userId, lessonId },
+      select: { badgeType: true, title: true },
+    });
+    // Badge rank strength (lower number = stronger). Used to detect downgrade.
+    const badgeStrength: Record<string, number> = { "super-master": 1, "master": 2, "pro": 3 };
+    const prevStrength = prevAchievement ? (badgeStrength[prevAchievement.badgeType] ?? 99) : 99;
+    const newStrength = badgeType ? (badgeStrength[badgeType] ?? 99) : 99;
+
+    if (badgeType && badgeTitle) {
+      // Delete any old achievement for this user+lesson (different badgeType)
+      await prisma.achievement.deleteMany({
+        where: { userId, lessonId, badgeType: { not: badgeType } },
+      });
+      // Upsert current badge (create if new, update title if same type)
+      await prisma.achievement.upsert({
+        where: { userId_lessonId_badgeType: { userId, lessonId, badgeType } },
+        update: { title: badgeTitle, courseId },
+        create: { userId, title: badgeTitle, badgeType, lessonId, courseId },
+      });
+    } else {
+      // Rank > 10: remove any existing badge for this lesson
+      await prisma.achievement.deleteMany({
+        where: { userId, lessonId },
+      });
+    }
+
+    // Notification: badge lost / rank dropped (#13) — non-blocking.
+    // Only fire when the user previously had a badge AND it got weaker or removed.
+    if (prevAchievement && newStrength > prevStrength) {
+      notifyBadgeLost({
+        userId,
+        lessonId,
+        oldBadge: prevAchievement.title,
+        newBadge: badgeTitle || "None",
+        newRank: rank,
+      }).catch(() => {});
+    }
+
+    // Determine coins based on rank (for first-time award only)
+    let coins = 0;
+    if (rank === 1) coins = 10;
+    else if (rank === 2) coins = 7;
+    else if (rank >= 3 && rank <= 10) coins = 5;
+
+    if (coins === 0) return { rank, coinsAwarded: 0, badge: badgeType };
+
+    // Check if already rewarded for this lesson (prevent duplicate coin awards)
     const existingTransaction = await prisma.coinTransaction.findFirst({
       where: { userId, lessonId, type: "EARNED" },
     });
 
     if (existingTransaction) {
+      // Already got coins — return current rank + badge (no new coins)
       return { rank, coinsAwarded: 0, badge: badgeType };
     }
 
-    // Award coins + achievement (atomic transaction)
+    // Award coins (first time only — atomic transaction)
     await prisma.$transaction([
       prisma.userCoins.upsert({
         where: { userId },
@@ -139,27 +201,18 @@ export async function recalculateAndAwardCoins(
           courseId,
         },
       }),
-      prisma.achievement.upsert({
-        where: { userId_lessonId_badgeType: { userId, lessonId, badgeType: badgeType! } },
-        update: {},
-        create: {
-          userId,
-          title: badgeTitle!,
-          badgeType: badgeType!,
-          lessonId,
-          courseId,
-        },
-      }),
     ]);
 
     // Notification: achievement earned (non-blocking, idempotent)
-    notifyAchievement({
-      userId,
-      title: badgeTitle!,
-      badgeType: badgeType!,
-      lessonId,
-      courseId,
-    }).catch(() => {});
+    if (badgeType && badgeTitle) {
+      notifyAchievement({
+        userId,
+        title: badgeTitle,
+        badgeType,
+        lessonId,
+        courseId,
+      }).catch(() => {});
+    }
 
     return { rank, coinsAwarded: coins, badge: badgeType };
   } catch {

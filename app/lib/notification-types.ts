@@ -19,6 +19,15 @@ export const NOTIF_TYPES = {
   LEADERBOARD_WINNER: "leaderboard_winner",
   APP_UPDATE: "app_update",
   CUSTOM: "custom",
+  // ── Added events ──
+  COINS_EARNED: "coins_earned",         // #10
+  COINS_SPENT: "coins_spent",           // #11
+  BADGE_LOST: "badge_lost",             // #13 (rank dropped, achievement changed)
+  PASSWORD_CHANGED: "password_changed", // #14
+  NEW_HOMEWORK: "new_homework",         // #15
+  COUPON_REDEEMED: "coupon_redeemed",   // #18
+  WELCOME: "welcome",                   // #19
+  DOWNLOAD_EXPIRING: "download_expiring", // #17 (mobile client-side local)
 } as const;
 
 export type NotifType = (typeof NOTIF_TYPES)[keyof typeof NOTIF_TYPES];

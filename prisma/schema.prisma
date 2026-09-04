@@ -463,7 +463,7 @@ model EmailOtp {
 model Notification {
   id             String    @id @default(uuid())
   userId         String
-  type           String // "course_enrolled", "payment_failed", "achievement", "new_course", "weekly_streak", "leaderboard_winner", "app_update", "custom"
+  type           String // "course_enrolled", "payment_failed", "achievement", "new_course", "weekly_streak", "leaderboard_winner", "app_update", "custom", "coins_earned", "coins_spent", "badge_lost", "password_changed", "new_homework", "coupon_redeemed", "welcome", "download_expiring"
   category       String    @default("general") // "payment", "course", "achievement", "system", "announcement"
   priority       String    @default("NORMAL") // "LOW", "NORMAL", "HIGH", "CRITICAL"
   title          String

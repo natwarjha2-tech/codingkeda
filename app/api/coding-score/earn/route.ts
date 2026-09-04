@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
+import { notifyCoinsEarned } from "@/app/lib/notification";
 
 /**
  * POST /api/coding-score/earn
@@ -45,6 +46,16 @@ export async function POST(req: NextRequest) {
         data: { userId: user!.userId, type: "EARNED", coins: Number(coins), reason },
       }),
     ]);
+
+    // Coins earned notification (non-blocking; idempotent per problem)
+    try {
+      await notifyCoinsEarned({
+        userId: user!.userId,
+        coins: Number(coins),
+        reason: `solving "${problemTitle || "a coding problem"}"`,
+        idempotencyKey: `coding:${user!.userId}:${problemId}`,
+      });
+    } catch { /* notification failure must not block coin award */ }
 
     return apiSuccess({ alreadyEarned: false, coinsAwarded: coins, message: `+${coins} coins earned!` });
   } catch {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { verifyToken } from "@/app/lib/auth";
+import { notifyCoinsSpent } from "@/app/lib/notification";
 
 /**
  * POST /api/coins/redeem
@@ -72,6 +73,16 @@ export async function POST(req: NextRequest) {
         },
       }),
     ]);
+
+    // Coins spent notification (non-blocking)
+    try {
+      await notifyCoinsSpent({
+        userId: payload.userId,
+        coins: coinsToRedeem,
+        reason: `discount on ${course.title}`,
+        idempotencyKey: `${payload.userId}:${courseId}:${updatedCoins.totalCoins}:${Date.now()}`,
+      });
+    } catch { /* notification failure must not block redemption */ }
 
     return NextResponse.json({
       success: true,
