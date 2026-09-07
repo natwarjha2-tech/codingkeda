@@ -19,7 +19,7 @@ export async function POST(
 
     const { id: lessonId } = await params;
     const body = await req.json();
-    const { videoUrl, mediaId } = body;
+    const { videoUrl, mediaId, duration } = body;
 
     // Validation
     if (!videoUrl && !mediaId) {
@@ -52,10 +52,13 @@ export async function POST(
       await prisma.media.update({ where: { id: mediaId }, data: { isActive: true } });
     }
 
-    // Update lesson with video URL
+    // Update lesson with video URL (and real duration in seconds, if detected)
     const updatedLesson = await prisma.lesson.update({
       where: { id: lessonId },
-      data: { videoUrl: finalVideoUrl },
+      data: {
+        videoUrl: finalVideoUrl,
+        ...(typeof duration === "string" && duration.trim() ? { duration: duration.trim() } : {}),
+      },
       include: {
         module: {
           select: {

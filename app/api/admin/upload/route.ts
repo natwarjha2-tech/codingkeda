@@ -4,7 +4,6 @@ import { prisma } from "@/app/lib/prisma";
 import { MediaType } from "@prisma/client";
 import { requireAdmin } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
-import { processVideoHls } from "@/app/lib/hls-processor";
 
 const ALLOWED_TYPES: Record<string, string[]> = {
   video: ["video/mp4", "video/avi", "video/quicktime", "video/x-msvideo"],
@@ -86,12 +85,9 @@ export async function POST(req: NextRequest) {
     // Generate presigned URL for immediate use
     const presignedUrl = await getSignedFileUrl(key, 3600);
 
-    // Auto-trigger HLS processing for video uploads (non-blocking, runs in background)
-    if (MEDIA_TYPE_MAP[type] === "VIDEO") {
-      processVideoHls(media.id, key, url).catch((err) => {
-        console.error(`[HLS] Background processing failed for ${media.id}:`, err);
-      });
-    }
+    // NOTE: Auto HLS (720/480/360) generation on upload is intentionally
+    // DISABLED. Video quality processing is done manually via
+    // scripts/process-pending-videos.sh. Uploads just save the original to S3.
 
     return apiSuccess({
       media: {

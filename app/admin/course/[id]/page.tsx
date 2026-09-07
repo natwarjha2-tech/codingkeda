@@ -78,6 +78,8 @@ export default function ManageCoursePage() {
   const [pdfUploading, setPdfUploading] = useState(false);
   const [videoUrl, setVideoUrl] = useState("");
   const [videoMediaId, setVideoMediaId] = useState<string | null>(null);
+  // Real video duration (seconds) detected from the uploaded file in-browser.
+  const [videoDuration, setVideoDuration] = useState<number>(0);
   const [pdfUrl, setPdfUrl] = useState("");
   const [pdfMediaId, setPdfMediaId] = useState<string | null>(null);
   const [videoDragging, setVideoDragging] = useState(false);
@@ -229,21 +231,41 @@ export default function ManageCoursePage() {
 
   // ── Upload handlers ──
   const startVideoProcessing = async (mediaId: string | null) => {
-    if (!mediaId) return;
-    try {
-      await fetch("/api/admin/video-process", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ mediaId }),
-      });
-    } catch {
-      // ignore processing trigger errors, it can be retried manually
-    }
+    // Auto HLS (720/480/360) generation on upload is intentionally DISABLED.
+    // Video quality processing is done manually via
+    // scripts/process-pending-videos.sh. This is now a no-op so uploads only
+    // save the original video to S3 (no background FFmpeg on upload).
+    void mediaId;
+  };
+
+  // Detect a video file's duration (in seconds) in the browser, before upload.
+  // Returns 0 if it cannot be read (never blocks the upload).
+  const detectFileDuration = (file: File): Promise<number> => {
+    return new Promise((resolve) => {
+      try {
+        const url = URL.createObjectURL(file);
+        const v = document.createElement("video");
+        v.preload = "metadata";
+        const done = (sec: number) => {
+          try { URL.revokeObjectURL(url); } catch {}
+          resolve(Number.isFinite(sec) && sec > 0 ? Math.round(sec) : 0);
+        };
+        v.onloadedmetadata = () => done(v.duration);
+        v.onerror = () => done(0);
+        setTimeout(() => done(0), 15000);
+        v.src = url;
+      } catch {
+        resolve(0);
+      }
+    });
   };
 
   const handleVideoUpload = async () => {
     if (!videoFile) return setVideoError("Please select a video file.");
     setVideoError("");
+    // Capture real duration from the file before we clear it (non-blocking).
+    const _detectedDuration = await detectFileDuration(videoFile);
+    setVideoDuration(_detectedDuration);
     setVideoUploading(true);
     try {
       const token = localStorage.getItem("token");
@@ -357,7 +379,7 @@ export default function ManageCoursePage() {
       const res = await fetch("/api/admin/lessons", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ moduleId: activeModuleId, title: lessonTitle, isFree: lessonIsFree, videoUrl, notes: pdfUrl, mediaId: videoMediaId, pdfMediaId }),
+        body: JSON.stringify({ moduleId: activeModuleId, title: lessonTitle, isFree: lessonIsFree, videoUrl, notes: pdfUrl, mediaId: videoMediaId, pdfMediaId, duration: videoDuration > 0 ? String(videoDuration) : undefined }),
       });
       const data = await res.json();
       if (data.success) {
@@ -375,7 +397,7 @@ export default function ManageCoursePage() {
         setLessonTitle("");
         setLessonIsFree(false);
         setVideoFile(null); setPdfFile(null);
-        setVideoUrl(""); setVideoMediaId(null); setPdfUrl(""); setPdfMediaId(null);
+        setVideoUrl(""); setVideoMediaId(null); setVideoDuration(0); setPdfUrl(""); setPdfMediaId(null);
         setVideoUploadSuccess(false); setPdfUploadSuccess(false);
         setVideoError(""); setPdfError("");
         setError("");
@@ -428,6 +450,8 @@ export default function ManageCoursePage() {
   const handleEditVideoUpload = async () => {
     if (!editVideoFile || !editLesson) return setEditVideoError("Please select a video file.");
     setEditVideoError(""); setEditVideoUploading(true);
+    // Capture real duration from the file (non-blocking).
+    const _editDetectedDuration = await detectFileDuration(editVideoFile);
     try {
       // Step 1: get presigned URL
       const presignRes = await fetch("/api/admin/upload/presigned", {
@@ -460,7 +484,7 @@ export default function ManageCoursePage() {
       const updateRes = await fetch(`/api/admin/lessons/${editLesson.id}/update-video`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ videoUrl: presignData.publicUrl, mediaId: presignData.mediaId }),
+        body: JSON.stringify({ videoUrl: presignData.publicUrl, mediaId: presignData.mediaId, duration: _editDetectedDuration > 0 ? String(_editDetectedDuration) : undefined }),
       });
       const updateData = await updateRes.json();
       if (!updateRes.ok) return setEditVideoError(updateData.message || "Update failed.");

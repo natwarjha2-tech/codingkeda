@@ -2,7 +2,6 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
 import { MediaType } from "@prisma/client";
-import { processVideoHls } from "@/app/lib/hls-processor";
 import { apiSuccess, apiError } from "@/app/lib/response";
 
 /**
@@ -45,11 +44,11 @@ export async function POST(req: NextRequest) {
         if (!videoUrl) {
           videoUrl = media.s3Url;
         }
-        // Activate the media record — upload is now confirmed by Save
+        // Activate the media record — upload is now confirmed by Save.
+        // NOTE: Auto HLS (720/480/360) generation is intentionally DISABLED —
+        // video quality processing is done manually via
+        // scripts/process-pending-videos.sh.
         await prisma.media.update({ where: { id: mediaId }, data: { isActive: true } });
-        processVideoHls(media.id, media.s3Key, media.s3Url).catch((err) => {
-          console.error(`[HLS] Auto processing failed for ${mediaId}:`, err);
-        });
       }
     }
 

@@ -14,6 +14,8 @@ export async function GET(
     const course = await prisma.course.findUnique({
       where: { id },
       include: {
+        // Real enrolled-student count (purchasers), not reviewers.
+        _count: { select: { enrollments: true } },
         modules: {
           orderBy: { order: "asc" },
           include: {
@@ -168,6 +170,8 @@ export async function GET(
         isEnrolled,
         progressPercent,
         completedLessons: userProgress,
+        // Real enrolled-student count (purchasers), for the hero "Students" stat.
+        enrolledStudents: course._count?.enrollments || 0,
       },
     });
   } catch {
