@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     const { error, user } = requireAuth(req);
     if (error) return error;
 
-    const { courseId, amount } = await req.json();
+    const { courseId, amount, discountId } = await req.json();
     if (!courseId?.trim()) return apiError(400, "Course ID is required.");
     if (!amount || amount <= 0 || isNaN(Number(amount))) return apiError(400, "Valid amount is required.");
 
@@ -36,23 +36,65 @@ export async function POST(req: NextRequest) {
     });
     if (existingEnrollment) return apiError(409, "You are already enrolled in this course.");
 
-    // Create Razorpay order
-    const amountInPaisa = Math.round(Number(amount) * 100);
+    // Base price (before discount) supplied by the client package selection.
+    const baseAmount = Number(amount);
+
+    // ── Apply discount SERVER-SIDE (never trust a client-sent final price) ──
+    // The client may pass a discountId; we validate it belongs to this user,
+    // is still unconsumed, and compute the discounted amount ourselves.
+    let appliedDiscount: { id: string; percent: number } | null = null;
+    let finalAmount = baseAmount;
+
+    if (discountId) {
+      const disc = await prisma.userDiscount.findFirst({
+        where: { id: String(discountId), userId: user!.userId, consumed: false },
+      });
+      if (!disc) {
+        return apiError(400, "Discount is invalid, already used, or does not belong to you.");
+      }
+      const percent = Math.max(0, Math.min(100, disc.percent));
+      // Round to the nearest rupee; enforce a minimum charge of ₹1.
+      finalAmount = Math.max(1, Math.round(baseAmount * (1 - percent / 100)));
+      appliedDiscount = { id: disc.id, percent };
+    }
+
+    // Create Razorpay order for the FINAL (discounted) amount.
+    const amountInPaisa = Math.round(finalAmount * 100);
     const razorpayOrder = await razorpay.orders.create({
       amount: amountInPaisa,
       currency: "INR",
       receipt: `order_${user!.userId.slice(0, 8)}_${Date.now()}`,
-      notes: { userId: user!.userId, courseId, courseName: course.title },
+      notes: {
+        userId: user!.userId,
+        courseId,
+        courseName: course.title,
+        ...(appliedDiscount ? { discountId: appliedDiscount.id, discountPercent: String(appliedDiscount.percent) } : {}),
+      },
     });
 
-    // Store payment record
+    // Store payment record (final amount + which discount was applied)
     const payment = await prisma.payment.create({
-      data: { userId: user!.userId, courseId, razorpayOrderId: razorpayOrder.id, amount: amountInPaisa, status: "pending" },
+      data: {
+        userId: user!.userId,
+        courseId,
+        razorpayOrderId: razorpayOrder.id,
+        amount: amountInPaisa,
+        status: "pending",
+        discountId: appliedDiscount?.id ?? null,
+        discountPercent: appliedDiscount?.percent ?? null,
+      },
     });
 
     return apiSuccess({
-      orderId: razorpayOrder.id, amount: Number(amount), currency: "INR", keyId: RAZORPAY_KEY_ID,
-      paymentId: payment.id, userName: user!.email || "User", userEmail: user!.email || "",
+      orderId: razorpayOrder.id,
+      amount: finalAmount,
+      baseAmount,
+      discountPercent: appliedDiscount?.percent ?? 0,
+      currency: "INR",
+      keyId: RAZORPAY_KEY_ID,
+      paymentId: payment.id,
+      userName: user!.email || "User",
+      userEmail: user!.email || "",
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "";

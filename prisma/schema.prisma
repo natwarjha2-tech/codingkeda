@@ -25,6 +25,7 @@ model User {
   weeklyStreakAttempts WeeklyStreakAttempt[]
   coins                UserCoins?
   coinTransactions     CoinTransaction[]
+  discounts            UserDiscount[]
   achievements         Achievement[]
   lessonReactions      LessonReaction[]
   notifications        Notification[]
@@ -348,8 +349,11 @@ model Payment {
   razorpayOrderId   String  @unique // Razorpay order ID
   razorpayPaymentId String? // Razorpay payment ID (after success)
 
-  amount Int // Amount in smallest unit (paisa)
+  amount Int // Amount in smallest unit (paisa) — final amount actually charged
   status String @default("pending") // pending, success, failed, refunded
+
+  discountId      String? // UserDiscount.id applied to this payment (if any)
+  discountPercent Int? // discount percent applied, for record-keeping
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -378,6 +382,27 @@ model CoinTransaction {
 
   @@index([userId])
   @@index([lessonId])
+}
+
+// A discount a user redeemed (from a CK Mall coin-offer or a coupon code)
+// that can be applied to ONE future course purchase. Marked consumed after
+// a successful payment that used it.
+model UserDiscount {
+  id         String    @id @default(uuid())
+  userId     String
+  percent    Int // discount percentage, e.g. 10, 25, 50
+  source     String // "offer" | "coupon"
+  offerId    String? // e.g. "offer-1" when source = offer
+  code       String? // e.g. "WELCOME10" when source = coupon
+  label      String    @default("") // human-readable, e.g. "10% Off Any Course"
+  coinsSpent Int       @default(0) // coins deducted to obtain this discount (0 for coupons)
+  consumed   Boolean   @default(false)
+  paymentId  String? // Payment.id that consumed this discount
+  createdAt  DateTime  @default(now())
+  consumedAt DateTime?
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, consumed])
 }
 
 model Achievement {

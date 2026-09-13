@@ -57,6 +57,19 @@ export async function POST(req: NextRequest) {
         create: { userId: payment.userId, courseId: payment.courseId },
       });
 
+      // Consume the discount that was applied to this payment (if any), so it
+      // can't be reused. Non-blocking — never fail enrollment over this.
+      if (payment.discountId) {
+        try {
+          await prisma.userDiscount.updateMany({
+            where: { id: payment.discountId, userId: payment.userId, consumed: false },
+            data: { consumed: true, paymentId: payment.id, consumedAt: new Date() },
+          });
+        } catch {
+          /* discount consumption failure must not block enrollment */
+        }
+      }
+
       await syncStudentOnEnroll(payment.userId);
       logger.success("payment-webhook", "enrollment_complete", { userId: payment.userId, courseId: payment.courseId, paymentId: razorpayPaymentId });
 

@@ -57,6 +57,16 @@ function PaymentContent() {
   const [resolvedCourseId, setResolvedCourseId] = useState<string | null>(courseIdParam);
   const [resolving, setResolving] = useState(!courseIdParam);
 
+  // Redeemed discount available for this user (from CK Mall).
+  type Discount = { id: string; percent: number; label: string; source: string };
+  const [availableDiscount, setAvailableDiscount] = useState<Discount | null>(null);
+  const [discountApplied, setDiscountApplied] = useState(false);
+
+  // Base (pre-discount) price parsed from the package string, e.g. "₹599" -> 599.
+  const basePrice = parseInt((pkg.price || "").replace(/[^0-9]/g, ""), 10) || 0;
+  const activePercent = discountApplied && availableDiscount ? availableDiscount.percent : 0;
+  const finalPrice = activePercent > 0 ? Math.max(1, Math.round(basePrice * (1 - activePercent / 100))) : basePrice;
+
   useEffect(() => {
     const currentToken = getToken();
 
@@ -78,6 +88,17 @@ function PaymentContent() {
         }
         // Token valid — proceed
         setToken(currentToken);
+
+        // Fetch any redeemed discount the user can apply to this purchase.
+        fetch("/api/discount", { headers: { Authorization: `Bearer ${currentToken}` } })
+          .then(r => r.json())
+          .then(data => {
+            if (data.success && data.discount) {
+              setAvailableDiscount(data.discount as Discount);
+              setDiscountApplied(true); // auto-apply the best available discount
+            }
+          })
+          .catch(() => {});
 
         // Resolve courseId
         if (!courseIdParam && pkgName) {
@@ -125,7 +146,11 @@ function PaymentContent() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${currentToken}`,
         },
-        body: JSON.stringify({ courseId: resolvedCourseId, amount: parseInt(pkg.price.replace("₹", "")) }),
+        body: JSON.stringify({
+          courseId: resolvedCourseId,
+          amount: basePrice,
+          discountId: activePercent > 0 && availableDiscount ? availableDiscount.id : undefined,
+        }),
       });
 
       if (!orderRes.ok) {
@@ -264,9 +289,19 @@ function PaymentContent() {
                   </span>
                 </div>
                 <div className="text-right">
-                  <p className="text-xl font-extrabold text-white">{pkg.price}</p>
-                  <p className="text-xs text-slate-500 line-through">{pkg.original}</p>
-                  <span className="text-[10px] font-bold text-green-400">{pkg.discount}</span>
+                  {activePercent > 0 ? (
+                    <>
+                      <p className="text-xl font-extrabold text-white">₹{finalPrice}</p>
+                      <p className="text-xs text-slate-500 line-through">₹{basePrice}</p>
+                      <span className="text-[10px] font-bold text-green-400">{activePercent}% OFF applied</span>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-xl font-extrabold text-white">{pkg.price}</p>
+                      <p className="text-xs text-slate-500 line-through">{pkg.original}</p>
+                      <span className="text-[10px] font-bold text-green-400">{pkg.discount}</span>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -288,6 +323,48 @@ function PaymentContent() {
                   </motion.li>
                 ))}
               </ul>
+
+              {/* Redeemed discount from CK Mall */}
+              {availableDiscount && (
+                <div
+                  className="rounded-2xl px-4 py-3 mb-4"
+                  style={{ background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.3)" }}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-lg">🎟️</span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-green-400 truncate">
+                          {availableDiscount.percent}% discount available
+                        </p>
+                        <p className="text-[11px] text-slate-400 truncate">
+                          {availableDiscount.label || "Redeemed from CK Mall"}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setDiscountApplied(v => !v)}
+                      className="text-xs font-bold px-3 py-1.5 rounded-lg whitespace-nowrap transition-all"
+                      style={
+                        discountApplied
+                          ? { background: "rgba(34,197,94,0.2)", color: "#4ade80", border: "1px solid rgba(34,197,94,0.5)" }
+                          : { background: "rgba(255,255,255,0.06)", color: "#cbd5e1", border: "1px solid rgba(255,255,255,0.15)" }
+                      }
+                    >
+                      {discountApplied ? "Applied ✓" : "Apply"}
+                    </button>
+                  </div>
+                  {discountApplied && (
+                    <div className="mt-3 pt-3 flex items-center justify-between text-sm" style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+                      <span className="text-slate-300">You pay</span>
+                      <span className="font-extrabold text-white">
+                        ₹{finalPrice} <span className="text-xs text-slate-500 line-through ml-1">₹{basePrice}</span>
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {enrollError && (
                 <motion.div
@@ -324,7 +401,7 @@ function PaymentContent() {
                 ) : resolving ? (
                   <><Loader2 size={16} className="animate-spin" /> Loading...</>
                 ) : token ? (
-                  <>Proceed to Payment {pkg.price} <ArrowRight size={15} /></>
+                  <>Proceed to Payment ₹{finalPrice} <ArrowRight size={15} /></>
                 ) : (
                   <>Login to Purchase <ArrowRight size={15} /></>
                 )}
