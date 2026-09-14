@@ -3,6 +3,7 @@ import { prisma } from "@/app/lib/prisma";
 import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { notifyCoinsSpent, notifyCouponRedeemed } from "@/app/lib/notification";
+import { applyReferralCode } from "@/app/lib/referral";
 
 /**
  * POST /api/mall/redeem
@@ -44,7 +45,19 @@ export async function POST(req: NextRequest) {
     if (body.couponCode) {
       const code = String(body.couponCode).trim().toUpperCase();
       const coupon = VALID_COUPONS[code];
-      if (!coupon) return apiError(400, "Invalid coupon code");
+
+      // If it's not a known discount coupon, try treating it as a REFERRAL code
+      // (the CK Mall coupon box accepts both). Referral → the user gets coins.
+      if (!coupon) {
+        const ref = await applyReferralCode(user!.userId, code);
+        if (ref.ok) {
+          return apiSuccess({ message: ref.message, referral: { coinsAwarded: ref.coinsAwarded } });
+        }
+        // Not a coupon and not a valid referral — surface the referral reason
+        // (e.g. "already used", "your own code") which is more helpful than a
+        // generic "invalid coupon".
+        return apiError(ref.status, ref.message === "Invalid code." ? "Invalid coupon or referral code." : ref.message);
+      }
 
       // Prevent redeeming the SAME coupon twice while one is still unused.
       const existing = await prisma.userDiscount.findFirst({

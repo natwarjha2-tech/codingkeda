@@ -3,6 +3,7 @@ import { prisma } from "@/app/lib/prisma";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { syncStudentOnEnroll } from "@/app/lib/sync-student";
 import { notifyCourseEnrolled, notifyPaymentFailed } from "@/app/lib/notification";
+import { rewardReferrerOnFirstPurchase } from "@/app/lib/referral";
 import { logger } from "@/app/lib/logger";
 import crypto from "crypto";
 
@@ -72,6 +73,10 @@ export async function POST(req: NextRequest) {
 
       await syncStudentOnEnroll(payment.userId);
       logger.success("payment-webhook", "enrollment_complete", { userId: payment.userId, courseId: payment.courseId, paymentId: razorpayPaymentId });
+
+      // Referral: if THIS buyer was referred, pay the referrer now (their first
+      // purchase). Idempotent + non-blocking — never fails enrollment.
+      rewardReferrerOnFirstPurchase(payment.userId).catch(() => {});
 
       // Notification: course enrolled successfully (non-blocking, idempotent)
       notifyCourseEnrolled({

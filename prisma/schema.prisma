@@ -16,6 +16,10 @@ model User {
   createdAt            DateTime              @default(now())
   name                 String                @default("")
   avatarUrl            String?
+  // Referral program
+  referralCode         String?               @unique // this user's own shareable code
+  referredById         String? // the user who referred THIS user (set once)
+  referredAt           DateTime? // when this user applied a referral code
   enrollments          Enrollment[]
   progress             Progress[]
   payments             Payment[]
@@ -30,6 +34,26 @@ model User {
   lessonReactions      LessonReaction[]
   notifications        Notification[]
   devices              UserDevice[]
+  referralsMade        Referral[]            @relation("Referrer")
+  referralReceived     Referral?             @relation("Referred")
+}
+
+// One row per referral relationship (a referred user + their referrer).
+// Tracks whether the referrer's purchase-based reward has been paid.
+model Referral {
+  id             String    @id @default(uuid())
+  referrerId     String // user who owns the code
+  referreduserId String    @unique // the new user who entered the code (one referral per user)
+  code           String // the code that was used (snapshot)
+  referrerReward Int       @default(0) // coins granted to referrer (0 until first purchase)
+  referredReward Int       @default(0) // coins granted to the referred user (on apply)
+  rewarded       Boolean   @default(false) // true once referrer reward paid (on referred user's first purchase)
+  createdAt      DateTime  @default(now())
+  rewardedAt     DateTime?
+  referrer       User      @relation("Referrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  referred       User      @relation("Referred", fields: [referreduserId], references: [id], onDelete: Cascade)
+
+  @@index([referrerId])
 }
 
 model Course {
