@@ -53,10 +53,11 @@ export async function GET(req: NextRequest) {
       ? await Promise.all(
           items.map(async (item) => ({
             ...item,
+            fileSize: Number(item.fileSize), // BigInt -> Number for JSON serialization
             url: await getSignedFileUrl(item.s3Key),
           }))
         )
-      : items.map((item) => ({ ...item, url: item.s3Url }));
+      : items.map((item) => ({ ...item, fileSize: Number(item.fileSize), url: item.s3Url }));
 
     return NextResponse.json({
       data,

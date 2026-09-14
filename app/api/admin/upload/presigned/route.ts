@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
       title: title?.trim() || fileName,
       description: description?.trim() || null,
       fileName,
-      fileSize: fileSize || 0,
+      fileSize: BigInt(Math.max(0, Math.round(Number(fileSize) || 0))),
       mimeType: fileType,
       type: MEDIA_TYPE_MAP[type],
       s3Key: key,

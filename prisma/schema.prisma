@@ -160,7 +160,7 @@ model Media {
   title        String
   description  String?
   fileName     String
-  fileSize     Int
+  fileSize     BigInt // bytes — BigInt so large videos (>2GB) don't overflow Int
   mimeType     String
   type         MediaType
   s3Key        String    @unique
