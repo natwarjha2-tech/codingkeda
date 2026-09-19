@@ -268,6 +268,7 @@ export async function notifyNewCourse(opts: {
 
 /**
  * Notify: Achievement earned (quiz rank, badge).
+ * Resolves the lesson + course names so the body shows where it was earned.
  */
 export async function notifyAchievement(opts: {
   userId: string;
@@ -276,13 +277,31 @@ export async function notifyAchievement(opts: {
   lessonId: string;
   courseId?: string;
 }) {
+  // Resolve lesson + course names for a clear "where" in the notification body.
+  let lessonTitle: string | null = null;
+  let courseTitle: string | null = null;
+  try {
+    const lesson = await prisma.lesson.findUnique({
+      where: { id: opts.lessonId },
+      select: { title: true, module: { select: { course: { select: { title: true } } } } },
+    });
+    lessonTitle = lesson?.title ?? null;
+    courseTitle = lesson?.module?.course?.title ?? null;
+  } catch {
+    // Non-fatal — fall back to the generic body if lookup fails.
+  }
+  const where = [courseTitle, lessonTitle].filter(Boolean).join(" · ");
+  const body = where
+    ? `Congratulations! You earned the "${opts.title}" achievement in ${where}.`
+    : `Congratulations! You earned the "${opts.title}" achievement.`;
+
   return createNotification({
     userId: opts.userId,
     type: "achievement",
     category: "achievement",
     priority: "NORMAL",
     title: "Achievement Unlocked 🏆",
-    body: `Congratulations! You earned the "${opts.title}" achievement.`,
+    body,
     metadata: { badgeType: opts.badgeType, lessonId: opts.lessonId, courseId: opts.courseId },
     action: { type: "deeplink", target: "/achievements" },
     idempotencyKey: `achievement:${opts.userId}:${opts.lessonId}:${opts.badgeType}`,

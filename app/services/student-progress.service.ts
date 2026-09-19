@@ -234,8 +234,9 @@ export function aggregateStudentProgress(
   };
 }
 
-/** Convert a percentage score to a 1-5 star rating */
+/** Convert a percentage score to a 0-5 star rating (0 = no activity yet) */
 function scoreToRating(score: number): number {
+  if (score <= 0) return 0;
   if (score >= 90) return 5;
   if (score >= 75) return 4;
   if (score >= 60) return 3;
