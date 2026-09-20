@@ -166,6 +166,16 @@ export async function recalculateAndAwardCoins(
       }).catch(() => {});
     }
 
+    // Notification: achievement EARNED — fire whenever the badge is newly earned
+    // OR UPGRADED (e.g. Pro → Super Master). This must NOT depend on the coin
+    // early-return below: if the user already earned coins for this lesson at a
+    // lower rank and later climbs to a stronger badge, they'd otherwise get no
+    // notification. Idempotency key includes badgeType, so each distinct badge
+    // notifies at most once (no duplicates for the same badge).
+    if (badgeType && badgeTitle && newStrength < prevStrength) {
+      notifyAchievement({ userId, title: badgeTitle, badgeType, lessonId, courseId }).catch(() => {});
+    }
+
     // Determine coins based on rank (for first-time award only)
     let coins = 0;
     if (rank === 1) coins = 10;
@@ -203,16 +213,9 @@ export async function recalculateAndAwardCoins(
       }),
     ]);
 
-    // Notification: achievement earned (non-blocking, idempotent)
-    if (badgeType && badgeTitle) {
-      notifyAchievement({
-        userId,
-        title: badgeTitle,
-        badgeType,
-        lessonId,
-        courseId,
-      }).catch(() => {});
-    }
+    // NOTE: the achievement-earned notification is fired earlier (on badge
+    // create/upgrade), independent of this coin-award path — so a badge upgrade
+    // when coins were already given still notifies. No duplicate here.
 
     return { rank, coinsAwarded: coins, badge: badgeType };
   } catch {
