@@ -277,20 +277,23 @@ export async function notifyAchievement(opts: {
   lessonId: string;
   courseId?: string;
 }) {
-  // Resolve lesson + course names for a clear "where" in the notification body.
+  // Resolve course → module → lesson names for a clear "where" in the body,
+  // matching the coins/achievements hierarchy (Course · Module · Lesson).
   let lessonTitle: string | null = null;
+  let moduleTitle: string | null = null;
   let courseTitle: string | null = null;
   try {
     const lesson = await prisma.lesson.findUnique({
       where: { id: opts.lessonId },
-      select: { title: true, module: { select: { course: { select: { title: true } } } } },
+      select: { title: true, module: { select: { title: true, course: { select: { title: true } } } } },
     });
     lessonTitle = lesson?.title ?? null;
+    moduleTitle = lesson?.module?.title ?? null;
     courseTitle = lesson?.module?.course?.title ?? null;
   } catch {
     // Non-fatal — fall back to the generic body if lookup fails.
   }
-  const where = [courseTitle, lessonTitle].filter(Boolean).join(" · ");
+  const where = [courseTitle, moduleTitle, lessonTitle].filter(Boolean).join(" · ");
   const body = where
     ? `Congratulations! You earned the "${opts.title}" achievement in ${where}.`
     : `Congratulations! You earned the "${opts.title}" achievement.`;
@@ -302,7 +305,14 @@ export async function notifyAchievement(opts: {
     priority: "NORMAL",
     title: "Achievement Unlocked 🏆",
     body,
-    metadata: { badgeType: opts.badgeType, lessonId: opts.lessonId, courseId: opts.courseId },
+    metadata: {
+      badgeType: opts.badgeType,
+      lessonId: opts.lessonId,
+      courseId: opts.courseId,
+      courseTitle,
+      moduleTitle,
+      lessonTitle,
+    },
     action: { type: "deeplink", target: "/achievements" },
     idempotencyKey: `achievement:${opts.userId}:${opts.lessonId}:${opts.badgeType}`,
   });

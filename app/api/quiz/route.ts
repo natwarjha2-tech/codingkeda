@@ -1,13 +1,19 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
-import { requireAuth } from "@/app/lib/middleware";
+import { requireAuth, extractUser } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { logger } from "@/app/lib/logger";
 import { recalculateAndAwardCoins } from "@/app/services/quiz-leaderboard.service";
 
 /**
  * GET /api/quiz?lessonId=xxx
- * Get all quizzes for a lesson
+ * Get all quizzes for a lesson.
+ *
+ * Also returns the logged-in user's persistent attempt state from the
+ * QuizAttempt table (the source of truth), so "already attempted" survives app
+ * reinstalls/updates — clients should NOT rely on local storage for this.
+ *   - attempted: boolean (did the user attempt ANY quiz in this lesson?)
+ *   - attemptedQuizIds: string[] (quizIds this user has attempted)
  */
 export async function GET(req: NextRequest) {
   try {
@@ -20,7 +26,20 @@ export async function GET(req: NextRequest) {
       select: { id: true, question: true, options: true, answer: true, explanation: true, order: true },
     });
 
-    return apiSuccess({ quizzes });
+    // Persistent attempt state for the current user (if authenticated).
+    let attempted = false;
+    let attemptedQuizIds: string[] = [];
+    const user = extractUser(req);
+    if (user) {
+      const attempts = await prisma.quizAttempt.findMany({
+        where: { userId: user.userId, lessonId },
+        select: { quizId: true },
+      });
+      attemptedQuizIds = Array.from(new Set(attempts.map((a) => a.quizId)));
+      attempted = attemptedQuizIds.length > 0;
+    }
+
+    return apiSuccess({ quizzes, attempted, attemptedQuizIds });
   } catch {
     return apiError(500, "Internal server error.");
   }

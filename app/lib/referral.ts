@@ -159,20 +159,28 @@ export async function rewardReferrerOnFirstPurchase(referredUserId: string): Pro
     });
     if (!referral || referral.rewarded) return;
 
-    await grantCoins(
-      referral.referrerId,
-      REFERRAL_REWARD_REFERRER,
-      "Referral reward — a friend you invited made their first purchase"
-    );
-
-    await prisma.referral.update({
-      where: { id: referral.id },
+    // ── Atomically CLAIM the reward FIRST (prevents double-crediting) ──
+    // Razorpay sends two events per payment (payment.authorized AND
+    // payment.captured), so this function can run twice near-simultaneously.
+    // We flip rewarded false→true in a single conditional updateMany; only the
+    // call that actually changes a row (count === 1) proceeds to grant coins.
+    // The concurrent duplicate matches 0 rows and stops.
+    const claim = await prisma.referral.updateMany({
+      where: { id: referral.id, rewarded: false },
       data: {
         rewarded: true,
         referrerReward: REFERRAL_REWARD_REFERRER,
         rewardedAt: new Date(),
       },
     });
+    if (claim.count === 0) return; // another event already claimed it
+
+    // Only the winner reaches here — grant the coins exactly once.
+    await grantCoins(
+      referral.referrerId,
+      REFERRAL_REWARD_REFERRER,
+      "Referral reward — a friend you invited made their first purchase"
+    );
 
     notifyCoinsEarned({
       userId: referral.referrerId,

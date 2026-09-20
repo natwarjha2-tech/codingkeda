@@ -40,16 +40,44 @@ export async function GET(req: NextRequest) {
 
     const completedLessonIds = new Set(completedProgress.map((p) => p.lessonId));
 
-    // Build enrolled courses with progress
+    // Parse a stored lesson duration into seconds. Supports "109", "MM:SS",
+    // "HH:MM:SS". Unset ("00:00"/"0"/"") → 0. (Same logic as the courses route.)
+    const durToSeconds = (d: string | null | undefined): number => {
+      if (!d) return 0;
+      const s = String(d).trim();
+      if (!s || s === "00:00" || s === "0") return 0;
+      if (s.indexOf(":") === -1) {
+        const n = parseInt(s, 10);
+        return isNaN(n) ? 0 : n;
+      }
+      const parts = s.split(":").map((x) => parseInt(x, 10));
+      if (parts.some((n) => isNaN(n))) return 0;
+      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+      if (parts.length === 2) return parts[0] * 60 + parts[1];
+      return parts[0] || 0;
+    };
+
+    // Build enrolled courses with progress + REAL durations for accurate
+    // remaining time = totalDurationSeconds - completedDurationSeconds.
     const enrolledCourses = enrollments.map((enrollment) => {
       const course = enrollment.course;
       const allLessons = course.modules.flatMap((m) => m.lessons);
       const totalLessons = allLessons.length;
       const completedCount = allLessons.filter((l) => completedLessonIds.has(l.id)).length;
+      let totalDurationSeconds = 0;
+      let completedDurationSeconds = 0;
+      for (const l of allLessons) {
+        const secs = durToSeconds(l.duration);
+        totalDurationSeconds += secs;
+        if (completedLessonIds.has(l.id)) completedDurationSeconds += secs;
+      }
       return {
         id: course.id, title: course.title, color: course.color, icon: course.icon,
         totalLessons, completedLessons: completedCount,
         progressPercent: totalLessons > 0 ? Math.round((completedCount / totalLessons) * 100) : 0,
+        totalDurationSeconds,
+        completedDurationSeconds,
+        remainingDurationSeconds: Math.max(0, totalDurationSeconds - completedDurationSeconds),
       };
     });
 
