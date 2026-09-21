@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
-import { deleteLessonS3Files, deleteS3Prefix, deleteFromS3, getS3KeyFromUrl } from "@/app/lib/s3";
+import { deleteS3Prefix, deleteFromS3, getS3KeyFromUrl } from "@/app/lib/s3";
 import { apiSuccess, apiError } from "@/app/lib/response";
 
 /**
