@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
+import { deleteVideoMediaS3, getS3KeyFromUrl } from "@/app/lib/s3";
 
 /**
  * POST /api/admin/lessons/[id]/update-video
@@ -50,6 +51,21 @@ export async function POST(
       finalVideoUrl = media.s3Url;
       // Activate the media record — upload is now confirmed by Save
       await prisma.media.update({ where: { id: mediaId }, data: { isActive: true } });
+    }
+
+    // ── Clean up the OLD video from S3 when it's being REPLACED ──
+    // Only delete if the old video URL exists and differs from the new one
+    // (never delete when re-saving the same video). Non-blocking.
+    const oldVideoUrl = lesson.videoUrl || "";
+    if (oldVideoUrl && finalVideoUrl && getS3KeyFromUrl(oldVideoUrl) !== getS3KeyFromUrl(finalVideoUrl)) {
+      try {
+        const oldKey = getS3KeyFromUrl(oldVideoUrl);
+        const oldMedia = oldKey
+          ? await prisma.media.findFirst({ where: { s3Key: oldKey }, select: { hlsS3Prefix: true } })
+          : null;
+        // Fire-and-forget; do not block the save on S3 cleanup.
+        deleteVideoMediaS3(oldVideoUrl, oldMedia?.hlsS3Prefix || null).catch(() => {});
+      } catch { /* cleanup must never break the update */ }
     }
 
     // Update lesson with video URL (and real duration in seconds, if detected)

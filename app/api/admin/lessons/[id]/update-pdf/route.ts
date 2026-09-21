@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
+import { deleteFileMediaS3, getS3KeyFromUrl } from "@/app/lib/s3";
 
 /**
  * POST /api/admin/lessons/[id]/update-pdf
@@ -50,6 +51,16 @@ export async function POST(
       finalPdfUrl = media.s3Url;
       // Activate the media record — upload is now confirmed by Save
       await prisma.media.update({ where: { id: mediaId }, data: { isActive: true } });
+    }
+
+    // ── Clean up the OLD PDF from S3 when it's being REPLACED ──
+    // Only delete if the old notes URL is an S3 file that differs from the new
+    // one (skip if same, or if notes wasn't an uploaded file). Non-blocking.
+    const oldNotesUrl = lesson.notes || "";
+    var oldKey = getS3KeyFromUrl(oldNotesUrl);
+    var newKey = getS3KeyFromUrl(finalPdfUrl || "");
+    if (oldKey && oldKey !== newKey) {
+      try { deleteFileMediaS3(oldNotesUrl).catch(() => {}); } catch { /* never break the update */ }
     }
 
     // Update lesson with PDF URL in notes field

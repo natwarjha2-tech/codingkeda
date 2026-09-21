@@ -269,11 +269,12 @@ export default function ManageCoursePage() {
     setVideoUploading(true);
     try {
       const token = localStorage.getItem("token");
-      // Step 1: get presigned URL
+      // Step 1: get presigned URL (pass course + module so S3 key is nested
+      // as videos/<course>/<module>/<mediaId>/original.ext)
       const presignRes = await fetch("/api/admin/upload/presigned", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ fileName: videoFile.name, fileType: videoFile.type, fileSize: videoFile.size, type: "video" }),
+        body: JSON.stringify({ fileName: videoFile.name, fileType: videoFile.type, fileSize: videoFile.size, type: "video", courseId, moduleId: activeModuleId, lessonTitle }),
       });
       const presignData = await presignRes.json();
       if (!presignRes.ok) return setVideoError(presignData.error || "Failed to get upload URL.");
@@ -453,11 +454,15 @@ export default function ManageCoursePage() {
     // Capture real duration from the file (non-blocking).
     const _editDetectedDuration = await detectFileDuration(editVideoFile);
     try {
-      // Step 1: get presigned URL
+      // Find the module this lesson belongs to (for the nested S3 path).
+      const _editModuleId = (course?.modules || []).find(
+        (m) => (m.lessons || []).some((l) => l.id === editLesson.id)
+      )?.id || "";
+      // Step 1: get presigned URL (pass course + module so S3 key is nested)
       const presignRes = await fetch("/api/admin/upload/presigned", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ fileName: editVideoFile.name, fileType: editVideoFile.type, fileSize: editVideoFile.size, type: "video" }),
+        body: JSON.stringify({ fileName: editVideoFile.name, fileType: editVideoFile.type, fileSize: editVideoFile.size, type: "video", courseId, moduleId: _editModuleId, lessonTitle: editLesson.title }),
       });
       const presignData = await presignRes.json();
       if (!presignRes.ok) return setEditVideoError(presignData.error || "Failed to get upload URL.");

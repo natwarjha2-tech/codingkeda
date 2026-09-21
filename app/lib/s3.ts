@@ -141,42 +141,31 @@ export async function deleteS3Prefix(prefix: string): Promise<boolean> {
 }
 
 /**
- * Delete all S3 files associated with a lesson (video, notes/PDF, quality MP4s, HLS assets).
+ * Delete the S3 objects for a single VIDEO media: the original file + its
+ * processed quality folder. The quality prefix comes from the stored
+ * `hlsS3Prefix` (the reliable source) — NOT parsed from the key — so it works
+ * with any folder layout. All failures are non-fatal (logged).
  */
-export async function deleteLessonS3Files(videoUrl: string, notesUrl: string): Promise<void> {
-  // Delete main video
-  if (videoUrl) {
-    const videoKey = getS3KeyFromUrl(videoUrl);
-    if (videoKey) {
-      await deleteFromS3(videoKey);
-
-      // Delete quality MP4s: stored under qualities/<mediaId>/
-      // Video key is typically: videos/<mediaId>/<filename>.mp4
-      const parts = videoKey.split("/");
-      if (parts.length >= 2) {
-        // Extract the mediaId folder (second segment usually)
-        // Pattern: videos/<mediaId>/original.mp4 → qualities/<mediaId>/
-        const mediaId = parts[1]; // e.g. "abc-123-uuid"
-        if (mediaId) {
-          await deleteS3Prefix(`qualities/${mediaId}/`);
-        }
-      }
-
-      // Delete HLS assets if they exist: hls/<mediaId>/
-      if (parts.length >= 2) {
-        const mediaId = parts[1];
-        if (mediaId) {
-          await deleteS3Prefix(`hls/${mediaId}/`);
-        }
-      }
-    }
+export async function deleteVideoMediaS3(
+  s3UrlOrKey: string | null | undefined,
+  hlsS3Prefix?: string | null,
+): Promise<void> {
+  if (s3UrlOrKey) {
+    const key = getS3KeyFromUrl(s3UrlOrKey) || s3UrlOrKey;
+    if (key) await deleteFromS3(key);
   }
-
-  // Delete notes/PDF
-  if (notesUrl) {
-    const notesKey = getS3KeyFromUrl(notesUrl);
-    if (notesKey) {
-      await deleteFromS3(notesKey);
-    }
+  // Delete processed qualities using the stored prefix.
+  if (hlsS3Prefix && hlsS3Prefix.trim()) {
+    const pfx = hlsS3Prefix.endsWith("/") ? hlsS3Prefix : hlsS3Prefix + "/";
+    await deleteS3Prefix(pfx);
   }
+}
+
+/**
+ * Delete a single non-video file (PDF/PPT/image) from S3 by its URL/key.
+ */
+export async function deleteFileMediaS3(s3UrlOrKey: string | null | undefined): Promise<void> {
+  if (!s3UrlOrKey) return;
+  const key = getS3KeyFromUrl(s3UrlOrKey) || s3UrlOrKey;
+  if (key) await deleteFromS3(key);
 }
