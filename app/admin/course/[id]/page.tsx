@@ -13,6 +13,7 @@ import EditExerciseModal from "./EditExerciseModal";
 interface Lesson {
   id: string;
   title: string;
+  duration?: string;
   videoUrl: string;
   notes: string;
   pptUrl: string;
@@ -502,6 +503,33 @@ export default function ManageCoursePage() {
       } : prev);
       setEditVideoSuccess(true); setEditVideoFile(null);
     } catch { setEditVideoError("Upload failed. Check your connection."); }
+    finally { setEditVideoUploading(false); }
+  };
+
+  // ── Remove the video from an existing lesson (keeps the lesson) ──
+  // Clears the video on S3 + DB and resets duration/views/likes to zero.
+  const handleRemoveEditVideo = async () => {
+    if (!editLesson) return;
+    if (!confirm("Remove this lesson's video? Duration, views and likes will reset to zero. This cannot be undone.")) return;
+    setEditVideoError(""); setEditVideoUploading(true);
+    try {
+      const res = await fetch(`/api/admin/lessons/${editLesson.id}/update-video`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ removeVideo: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) return setEditVideoError(data.message || "Failed to remove video.");
+      // Reflect the removal in local state (clear video + duration).
+      setCourse(prev => prev ? {
+        ...prev,
+        modules: prev.modules.map(m => ({
+          ...m, lessons: m.lessons.map(l => l.id === editLesson.id ? { ...l, videoUrl: "", duration: "00:00" } : l)
+        }))
+      } : prev);
+      setEditLesson(prev => prev ? { ...prev, videoUrl: "", duration: "00:00" } : prev);
+      setEditVideoFile(null); setEditVideoSuccess(false);
+    } catch { setEditVideoError("Failed to remove video. Check your connection."); }
     finally { setEditVideoUploading(false); }
   };
 
@@ -1575,6 +1603,13 @@ export default function ManageCoursePage() {
                       style={{ background: "linear-gradient(135deg,#7c3aed,#a855f7)" }}>
                       {editVideoUploading ? <><Loader2 size={12} className="animate-spin" /> Uploading...</> : "Upload Video"}
                     </motion.button>
+                  )}
+                  {/* Remove video — only when one exists. Resets duration/views/likes. */}
+                  {editLesson.videoUrl && (
+                    <button type="button" onClick={handleRemoveEditVideo} disabled={editVideoUploading}
+                      className="w-full mt-2 py-2 rounded-xl text-xs font-semibold text-red-300 border border-red-500/30 hover:bg-red-500/10 disabled:opacity-60 flex items-center justify-center gap-2">
+                      <X size={12} /> Remove Video (resets duration, views &amp; likes)
+                    </button>
                   )}
                 </div>
 

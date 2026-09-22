@@ -21,10 +21,13 @@ export async function POST(
     const { id: lessonId } = await params;
     const body = await req.json();
     const { videoUrl, mediaId, duration } = body;
+    // Explicit "remove the video from this lesson" request (keeps the lesson,
+    // clears its video + resets duration/views/likes to zero).
+    const removeVideo = body.removeVideo === true || body.delete === true;
 
-    // Validation
-    if (!videoUrl && !mediaId) {
-      return apiError(400, "Either videoUrl or mediaId is required.");
+    // Validation — allow either providing a new video OR explicitly removing it.
+    if (!videoUrl && !mediaId && !removeVideo) {
+      return apiError(400, "Either videoUrl, mediaId, or removeVideo is required.");
     }
 
     // Check if lesson exists
@@ -37,9 +40,9 @@ export async function POST(
     }
 
     // If mediaId is provided, fetch the media URL
-    let finalVideoUrl = videoUrl;
+    let finalVideoUrl = removeVideo ? "" : videoUrl;
 
-    if (mediaId) {
+    if (mediaId && !removeVideo) {
       const media = await prisma.media.findUnique({
         where: { id: mediaId, type: "VIDEO" },
       });
@@ -53,11 +56,16 @@ export async function POST(
       await prisma.media.update({ where: { id: mediaId }, data: { isActive: true } });
     }
 
-    // ── Clean up the OLD video from S3 when it's being REPLACED ──
-    // Only delete if the old video URL exists and differs from the new one
-    // (never delete when re-saving the same video). Non-blocking.
+    // Does the video actually change? (replace with a different file, or remove)
     const oldVideoUrl = lesson.videoUrl || "";
-    if (oldVideoUrl && finalVideoUrl && getS3KeyFromUrl(oldVideoUrl) !== getS3KeyFromUrl(finalVideoUrl)) {
+    const videoChanged =
+      removeVideo ||
+      (!!finalVideoUrl && getS3KeyFromUrl(oldVideoUrl) !== getS3KeyFromUrl(finalVideoUrl));
+
+    // ── Clean up the OLD video from S3 when it's being REPLACED or REMOVED ──
+    // Only delete if the old video URL exists and differs (never delete when
+    // re-saving the same video). Non-blocking.
+    if (oldVideoUrl && videoChanged) {
       try {
         const oldKey = getS3KeyFromUrl(oldVideoUrl);
         const oldMedia = oldKey
@@ -68,12 +76,31 @@ export async function POST(
       } catch { /* cleanup must never break the update */ }
     }
 
-    // Update lesson with video URL (and real duration in seconds, if detected)
+    // When the video is REMOVED or REPLACED with a different one, the old
+    // engagement no longer belongs to the (now-different/absent) video:
+    //   - removed  → duration resets to "00:00", views 0, likes/dislikes cleared
+    //   - replaced → duration follows the new video (client-supplied), views 0,
+    //                likes/dislikes cleared (fresh video, fresh stats)
+    // Re-saving the SAME video leaves duration/views/likes untouched.
+    const resetStats = videoChanged;
+
+    // Resolve the duration to store.
+    let durationToSet: string | undefined;
+    if (removeVideo) {
+      durationToSet = "00:00"; // no video → zero duration
+    } else if (typeof duration === "string" && duration.trim()) {
+      durationToSet = duration.trim(); // new video's real duration
+    } else if (videoChanged) {
+      durationToSet = "00:00"; // replaced but no duration sent → don't keep the old one
+    } // else: same video, keep existing duration
+
+    // Update lesson with video URL, duration, and reset stats when appropriate.
     const updatedLesson = await prisma.lesson.update({
       where: { id: lessonId },
       data: {
         videoUrl: finalVideoUrl,
-        ...(typeof duration === "string" && duration.trim() ? { duration: duration.trim() } : {}),
+        ...(durationToSet !== undefined ? { duration: durationToSet } : {}),
+        ...(resetStats ? { viewCount: 0 } : {}),
       },
       include: {
         module: {
@@ -86,12 +113,23 @@ export async function POST(
       },
     });
 
+    // Clear like/dislike reactions when the video changed (separate table).
+    if (resetStats) {
+      await prisma.lessonReaction.deleteMany({ where: { lessonId } });
+    }
+
     return apiSuccess({
-      message: "Video URL updated successfully.",
+      message: removeVideo
+        ? "Video removed. Duration, views and likes reset."
+        : videoChanged
+          ? "Video updated. Duration set and views/likes reset."
+          : "Video URL updated successfully.",
       lesson: {
         id: updatedLesson.id,
         title: updatedLesson.title,
         videoUrl: updatedLesson.videoUrl,
+        duration: updatedLesson.duration,
+        viewCount: updatedLesson.viewCount,
         moduleId: updatedLesson.moduleId,
         moduleName: updatedLesson.module.title,
         courseId: updatedLesson.module.courseId,
