@@ -28,7 +28,7 @@ export interface RawEnrollment {
 }
 
 export interface RawProgress { lessonId: string; completed: boolean }
-export interface RawQuizAttempt { lessonId: string | null; correct: boolean }
+export interface RawQuizAttempt { lessonId: string | null; quizId: string; correct: boolean }
 export interface RawQuiz { id: string; lessonId: string }
 export interface RawExerciseSubmission { exerciseId: string; passed: boolean }
 export interface RawExercise { id: string; lessonId: string }
@@ -96,18 +96,34 @@ export function aggregateStudentProgress(
 
   // ── Build aggregation maps ──
 
-  // Quiz: group by lessonId
+  // Quiz: group by lessonId.
+  //   total     = number of distinct quiz questions in the lesson
+  //   attempted = number of DISTINCT quizzes the user has attempted (a retry of
+  //               the same quiz must NOT inflate this — otherwise attempted can
+  //               exceed total, e.g. "13/10")
+  //   correct   = number of DISTINCT quizzes the user has ever answered correctly
   const quizByLesson: Record<string, { total: number; attempted: number; correct: number }> = {};
   for (const q of allQuizzes) {
     if (!quizByLesson[q.lessonId]) quizByLesson[q.lessonId] = { total: 0, attempted: 0, correct: 0 };
     quizByLesson[q.lessonId].total++;
   }
+  // Collapse attempts to distinct quizzes: track which quizIds were attempted,
+  // and which were ever answered correctly (any correct attempt counts).
+  const attemptedQuizIds: Record<string, Set<string>> = {};   // lessonId -> Set<quizId>
+  const correctQuizIds: Record<string, Set<string>> = {};     // lessonId -> Set<quizId>
   for (const a of quizAttempts) {
     const lid = a.lessonId || "";
-    if (!lid) continue;
+    if (!lid || !a.quizId) continue;
+    (attemptedQuizIds[lid] ??= new Set()).add(a.quizId);
+    if (a.correct) (correctQuizIds[lid] ??= new Set()).add(a.quizId);
+  }
+  for (const lid of Object.keys(attemptedQuizIds)) {
     if (!quizByLesson[lid]) quizByLesson[lid] = { total: 0, attempted: 0, correct: 0 };
-    quizByLesson[lid].attempted++;
-    if (a.correct) quizByLesson[lid].correct++;
+    const bucket = quizByLesson[lid];
+    // Clamp to total so a deleted quiz's leftover attempts can never make
+    // attempted/correct exceed the number of quizzes that still exist.
+    bucket.attempted = Math.min(attemptedQuizIds[lid].size, bucket.total);
+    bucket.correct = Math.min((correctQuizIds[lid]?.size) || 0, bucket.attempted);
   }
 
   // Exercise: group by lessonId

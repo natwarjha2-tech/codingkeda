@@ -21,10 +21,12 @@ export async function POST(
     const { id: lessonId } = await params;
     const body = await req.json();
     const { pdfUrl, mediaId, notes } = body;
+    // Explicit "remove the PDF notes from this lesson" request.
+    const removePdf = body.removePdf === true || body.delete === true;
 
-    // Validation
-    if (!pdfUrl && !mediaId && !notes) {
-      return apiError(400, "Either pdfUrl, mediaId, or notes is required.");
+    // Validation — allow providing a new PDF OR explicitly removing it.
+    if (!pdfUrl && !mediaId && !notes && !removePdf) {
+      return apiError(400, "Either pdfUrl, mediaId, notes, or removePdf is required.");
     }
 
     // Check if lesson exists
@@ -37,9 +39,9 @@ export async function POST(
     }
 
     // If mediaId is provided, fetch the media URL
-    let finalPdfUrl = pdfUrl || notes;
+    let finalPdfUrl = removePdf ? "" : (pdfUrl || notes);
 
-    if (mediaId) {
+    if (mediaId && !removePdf) {
       const media = await prisma.media.findUnique({
         where: { id: mediaId, type: "PDF" },
       });
@@ -79,7 +81,7 @@ export async function POST(
     });
 
     return apiSuccess({
-      message: "PDF URL updated successfully.",
+      message: removePdf ? "PDF notes removed." : "PDF URL updated successfully.",
       lesson: {
         id: updatedLesson.id,
         title: updatedLesson.title,

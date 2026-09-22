@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
       }),
       prisma.quizAttempt.findMany({
         where: { userId },
-        select: { lessonId: true, correct: true },
+        select: { lessonId: true, quizId: true, correct: true },
       }),
       prisma.quiz.findMany({
         where: { lessonId: { in: allLessonIds } },

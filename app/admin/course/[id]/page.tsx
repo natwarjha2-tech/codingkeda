@@ -564,6 +564,31 @@ export default function ManageCoursePage() {
     finally { setEditPdfUploading(false); }
   };
 
+  // ── Remove the PDF notes from an existing lesson (keeps the lesson) ──
+  const handleRemoveEditPdf = async () => {
+    if (!editLesson) return;
+    if (!confirm("Remove this lesson's PDF notes? This cannot be undone.")) return;
+    setEditPdfError(""); setEditPdfUploading(true);
+    try {
+      const res = await fetch(`/api/admin/lessons/${editLesson.id}/update-pdf`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ removePdf: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) return setEditPdfError(data.message || "Failed to remove PDF.");
+      setCourse(prev => prev ? {
+        ...prev,
+        modules: prev.modules.map(m => ({
+          ...m, lessons: m.lessons.map(l => l.id === editLesson.id ? { ...l, notes: "" } : l)
+        }))
+      } : prev);
+      setEditLesson(prev => prev ? { ...prev, notes: "" } : prev);
+      setEditPdfFile(null); setEditPdfSuccess(false);
+    } catch { setEditPdfError("Failed to remove PDF. Check your connection."); }
+    finally { setEditPdfUploading(false); }
+  };
+
   const resetEditModal = async () => {
     // Cancel pending edit upload if it was uploaded to S3 but update-video/update-pdf failed
     if (editVideoMediaId && !editVideoSuccess) {
@@ -1604,12 +1629,15 @@ export default function ManageCoursePage() {
                       {editVideoUploading ? <><Loader2 size={12} className="animate-spin" /> Uploading...</> : "Upload Video"}
                     </motion.button>
                   )}
-                  {/* Remove video — only when one exists. Resets duration/views/likes. */}
+                  {/* Delete uploaded video — styled like the upload button, red.
+                      Only shown when a video exists. Resets duration/views/likes. */}
                   {editLesson.videoUrl && (
-                    <button type="button" onClick={handleRemoveEditVideo} disabled={editVideoUploading}
-                      className="w-full mt-2 py-2 rounded-xl text-xs font-semibold text-red-300 border border-red-500/30 hover:bg-red-500/10 disabled:opacity-60 flex items-center justify-center gap-2">
-                      <X size={12} /> Remove Video (resets duration, views &amp; likes)
-                    </button>
+                    <motion.button type="button" onClick={handleRemoveEditVideo} disabled={editVideoUploading}
+                      whileHover={{ scale: 1.02 }}
+                      className="w-full mt-2 py-2 rounded-xl text-xs font-semibold text-white disabled:opacity-60 flex items-center justify-center gap-2"
+                      style={{ background: "linear-gradient(135deg,#ef4444,#dc2626)" }}>
+                      {editVideoUploading ? <><Loader2 size={12} className="animate-spin" /> Removing...</> : <><Trash2 size={12} /> Delete Video</>}
+                    </motion.button>
                   )}
                 </div>
 
@@ -1639,6 +1667,16 @@ export default function ManageCoursePage() {
                       className="w-full mt-2 py-2 rounded-xl text-xs font-semibold text-white disabled:opacity-60 flex items-center justify-center gap-2"
                       style={{ background: "linear-gradient(135deg,#ec4899,#f43f5e)" }}>
                       {editPdfUploading ? <><Loader2 size={12} className="animate-spin" /> Uploading...</> : "Upload PDF"}
+                    </motion.button>
+                  )}
+                  {/* Delete uploaded PDF — styled like the upload button, red.
+                      Only shown when a PDF exists. */}
+                  {editLesson.notes && (
+                    <motion.button type="button" onClick={handleRemoveEditPdf} disabled={editPdfUploading}
+                      whileHover={{ scale: 1.02 }}
+                      className="w-full mt-2 py-2 rounded-xl text-xs font-semibold text-white disabled:opacity-60 flex items-center justify-center gap-2"
+                      style={{ background: "linear-gradient(135deg,#ef4444,#dc2626)" }}>
+                      {editPdfUploading ? <><Loader2 size={12} className="animate-spin" /> Removing...</> : <><Trash2 size={12} /> Delete PDF</>}
                     </motion.button>
                   )}
                 </div>

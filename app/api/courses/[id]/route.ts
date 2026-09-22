@@ -2,7 +2,6 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { extractUser } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
-import { getSignedFileUrlFromUrl, getS3KeyFromUrl } from "@/app/lib/s3";
 
 export async function GET(
   req: NextRequest,
@@ -83,86 +82,41 @@ export async function GET(
     const progressPercent =
       totalLessons > 0 ? Math.round((completedCount / totalLessons) * 100) : 0;
 
-    let signedCourse = course;
-    if (signed) {
-      // Sign video URLs for enrolled users OR free lessons
-      signedCourse = {
-        ...course,
-        modules: await Promise.all(
-          course.modules.map(async (mod) => ({
+    // ── "Sign on play" ──
+    // Previously, when signed=true, this route signed EVERY lesson's video AND
+    // each of its qualities (720/480/360) up front — for large courses that was
+    // hundreds of S3 signing calls + a Media lookup per lesson on a single
+    // course open, making it slow and costly. Now we DON'T sign here: the course
+    // response carries lesson metadata only (title, duration, isFree, notes),
+    // and the client fetches the signed, ready-to-stream URL for a SINGLE lesson
+    // on demand via GET /api/lessons/[id]/play when the user opens it.
+    //
+    // We still strip video/notes URLs from LOCKED lessons (not enrolled + not
+    // free) so private S3 links never leak, and expose a `hasVideo` flag so the
+    // client can show play vs lock without needing the URL.
+    const signedCourse = signed
+      ? {
+          ...course,
+          modules: course.modules.map((mod) => ({
             ...mod,
-            lessons: await Promise.all(
-              mod.lessons.map(async (lesson) => {
-                // Sign video URL if user is enrolled OR lesson is free
-                if (isEnrolled || lesson.isFree) {
-                  // Skip signing if already a signed URL
-                  const alreadySigned = lesson.videoUrl?.includes('X-Amz-Signature');
-                  const signedVideoUrl = (!alreadySigned && getS3KeyFromUrl(lesson.videoUrl))
-                    ? await getSignedFileUrlFromUrl(lesson.videoUrl)
-                    : lesson.videoUrl;
-
-                  // Look up HLS info from Media table by matching s3Url
-                  let mediaId = null;
-                  let hlsMasterUrl = null;
-                  let hlsStatus = 'none';
-                  let hlsQualities: string[] = [];
-                  let qualityUrls: Record<string, string> = {};
-                  if (lesson.videoUrl) {
-                    const s3KeyRaw = getS3KeyFromUrl(lesson.videoUrl);
-                    const media = s3KeyRaw ? await prisma.media.findFirst({
-                      where: { s3Key: s3KeyRaw, isActive: true },
-                      select: { id: true, hlsMasterUrl: true, hlsStatus: true, hlsQualities: true, hlsS3Prefix: true },
-                    }) : null;
-                    if (media) {
-                      mediaId = media.id;
-                      hlsStatus = media.hlsStatus || 'none';
-                      hlsQualities = media.hlsQualities || [];
-                      // Generate signed URLs for each quality MP4 in parallel
-                      if (media.hlsStatus === 'ready' && media.hlsS3Prefix && hlsQualities.length > 0) {
-                        const qualityEntries = await Promise.all(
-                          hlsQualities.map(async (q) => {
-                            const qKey = `${media.hlsS3Prefix}/${q}.mp4`;
-                            const url = await getSignedFileUrlFromUrl(
-                              `https://${process.env.AWS_S3_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${qKey}`,
-                              3600
-                            );
-                            return [q, url] as const;
-                          })
-                        );
-                        for (const [q, url] of qualityEntries) {
-                          qualityUrls[q] = url;
-                        }
-                      }
-                    }
-                  }
-
-                  return {
-                    ...lesson,
-                    videoUrl: signedVideoUrl,
-                    notes: lesson.notes,
-                    mediaId,
-                    hlsMasterUrl,
-                    hlsStatus,
-                    hlsQualities,
-                    qualityUrls,
-                  };
-                }
-                // For locked lessons, return empty URLs
-                return {
-                  ...lesson,
-                  videoUrl: "",
-                  notes: "",
-                  mediaId: null,
-                  hlsMasterUrl: null,
-                  hlsStatus: 'none',
-                  hlsQualities: [],
-                };
-              })
-            ),
-          }))
-        ),
-      };
-    }
+            lessons: mod.lessons.map((lesson) => {
+              const canPlay = isEnrolled || lesson.isFree;
+              return {
+                ...lesson,
+                hasVideo: !!lesson.videoUrl,
+                // Never expose raw/private URLs for locked lessons.
+                videoUrl: canPlay ? "" : "",   // signed on demand via /play
+                notes: canPlay ? lesson.notes : "",
+                mediaId: null,
+                hlsMasterUrl: null,
+                hlsStatus: "none",
+                hlsQualities: [] as string[],
+                qualityUrls: {} as Record<string, string>,
+              };
+            }),
+          })),
+        }
+      : course;
 
     return apiSuccess({
       course: {
