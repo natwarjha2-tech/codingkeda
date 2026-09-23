@@ -99,6 +99,11 @@ export default function Navbar() {
   const router = useRouter();
   const pathname = usePathname();
 
+  // Both "admin" and "super-admin" are treated as admins in the UI (both can
+  // access Course Management). The old check only matched "admin", so
+  // super-admins wrongly saw the student menu.
+  const isAdmin = userRole === "admin" || userRole === "super-admin";
+
   const scrollTo = (id: string) => {
     setOpen(false);
     if (pathname === "/") {
@@ -198,16 +203,20 @@ export default function Navbar() {
                     <div className="px-4 py-3 border-b border-white/8">
                       <p className="text-sm font-semibold text-white truncate">{userInitial === "U" ? "User" : `${userInitial}...`}</p>
                       <p className="text-xs text-slate-400 truncate">{localStorage.getItem("userEmail") || ""}</p>
-                      {userRole === "admin" && (
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full mt-1 inline-block">Admin</span>
+                      {isAdmin && (
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full mt-1 inline-block">{userRole === "super-admin" ? "Super Admin" : "Admin"}</span>
                       )}
                     </div>
                     {/* Navigation Items — Role-based */}
-                    {userRole === "admin" ? (
+                    {isAdmin ? (
                       <>
                         <Link href="/admin/dashboard" onClick={() => setProfileDropdown(false)}
                           className="flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors">
-                          <ShieldCheck size={15} className="text-red-400" /> Admin Panel
+                          <ShieldCheck size={15} className="text-red-400" /> Course Management
+                        </Link>
+                        <Link href="/dashboard" onClick={() => setProfileDropdown(false)}
+                          className="flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors">
+                          <User size={15} className="text-purple-400" /> My Dashboard
                         </Link>
                         <div className="h-px bg-white/8" />
                         <Link href="/profile" onClick={() => setProfileDropdown(false)}
@@ -301,10 +310,10 @@ export default function Navbar() {
                   className="text-slate-300 text-sm font-medium text-left cursor-pointer flex items-center gap-2">
                   <Settings size={14} className="text-slate-400" /> Edit Profile
                 </Link>
-                {userRole === "admin" && (
+                {isAdmin && (
                   <Link href="/admin/dashboard" onClick={() => setOpen(false)}
                     className="text-slate-300 text-sm font-medium text-left cursor-pointer flex items-center gap-2">
-                    <ShieldCheck size={14} className="text-red-400" /> Admin Panel
+                    <ShieldCheck size={14} className="text-red-400" /> Course Management
                   </Link>
                 )}
               </>

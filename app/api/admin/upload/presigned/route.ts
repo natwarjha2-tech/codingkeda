@@ -21,6 +21,20 @@ const ALLOWED_TYPES: Record<string, string[]> = {
   pdf: ["application/pdf"],
   image: ["image/jpeg", "image/png", "image/webp", "image/jpg"],
   ppt: ["application/vnd.openxmlformats-officedocument.presentationml.presentation"],
+  // Study material for a module — accepts documents/slides/PDFs. Grouped under a
+  // dedicated "materials/<course>/<module>/..." folder so all of a module's study
+  // files live together (mirrors how videos are foldered by course/module).
+  material: [
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/vnd.ms-powerpoint",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/jpg",
+  ],
 };
 
 const MEDIA_TYPE_MAP: Record<string, MediaType> = {
@@ -28,6 +42,7 @@ const MEDIA_TYPE_MAP: Record<string, MediaType> = {
   pdf: MediaType.PDF,
   image: MediaType.IMAGE,
   ppt: MediaType.PDF, // PPT stored as document type alongside PDFs
+  material: MediaType.PDF, // study material recorded as a document (PDF) media
 };
 
 // Step 1: GET presigned upload URL
@@ -68,7 +83,22 @@ export async function POST(req: NextRequest) {
   // mediaId-based folder). Names are for readability; mediaId keeps it unique
   // and rename-proof. Pattern: <type>s/<course>/<module>/<lesson>-<mediaId>/original.<ext>
   let key: string;
-  if (courseId && moduleId) {
+  if (type === "material" && moduleId) {
+    // Study material: group ALL of a module's files under one module folder:
+    //   material/<course>/<module>/<slug>-<mediaId>.<ext>
+    // The mediaId suffix keeps names unique + rename-proof while staying readable.
+    let courseSlug = "course", moduleSlug = "module";
+    try {
+      const mod = await prisma.module.findUnique({
+        where: { id: moduleId },
+        select: { title: true, course: { select: { title: true } } },
+      });
+      moduleSlug = slugify(mod?.title);
+      courseSlug = slugify(mod?.course?.title);
+    } catch { /* fall back to defaults */ }
+    const nameSlug = slugify(title || String(fileName).replace(/\.[^.]+$/, ""));
+    key = `material/${courseSlug}/${moduleSlug}/${nameSlug}-${media.id}.${ext}`;
+  } else if (courseId && moduleId) {
     let courseSlug = "course", moduleSlug = "module";
     try {
       const course = await prisma.course.findUnique({ where: { id: courseId }, select: { title: true } });

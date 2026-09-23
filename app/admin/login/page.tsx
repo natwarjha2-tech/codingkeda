@@ -2,12 +2,10 @@
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
 import Navbar from "@/components/Navbar";
 
 export default function AdminLogin() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -50,8 +48,9 @@ export default function AdminLogin() {
         localStorage.setItem("userEmail", data.user?.email || email);
       }
 
-      // Redirect to admin dashboard
-      router.push("/admin/dashboard");
+      // Land on Home after admin login (Course Management is reachable from the
+      // profile-photo dropdown). Full navigation so the Navbar re-reads the role.
+      window.location.href = "/";
     } catch (err) {
       setError("Something went wrong! Please try again.");
     } finally {

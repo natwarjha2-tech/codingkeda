@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { extractUser } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
+import { getSignedFileUrlFromUrl, getS3KeyFromUrl } from "@/app/lib/s3";
 
 export async function GET(
   req: NextRequest,
@@ -57,6 +58,9 @@ export async function GET(
     let userProgress: string[] = [];
 
     const authUser = extractUser(req);
+    // Admins/super-admins manage courses they may not have purchased, so they
+    // must see study material regardless of enrollment (used by the admin panel).
+    const isAdminUser = authUser?.role === "admin" || authUser?.role === "super-admin";
     if (authUser) {
       const [enrollment, progress] = await Promise.all([
         prisma.enrollment.findUnique({
@@ -117,6 +121,37 @@ export async function GET(
           })),
         }
       : course;
+
+    // ── Sign module study material up front (old-style batch signing) ──
+    // A module has only a handful of files (typically 4–5), so signing them all
+    // here on course-open is cheap and simple. Enrolled users get signed,
+    // ready-to-open URLs; non-enrolled users get the material stripped out so
+    // private S3 links never leak. Only runs for signed=true requests (the app).
+    if (signed) {
+      await Promise.all(
+        signedCourse.modules.map(async (mod: any) => {
+          if (!isEnrolled && !isAdminUser) {
+            // Not enrolled (and not an admin) → don't expose any material URLs.
+            mod.materials = [];
+            return;
+          }
+          mod.materials = await Promise.all(
+            (mod.materials ?? []).map(async (mat: any) => {
+              let signedUrl = mat.fileUrl;
+              const alreadySigned = mat.fileUrl?.includes("X-Amz-Signature");
+              if (!alreadySigned && getS3KeyFromUrl(mat.fileUrl)) {
+                try {
+                  signedUrl = await getSignedFileUrlFromUrl(mat.fileUrl, 3600);
+                } catch {
+                  signedUrl = mat.fileUrl; // fall back on signing failure
+                }
+              }
+              return { ...mat, fileUrl: signedUrl };
+            })
+          );
+        })
+      );
+    }
 
     return apiSuccess({
       course: {

@@ -64,31 +64,20 @@ export default function ManageCoursePage() {
   // Edit lesson modal
   const [editLesson, setEditLesson] = useState<Lesson | null>(null);
   const [editVideoFile, setEditVideoFile] = useState<File | null>(null);
-  const [editPdfFile, setEditPdfFile] = useState<File | null>(null);
   const [editVideoUploading, setEditVideoUploading] = useState(false);
-  const [editPdfUploading, setEditPdfUploading] = useState(false);
   const [editVideoSuccess, setEditVideoSuccess] = useState(false);
-  const [editPdfSuccess, setEditPdfSuccess] = useState(false);
   const [editVideoError, setEditVideoError] = useState("");
-  const [editPdfError, setEditPdfError] = useState("");
 
   // Upload states (reusing existing upload logic)
   const [videoFile, setVideoFile] = useState<File | null>(null);
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [videoUploading, setVideoUploading] = useState(false);
-  const [pdfUploading, setPdfUploading] = useState(false);
   const [videoUrl, setVideoUrl] = useState("");
   const [videoMediaId, setVideoMediaId] = useState<string | null>(null);
   // Real video duration (seconds) detected from the uploaded file in-browser.
   const [videoDuration, setVideoDuration] = useState<number>(0);
-  const [pdfUrl, setPdfUrl] = useState("");
-  const [pdfMediaId, setPdfMediaId] = useState<string | null>(null);
   const [videoDragging, setVideoDragging] = useState(false);
-  const [pdfDragging, setPdfDragging] = useState(false);
   const [videoUploadSuccess, setVideoUploadSuccess] = useState(false);
-  const [pdfUploadSuccess, setPdfUploadSuccess] = useState(false);
   const [videoError, setVideoError] = useState("");
-  const [pdfError, setPdfError] = useState("");
   const [editVideoMediaId, setEditVideoMediaId] = useState<string | null>(null);
 
   // Generate Quiz state
@@ -169,6 +158,9 @@ export default function ManageCoursePage() {
   // Delete states
   const [deletingModuleId, setDeletingModuleId] = useState<string | null>(null);
   const [deletingLessonId, setDeletingLessonId] = useState<string | null>(null);
+  // Study-material multi-upload in progress for a given module (shows a spinner
+  // on that module's Upload Material button while its files are uploading).
+  const [uploadingMaterialModuleId, setUploadingMaterialModuleId] = useState<string | null>(null);
 
   const [error, setError] = useState("");
 
@@ -311,43 +303,10 @@ export default function ManageCoursePage() {
     }
   };
 
-  const handlePdfUpload = async () => {
-    if (!pdfFile) return setPdfError("Please select a PDF file.");
-    setPdfError("");
-    setPdfUploading(true);
-    try {
-      const token = localStorage.getItem("token");
-      // Use presigned upload for PDF too — saves permanent S3 URL
-      const presignRes = await fetch("/api/admin/upload/presigned", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ fileName: pdfFile.name, fileType: pdfFile.type, fileSize: pdfFile.size, type: "pdf" }),
-      });
-      const presignData = await presignRes.json();
-      if (!presignRes.ok) return setPdfError(presignData.error || "Failed to get upload URL.");
-      const s3Res = await fetch(presignData.uploadUrl, { method: "PUT", body: pdfFile, headers: { "Content-Type": pdfFile.type } });
-      if (!s3Res.ok) return setPdfError("S3 upload failed.");
-      setPdfUrl(presignData.publicUrl);
-      setPdfMediaId(presignData.mediaId || null);
-      setPdfUploadSuccess(true);
-      setPdfFile(null);
-    } catch {
-      setPdfError("Upload failed. Check your connection.");
-    } finally {
-      setPdfUploading(false);
-    }
-  };
-
   const handleVideoDrop = (e: React.DragEvent) => {
     e.preventDefault(); setVideoDragging(false);
     const file = e.dataTransfer.files?.[0];
     if (file?.type.startsWith("video/")) { setVideoFile(file); setVideoUploadSuccess(false); setVideoUrl(""); }
-  };
-
-  const handlePdfDrop = (e: React.DragEvent) => {
-    e.preventDefault(); setPdfDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file?.type === "application/pdf") { setPdfFile(file); setPdfUploadSuccess(false); setPdfUrl(""); }
   };
 
   // ── Create Module ──
@@ -381,7 +340,7 @@ export default function ManageCoursePage() {
       const res = await fetch("/api/admin/lessons", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ moduleId: activeModuleId, title: lessonTitle, isFree: lessonIsFree, videoUrl, notes: pdfUrl, mediaId: videoMediaId, pdfMediaId, duration: videoDuration > 0 ? String(videoDuration) : undefined }),
+        body: JSON.stringify({ moduleId: activeModuleId, title: lessonTitle, isFree: lessonIsFree, videoUrl, mediaId: videoMediaId, duration: videoDuration > 0 ? String(videoDuration) : undefined }),
       });
       const data = await res.json();
       if (data.success) {
@@ -398,10 +357,10 @@ export default function ManageCoursePage() {
         setShowLessonModal(false);
         setLessonTitle("");
         setLessonIsFree(false);
-        setVideoFile(null); setPdfFile(null);
-        setVideoUrl(""); setVideoMediaId(null); setVideoDuration(0); setPdfUrl(""); setPdfMediaId(null);
-        setVideoUploadSuccess(false); setPdfUploadSuccess(false);
-        setVideoError(""); setPdfError("");
+        setVideoFile(null);
+        setVideoUrl(""); setVideoMediaId(null); setVideoDuration(0);
+        setVideoUploadSuccess(false);
+        setVideoError("");
         setError("");
         setActiveModuleId("");
       } else {
@@ -426,24 +385,13 @@ export default function ManageCoursePage() {
         console.error("Failed to cancel video upload:", err);
       }
     }
-    if (pdfMediaId && pdfUploadSuccess) {
-      try {
-        await fetch("/api/admin/upload/cancel", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-          body: JSON.stringify({ mediaId: pdfMediaId }),
-        });
-      } catch (err) {
-        console.error("Failed to cancel PDF upload:", err);
-      }
-    }
     setShowLessonModal(false);
     setLessonTitle("");
     setLessonIsFree(false);
-    setVideoFile(null); setPdfFile(null);
-    setVideoUrl(""); setVideoMediaId(null); setPdfUrl(""); setPdfMediaId(null);
-    setVideoUploadSuccess(false); setPdfUploadSuccess(false);
-    setVideoError(""); setPdfError("");
+    setVideoFile(null);
+    setVideoUrl(""); setVideoMediaId(null);
+    setVideoUploadSuccess(false);
+    setVideoError("");
     setError("");
     setActiveModuleId("");
   };
@@ -533,61 +481,9 @@ export default function ManageCoursePage() {
     finally { setEditVideoUploading(false); }
   };
 
-  const handleEditPdfUpload = async () => {
-    if (!editPdfFile || !editLesson) return setEditPdfError("Please select a PDF file.");
-    setEditPdfError(""); setEditPdfUploading(true);
-    try {
-      const presignRes = await fetch("/api/admin/upload/presigned", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ fileName: editPdfFile.name, fileType: editPdfFile.type, fileSize: editPdfFile.size, type: "pdf" }),
-      });
-      const presignData = await presignRes.json();
-      if (!presignRes.ok) return setEditPdfError(presignData.error || "Failed to get upload URL.");
-      const s3Res = await fetch(presignData.uploadUrl, { method: "PUT", body: editPdfFile, headers: { "Content-Type": editPdfFile.type } });
-      if (!s3Res.ok) return setEditPdfError("S3 upload failed.");
-      const updateRes = await fetch(`/api/admin/lessons/${editLesson.id}/update-pdf`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ pdfUrl: presignData.publicUrl }),
-      });
-      const updateData = await updateRes.json();
-      if (!updateRes.ok) return setEditPdfError(updateData.message || "Update failed.");
-      setCourse(prev => prev ? {
-        ...prev,
-        modules: prev.modules.map(m => ({
-          ...m, lessons: m.lessons.map(l => l.id === editLesson.id ? { ...l, notes: presignData.publicUrl } : l)
-        }))
-      } : prev);
-      setEditPdfSuccess(true); setEditPdfFile(null);
-    } catch { setEditPdfError("Upload failed. Check your connection."); }
-    finally { setEditPdfUploading(false); }
-  };
-
-  // ── Remove the PDF notes from an existing lesson (keeps the lesson) ──
-  const handleRemoveEditPdf = async () => {
-    if (!editLesson) return;
-    if (!confirm("Remove this lesson's PDF notes? This cannot be undone.")) return;
-    setEditPdfError(""); setEditPdfUploading(true);
-    try {
-      const res = await fetch(`/api/admin/lessons/${editLesson.id}/update-pdf`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ removePdf: true }),
-      });
-      const data = await res.json();
-      if (!res.ok) return setEditPdfError(data.message || "Failed to remove PDF.");
-      setCourse(prev => prev ? {
-        ...prev,
-        modules: prev.modules.map(m => ({
-          ...m, lessons: m.lessons.map(l => l.id === editLesson.id ? { ...l, notes: "" } : l)
-        }))
-      } : prev);
-      setEditLesson(prev => prev ? { ...prev, notes: "" } : prev);
-      setEditPdfFile(null); setEditPdfSuccess(false);
-    } catch { setEditPdfError("Failed to remove PDF. Check your connection."); }
-    finally { setEditPdfUploading(false); }
-  };
+  // Per-lesson PDF upload/remove handlers removed — notes/PDFs are managed as
+  // module-level Study Material; the app Notes section reads the module's
+  // "…ppt" file.
 
   const resetEditModal = async () => {
     // Cancel pending edit upload if it was uploaded to S3 but update-video/update-pdf failed
@@ -603,10 +499,10 @@ export default function ManageCoursePage() {
       }
     }
     setEditLesson(null);
-    setEditVideoFile(null); setEditPdfFile(null);
+    setEditVideoFile(null);
     setEditVideoMediaId(null);
-    setEditVideoSuccess(false); setEditPdfSuccess(false);
-    setEditVideoError(""); setEditPdfError("");
+    setEditVideoSuccess(false);
+    setEditVideoError("");
   };
 
   // Generate Quiz & Exercise from PDF
@@ -1209,7 +1105,7 @@ export default function ManageCoursePage() {
                                         <Eye size={11} /> PDF
                                       </button>
                                     )}
-                                    <button onClick={() => { setEditLesson(lesson); setEditVideoSuccess(false); setEditPdfSuccess(false); setEditVideoError(""); setEditPdfError(""); }}
+                                    <button onClick={() => { setEditLesson(lesson); setEditVideoSuccess(false); setEditVideoError(""); }}
                                       className="flex items-center gap-1 text-xs text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 px-2 py-1 rounded-lg transition-colors">
                                       <Upload size={11} /> Edit
                                     </button>
@@ -1250,41 +1146,52 @@ export default function ManageCoursePage() {
                               <span className="text-sm font-semibold text-slate-300 flex items-center gap-2">
                                 <FileText size={14} className="text-purple-400" /> Study Material
                               </span>
-                              <label className="flex items-center gap-2 text-xs text-green-400 hover:text-green-300 bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 px-3 py-1.5 rounded-lg cursor-pointer transition-all">
-                                <Plus size={12} /> Upload Material
-                                <input type="file" accept=".pdf,.ppt,.pptx,.doc,.docx,.jpg,.png" className="hidden"
+                              <label className={`flex items-center gap-2 text-xs text-green-400 hover:text-green-300 bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 px-3 py-1.5 rounded-lg cursor-pointer transition-all ${uploadingMaterialModuleId === mod.id ? "opacity-60 pointer-events-none" : ""}`}>
+                                {uploadingMaterialModuleId === mod.id
+                                  ? <><Loader2 size={12} className="animate-spin" /> Uploading…</>
+                                  : <><Plus size={12} /> Upload Material</>}
+                                {/* Multi-file: pick several study docs at once — each is uploaded
+                                    to the module's standardized S3 folder and saved in order. */}
+                                <input type="file" multiple accept=".pdf,.ppt,.pptx,.doc,.docx,.jpg,.jpeg,.png,.webp" className="hidden"
                                   onChange={async (e) => {
-                                    const file = e.target.files?.[0];
-                                    if (!file) return;
-                                    const title = prompt("Enter a title for this material:", file.name.replace(/\.[^.]+$/, ""));
-                                    if (!title) return;
-                                    try {
-                                      // Upload to S3 via presigned
-                                      const fileType = file.name.endsWith(".ppt") || file.name.endsWith(".pptx") ? "ppt" : file.type.startsWith("image/") ? "image" : "pdf";
-                                      const presignRes = await fetch("/api/admin/upload/presigned", {
-                                        method: "POST",
-                                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-                                        body: JSON.stringify({ fileName: file.name, fileType: file.type, fileSize: file.size, type: "pdf" }),
-                                      });
-                                      const presignData = await presignRes.json();
-                                      if (!presignRes.ok) { alert("Upload failed: " + (presignData.error || "Unknown error")); return; }
-                                      const s3Res = await fetch(presignData.uploadUrl, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
-                                      if (!s3Res.ok) { alert("S3 upload failed."); return; }
-                                      // Save material to DB
-                                      const matRes = await fetch(`/api/admin/modules/${mod.id}/materials`, {
-                                        method: "POST",
-                                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-                                        body: JSON.stringify({ title: title.trim(), fileUrl: presignData.publicUrl, fileType, fileSize: file.size }),
-                                      });
-                                      const matData = await matRes.json();
-                                      if (matData.success) {
-                                        alert("✅ Material uploaded!");
-                                        fetchCourse(); // refresh
-                                      } else {
-                                        alert("⚠️ " + (matData.message || "Failed to save material."));
-                                      }
-                                    } catch { alert("⚠️ Something went wrong."); }
+                                    const files = Array.from(e.target.files ?? []);
+                                    if (files.length === 0) return;
+                                    setUploadingMaterialModuleId(mod.id);
+                                    let ok = 0, failed = 0;
+                                    for (const file of files) {
+                                      try {
+                                        const lower = file.name.toLowerCase();
+                                        const fileType = lower.endsWith(".ppt") || lower.endsWith(".pptx")
+                                          ? "ppt"
+                                          : (lower.endsWith(".doc") || lower.endsWith(".docx"))
+                                            ? "doc"
+                                            : file.type.startsWith("image/")
+                                              ? "image"
+                                              : "pdf";
+                                        const title = file.name.replace(/\.[^.]+$/, "");
+                                        // Presign under the module's material folder.
+                                        const presignRes = await fetch("/api/admin/upload/presigned", {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+                                          body: JSON.stringify({ fileName: file.name, fileType: file.type, fileSize: file.size, type: "material", title, moduleId: mod.id, courseId }),
+                                        });
+                                        const presignData = await presignRes.json();
+                                        if (!presignRes.ok) { failed++; continue; }
+                                        const s3Res = await fetch(presignData.uploadUrl, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
+                                        if (!s3Res.ok) { failed++; continue; }
+                                        const matRes = await fetch(`/api/admin/modules/${mod.id}/materials`, {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+                                          body: JSON.stringify({ title, fileUrl: presignData.publicUrl, fileType, fileSize: file.size }),
+                                        });
+                                        const matData = await matRes.json();
+                                        if (matData.success) ok++; else failed++;
+                                      } catch { failed++; }
+                                    }
+                                    setUploadingMaterialModuleId(null);
                                     e.target.value = "";
+                                    await fetchCourse();
+                                    alert(`✅ ${ok} material${ok === 1 ? "" : "s"} uploaded${failed ? `, ⚠️ ${failed} failed` : ""}.`);
                                   }}
                                 />
                               </label>
@@ -1456,37 +1363,8 @@ export default function ManageCoursePage() {
                   )}
                 </div>
 
-                {/* PDF Upload */}
-                <div>
-                  <label className="text-xs font-semibold text-slate-300 block mb-1.5 flex items-center gap-1.5">
-                    <FileText size={13} className="text-pink-400" /> PDF Notes Upload
-                  </label>
-                  <div
-                    onDragOver={e => { e.preventDefault(); setPdfDragging(true); }}
-                    onDragLeave={() => setPdfDragging(false)}
-                    onDrop={handlePdfDrop}
-                    onClick={() => document.getElementById("lessonPdfInput")?.click()}
-                    className="border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all"
-                    style={{ borderColor: pdfDragging ? "#ec4899" : pdfUploadSuccess ? "#22c55e" : "rgba(255,255,255,0.1)", background: pdfDragging ? "rgba(236,72,153,0.08)" : "transparent" }}>
-                    {pdfUploadSuccess
-                      ? <p className="text-green-400 text-sm flex items-center justify-center gap-2"><Check size={14} /> PDF uploaded!</p>
-                      : <><Upload size={20} className="mx-auto mb-1.5 text-slate-500" />
-                        <p className="text-slate-400 text-xs">{pdfFile ? pdfFile.name : "Click or drag & drop PDF"}</p>
-                        <p className="text-slate-600 text-xs mt-0.5">PDF only</p></>
-                    }
-                    <input id="lessonPdfInput" type="file" accept=".pdf" className="hidden"
-                      onChange={e => { setPdfFile(e.target.files?.[0] || null); setPdfUploadSuccess(false); setPdfUrl(""); setPdfError(""); }} />
-                  </div>
-                  {pdfError && <p className="text-red-400 text-xs mt-1.5">⚠️ {pdfError}</p>}
-                  {!pdfUploadSuccess && (
-                    <motion.button type="button" onClick={handlePdfUpload} disabled={pdfUploading}
-                      whileHover={{ scale: 1.02 }}
-                      className="w-full mt-2 py-2 rounded-xl text-xs font-semibold text-white disabled:opacity-60 flex items-center justify-center gap-2"
-                      style={{ background: "linear-gradient(135deg,#ec4899,#f43f5e)" }}>
-                      {pdfUploading ? <><Loader2 size={12} className="animate-spin" /> Uploading...</> : "Upload PDF"}
-                    </motion.button>
-                  )}
-                </div>
+                {/* PDF upload removed — study material (incl. the "…ppt" notes
+                    file) is uploaded per module in the Study Material section. */}
 
                 {error && <p className="text-red-400 text-xs">⚠️ {error}</p>}
                 <div className="flex gap-3 pt-1">
@@ -1641,45 +1519,8 @@ export default function ManageCoursePage() {
                   )}
                 </div>
 
-                {/* Update PDF */}
-                <div>
-                  <label className="text-xs font-semibold text-slate-300 block mb-1.5 flex items-center gap-1.5">
-                    <FileText size={13} className="text-pink-400" /> Update PDF Notes
-                    {editLesson.notes && <span className="text-green-400 text-xs">(already uploaded)</span>}
-                  </label>
-                  <div
-                    onClick={() => document.getElementById("editPdfInput")?.click()}
-                    className="border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all"
-                    style={{ borderColor: editPdfSuccess ? "#22c55e" : "rgba(255,255,255,0.1)" }}>
-                    {editPdfSuccess
-                      ? <p className="text-green-400 text-sm flex items-center justify-center gap-2"><Check size={14} /> PDF updated!</p>
-                      : <><Upload size={20} className="mx-auto mb-1.5 text-slate-500" />
-                        <p className="text-slate-400 text-xs">{editPdfFile ? editPdfFile.name : "Click to select PDF"}</p>
-                        <p className="text-slate-600 text-xs mt-0.5">PDF only</p></>
-                    }
-                    <input id="editPdfInput" type="file" accept=".pdf" className="hidden"
-                      onChange={e => { setEditPdfFile(e.target.files?.[0] || null); setEditPdfSuccess(false); setEditPdfError(""); }} />
-                  </div>
-                  {editPdfError && <p className="text-red-400 text-xs mt-1.5">⚠️ {editPdfError}</p>}
-                  {!editPdfSuccess && (
-                    <motion.button type="button" onClick={handleEditPdfUpload} disabled={editPdfUploading}
-                      whileHover={{ scale: 1.02 }}
-                      className="w-full mt-2 py-2 rounded-xl text-xs font-semibold text-white disabled:opacity-60 flex items-center justify-center gap-2"
-                      style={{ background: "linear-gradient(135deg,#ec4899,#f43f5e)" }}>
-                      {editPdfUploading ? <><Loader2 size={12} className="animate-spin" /> Uploading...</> : "Upload PDF"}
-                    </motion.button>
-                  )}
-                  {/* Delete uploaded PDF — styled like the upload button, red.
-                      Only shown when a PDF exists. */}
-                  {editLesson.notes && (
-                    <motion.button type="button" onClick={handleRemoveEditPdf} disabled={editPdfUploading}
-                      whileHover={{ scale: 1.02 }}
-                      className="w-full mt-2 py-2 rounded-xl text-xs font-semibold text-white disabled:opacity-60 flex items-center justify-center gap-2"
-                      style={{ background: "linear-gradient(135deg,#ef4444,#dc2626)" }}>
-                      {editPdfUploading ? <><Loader2 size={12} className="animate-spin" /> Removing...</> : <><Trash2 size={12} /> Delete PDF</>}
-                    </motion.button>
-                  )}
-                </div>
+                {/* Per-lesson PDF upload removed — notes/PDFs live in module
+                    Study Material now. This modal handles the lesson VIDEO only. */}
 
                 <button type="button" onClick={resetEditModal}
                   className="w-full py-2.5 rounded-xl text-sm font-semibold text-slate-300 bg-white/5 hover:bg-white/10 transition-colors">

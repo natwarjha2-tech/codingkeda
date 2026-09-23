@@ -1,7 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { X, Eye, EyeOff, Loader2 } from "lucide-react";
 
@@ -11,7 +10,6 @@ interface AdminAuthModalProps {
 }
 
 export default function AdminAuthModal({ isOpen, onClose }: AdminAuthModalProps) {
-  const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -48,7 +46,11 @@ export default function AdminAuthModal({ isOpen, onClose }: AdminAuthModalProps)
         localStorage.setItem("userEmail", data.user?.email || email);
       }
       onClose();
-      router.push("/admin/dashboard");
+      // Land on Home after admin login (not the admin panel). Admins reach
+      // Course Management from the profile-photo dropdown → "Course Management".
+      // Reload so the Navbar re-reads the stored user/role and shows the admin
+      // dropdown items immediately.
+      window.location.href = "/";
     } catch {
       setError("Something went wrong! Please try again.");
     } finally { setLoading(false); }
