@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
     const { error, user } = requireAuth(req);
     if (error) return error;
 
-    const { problemId, problemTitle, qualityTag } = await req.json();
+    const { problemId, problemTitle, qualityTag, lessonId, courseId } = await req.json();
     if (!problemId) return apiError(400, "problemId is required.");
 
     // Check if user already has a leaderboard entry for this problem
@@ -108,6 +108,30 @@ export async function POST(req: NextRequest) {
     if (rank <= 20) coins = 20;
     else if (rank <= 50) coins = 10;
 
+    // Resolve Course · Module · Lesson from the lessonId (when this is a lesson
+    // exercise) so the coin transaction + notification show the same hierarchy
+    // as quizzes. `lessonId`/`courseId` are stored on the transaction so the
+    // /api/coins route can build the structure the apps already render.
+    let courseTitle: string | null = null;
+    let moduleTitle: string | null = null;
+    let lessonTitle: string | null = null;
+    let resolvedCourseId: string | null = courseId || null;
+    if (lessonId) {
+      const lesson = await prisma.lesson.findUnique({
+        where: { id: lessonId },
+        select: {
+          title: true,
+          module: { select: { title: true, courseId: true, course: { select: { title: true } } } },
+        },
+      });
+      if (lesson) {
+        lessonTitle = lesson.title;
+        moduleTitle = lesson.module?.title ?? null;
+        courseTitle = lesson.module?.course?.title ?? null;
+        resolvedCourseId = resolvedCourseId || lesson.module?.courseId || null;
+      }
+    }
+
     // Record leaderboard entry + award coins
     if (coins > 0) {
       const reason = `CodingLB:${problemId} — Rank #${rank} — ${problemTitle || "Problem"} (${qualityTag || "solved"})`;
@@ -124,6 +148,8 @@ export async function POST(req: NextRequest) {
             type: "EARNED",
             coins,
             reason,
+            ...(lessonId ? { lessonId } : {}),
+            ...(resolvedCourseId ? { courseId: resolvedCourseId } : {}),
           },
         }),
       ]);
@@ -135,6 +161,8 @@ export async function POST(req: NextRequest) {
           type: "EARNED",
           coins: 0,
           reason: `CodingLB:${problemId} — Rank #${rank} — ${problemTitle || "Problem"}`,
+          ...(lessonId ? { lessonId } : {}),
+          ...(resolvedCourseId ? { courseId: resolvedCourseId } : {}),
         },
       });
     }
@@ -147,6 +175,9 @@ export async function POST(req: NextRequest) {
         problemTitle: problemTitle || "Coding Problem",
         rank,
         coinsAwarded: coins,
+        courseTitle,
+        moduleTitle,
+        lessonTitle,
       }).catch(() => {});
     }
 

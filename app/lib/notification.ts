@@ -293,7 +293,7 @@ export async function notifyAchievement(opts: {
   } catch {
     // Non-fatal — fall back to the generic body if lookup fails.
   }
-  const where = [courseTitle, moduleTitle, lessonTitle].filter(Boolean).join(" · ");
+  const where = [courseTitle, moduleTitle, lessonTitle].filter(Boolean).join(" › ");
   const body = where
     ? `Congratulations! You earned the "${opts.title}" achievement in ${where}.`
     : `Congratulations! You earned the "${opts.title}" achievement.`;
@@ -349,15 +349,32 @@ export async function notifyLeaderboardWinner(opts: {
   problemTitle: string;
   rank: number;
   coinsAwarded: number;
+  courseTitle?: string | null;
+  moduleTitle?: string | null;
+  lessonTitle?: string | null;
 }) {
+  // When we know the lesson's course/module/lesson, show the same
+  // Course › Module › Lesson breadcrumb the quiz notifications use.
+  const hierarchy = [opts.courseTitle, opts.moduleTitle, opts.lessonTitle]
+    .filter(Boolean)
+    .join(" › ");
+  const where = hierarchy || opts.problemTitle;
   return createNotification({
     userId: opts.userId,
     type: "leaderboard_winner",
     category: "achievement",
     priority: "NORMAL",
     title: `🏆 Leaderboard Rank #${opts.rank}!`,
-    body: `You secured rank #${opts.rank} in "${opts.problemTitle}" and earned ${opts.coinsAwarded} coins!`,
-    metadata: { problemId: opts.problemId, problemTitle: opts.problemTitle, rank: opts.rank, coinsAwarded: opts.coinsAwarded },
+    body: `You secured rank #${opts.rank} in "${opts.problemTitle}" and earned ${opts.coinsAwarded} coins!\n${where}`,
+    metadata: {
+      problemId: opts.problemId,
+      problemTitle: opts.problemTitle,
+      rank: opts.rank,
+      coinsAwarded: opts.coinsAwarded,
+      courseTitle: opts.courseTitle ?? null,
+      moduleTitle: opts.moduleTitle ?? null,
+      lessonTitle: opts.lessonTitle ?? null,
+    },
     action: { type: "deeplink", target: "/coding" },
     idempotencyKey: `leaderboard:${opts.problemId}:${opts.userId}`,
   });
