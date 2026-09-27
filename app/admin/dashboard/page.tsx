@@ -27,7 +27,7 @@ export default function AdminDashboard() {
   const [showModal, setShowModal] = useState(false);
   const [creating, setCreating] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
-  const [form, setForm] = useState({ title: "", subtitle: "", category: "Web Dev", instructor: "", color: "from-purple-500 to-pink-500" });
+  const [form, setForm] = useState({ title: "", subtitle: "", category: "Web Dev", instructor: "", instructorEmail: "", color: "from-purple-500 to-pink-500" });
   const [error, setError] = useState("");
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [activeTab, setActiveTab] = useState<"my" | "all">("my");
@@ -71,6 +71,11 @@ export default function AdminDashboard() {
     e.preventDefault();
     setError("");
     if (!form.title.trim()) return setError("Course title is required.");
+    if (!form.instructor.trim()) return setError("Instructor name is required.");
+    // Instructor's registered email is mandatory — it identifies the instructor's
+    // account (same email they log in with) so lesson Q&A can reach them.
+    if (!form.instructorEmail.trim()) return setError("Instructor register email is required.");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.instructorEmail.trim())) return setError("Please enter a valid instructor email.");
     setCreating(true);
     try {
       const res = await fetch("/api/admin/courses", {
@@ -82,7 +87,7 @@ export default function AdminDashboard() {
       if (!data.success) return setError(data.message || "Failed to create course.");
       setCourses(prev => [data.course, ...prev]);
       setShowModal(false);
-      setForm({ title: "", subtitle: "", category: "Web Dev", instructor: "", color: "from-purple-500 to-pink-500" });
+      setForm({ title: "", subtitle: "", category: "Web Dev", instructor: "", instructorEmail: "", color: "from-purple-500 to-pink-500" });
     } catch {
       setError("Something went wrong.");
     } finally {
@@ -252,12 +257,13 @@ export default function AdminDashboard() {
                 {[
                   { label: "Course Title *", key: "title", placeholder: "e.g. Complete React Course" },
                   { label: "Short Description", key: "subtitle", placeholder: "e.g. Learn React from scratch" },
-                  { label: "Instructor Name", key: "instructor", placeholder: "e.g. John Doe" },
-                ].map(({ label, key, placeholder }) => (
+                  { label: "Instructor Name *", key: "instructor", placeholder: "e.g. John Doe" },
+                  { label: "Instructor Register Email *", key: "instructorEmail", placeholder: "instructor's login email", type: "email" },
+                ].map(({ label, key, placeholder, type }) => (
                   <div key={key}>
                     <label className="text-xs font-semibold text-slate-300 block mb-1.5">{label}</label>
                     <input
-                      type="text"
+                      type={type || "text"}
                       placeholder={placeholder}
                       value={form[key as keyof typeof form]}
                       onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))}

@@ -561,3 +561,81 @@ export async function notifyCustom(opts: {
     idempotencyKey: opts.idempotencyKey,
   });
 }
+
+// ═══════════════════════════════════════════════════════
+// LESSON Q&A CHAT HELPERS
+// ═══════════════════════════════════════════════════════
+
+/**
+ * Notify: A student asked a doubt on a lesson → alert the course instructor.
+ * `instructorUserId` is resolved by the caller (via Course.instructorEmail →
+ * User.email). One notification per chat message (messageId-based key).
+ */
+export async function notifyLessonQuestion(opts: {
+  instructorUserId: string;
+  lessonId: string;
+  courseId: string;
+  messageId: string;
+  studentName: string;
+  lessonTitle?: string;
+  courseTitle?: string;
+  preview: string; // short snippet of the question text
+}) {
+  const where = [opts.courseTitle, opts.lessonTitle].filter(Boolean).join(" › ");
+  return createNotification({
+    userId: opts.instructorUserId,
+    type: "lesson_question",
+    category: "course",
+    priority: "HIGH",
+    title: "New Lesson Question 💬",
+    body: where
+      ? `${opts.studentName} asked a question in ${where}: "${opts.preview}"`
+      : `${opts.studentName} asked a question: "${opts.preview}"`,
+    metadata: {
+      lessonId: opts.lessonId,
+      courseId: opts.courseId,
+      messageId: opts.messageId,
+      studentName: opts.studentName,
+      lessonTitle: opts.lessonTitle ?? null,
+      courseTitle: opts.courseTitle ?? null,
+    },
+    action: { type: "deeplink", target: `/lesson/${opts.lessonId}` },
+    idempotencyKey: `lesson_question:${opts.messageId}`,
+  });
+}
+
+/**
+ * Notify: The instructor replied on a lesson → alert one enrolled student.
+ * Bulk delivery = call this per enrolled student. One notification per
+ * (message, student) pair so each reply notifies each student at most once.
+ */
+export async function notifyLessonAnswer(opts: {
+  userId: string; // the enrolled student to notify
+  lessonId: string;
+  courseId: string;
+  messageId: string;
+  lessonTitle?: string;
+  courseTitle?: string;
+  preview: string; // short snippet of the instructor's reply
+}) {
+  const where = [opts.courseTitle, opts.lessonTitle].filter(Boolean).join(" › ");
+  return createNotification({
+    userId: opts.userId,
+    type: "lesson_answer",
+    category: "course",
+    priority: "NORMAL",
+    title: "Instructor Replied 💬",
+    body: where
+      ? `Your instructor replied in ${where}: "${opts.preview}"`
+      : `Your instructor replied: "${opts.preview}"`,
+    metadata: {
+      lessonId: opts.lessonId,
+      courseId: opts.courseId,
+      messageId: opts.messageId,
+      lessonTitle: opts.lessonTitle ?? null,
+      courseTitle: opts.courseTitle ?? null,
+    },
+    action: { type: "deeplink", target: `/lesson/${opts.lessonId}` },
+    idempotencyKey: `lesson_answer:${opts.messageId}:${opts.userId}`,
+  });
+}

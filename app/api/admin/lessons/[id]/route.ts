@@ -25,12 +25,20 @@ export async function PATCH(
     }
 
     // Only allow safe fields to be updated
-    const allowedFields = ["quizPdfUrl", "exercisePdfUrl"];
+    const allowedFields = ["quizPdfUrl", "exercisePdfUrl", "title"];
     const updateData: Record<string, string> = {};
     for (const field of allowedFields) {
       if (field in body && typeof body[field] === "string") {
         updateData[field] = body[field];
       }
+    }
+
+    // Title (when provided) is trimmed and must not be empty — a lesson always
+    // needs a name. URL fields keep their existing pass-through behaviour.
+    if ("title" in updateData) {
+      const trimmed = updateData.title.trim();
+      if (!trimmed) return apiError(400, "Lesson title cannot be empty.");
+      updateData.title = trimmed;
     }
 
     if (Object.keys(updateData).length === 0) {

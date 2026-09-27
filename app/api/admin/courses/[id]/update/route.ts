@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
+import { isValidEmail } from "@/app/lib/validation";
 
 /**
  * POST /api/admin/courses/[id]/update
@@ -35,6 +36,7 @@ export async function POST(
       subtitle,
       category,
       instructor,
+      instructorEmail,
       institute,
       totalHours,
       totalVideos,
@@ -53,6 +55,16 @@ export async function POST(
     if (subtitle !== undefined) updateData.subtitle = subtitle.trim();
     if (category !== undefined) updateData.category = category.trim();
     if (instructor !== undefined) updateData.instructor = instructor.trim();
+    if (instructorEmail !== undefined) {
+      // Instructor email stays required on edit too — must be a valid email.
+      if (!instructorEmail?.trim()) {
+        return apiError(400, "Instructor register email is required.");
+      }
+      if (!isValidEmail(instructorEmail)) {
+        return apiError(400, "Invalid instructor email format.");
+      }
+      updateData.instructorEmail = instructorEmail.trim().toLowerCase();
+    }
     if (institute !== undefined) updateData.institute = institute.trim();
     if (totalHours !== undefined) {
       const parsedHours = parseInt(totalHours);
@@ -121,6 +133,7 @@ export async function POST(
         subtitle: updatedCourse.subtitle,
         category: updatedCourse.category,
         instructor: updatedCourse.instructor,
+        instructorEmail: updatedCourse.instructorEmail,
         institute: updatedCourse.institute,
         totalHours: updatedCourse.totalHours,
         totalVideos: updatedCourse.totalVideos,

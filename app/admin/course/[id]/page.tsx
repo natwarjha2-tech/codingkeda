@@ -4,7 +4,7 @@ import { useRouter, useParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft, Plus, ChevronDown, ChevronUp, FileVideo, FileText,
-  X, Loader2, Upload, Check, Play, Eye, Trash2
+  X, Loader2, Upload, Check, Play, Eye, Trash2, Pencil
 } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import EditQuizModal from "./EditQuizModal";
@@ -36,6 +36,8 @@ interface Course {
   title: string;
   subtitle: string;
   category: string;
+  instructor?: string;
+  instructorEmail?: string;
   color: string;
   modules: Module[];
 }
@@ -53,6 +55,14 @@ export default function ManageCoursePage() {
   const [showModuleModal, setShowModuleModal] = useState(false);
   const [moduleName, setModuleName] = useState("");
   const [creatingModule, setCreatingModule] = useState(false);
+
+  // Edit Course modal
+  const [showEditCourse, setShowEditCourse] = useState(false);
+  const [savingCourse, setSavingCourse] = useState(false);
+  const [editCourseError, setEditCourseError] = useState("");
+  const [editCourseForm, setEditCourseForm] = useState({
+    title: "", subtitle: "", category: "", instructor: "", instructorEmail: "",
+  });
 
   // Lesson modal
   const [showLessonModal, setShowLessonModal] = useState(false);
@@ -158,6 +168,14 @@ export default function ManageCoursePage() {
   // Delete states
   const [deletingModuleId, setDeletingModuleId] = useState<string | null>(null);
   const [deletingLessonId, setDeletingLessonId] = useState<string | null>(null);
+  // Module rename (inline edit) states
+  const [editingModuleId, setEditingModuleId] = useState<string | null>(null);
+  const [editingModuleName, setEditingModuleName] = useState("");
+  const [savingModuleId, setSavingModuleId] = useState<string | null>(null);
+  // Lesson rename (inline edit) states
+  const [editingLessonId, setEditingLessonId] = useState<string | null>(null);
+  const [editingLessonName, setEditingLessonName] = useState("");
+  const [savingLessonId, setSavingLessonId] = useState<string | null>(null);
   // Study-material multi-upload in progress for a given module (shows a spinner
   // on that module's Upload Material button while its files are uploading).
   const [uploadingMaterialModuleId, setUploadingMaterialModuleId] = useState<string | null>(null);
@@ -909,6 +927,43 @@ export default function ManageCoursePage() {
     setStreakCreating(false);
   };
 
+  // ── Rename Module (inline edit) ──
+  const startEditModule = (moduleId: string, currentTitle: string) => {
+    setEditingModuleId(moduleId);
+    setEditingModuleName(currentTitle);
+  };
+
+  const cancelEditModule = () => {
+    setEditingModuleId(null);
+    setEditingModuleName("");
+  };
+
+  const handleSaveModule = async (moduleId: string) => {
+    const newTitle = editingModuleName.trim();
+    if (!newTitle) { alert("⚠️ Module title cannot be empty."); return; }
+    setSavingModuleId(moduleId);
+    try {
+      const res = await fetch(`/api/admin/modules/${moduleId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ title: newTitle }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCourse(prev => prev ? {
+          ...prev,
+          modules: prev.modules.map(m => m.id === moduleId ? { ...m, title: newTitle } : m),
+        } : prev);
+        cancelEditModule();
+      } else {
+        alert(`⚠️ ${data.message || "Failed to update module."}`);
+      }
+    } catch {
+      alert("⚠️ Something went wrong.");
+    }
+    setSavingModuleId(null);
+  };
+
   // ── Delete Module ──
   const handleDeleteModule = async (moduleId: string, moduleTitle: string) => {
     if (!confirm(`Are you sure you want to delete module "${moduleTitle}" and ALL its lessons? This cannot be undone.`)) return;
@@ -928,6 +983,45 @@ export default function ManageCoursePage() {
       alert("⚠️ Something went wrong.");
     }
     setDeletingModuleId(null);
+  };
+
+  // ── Rename Lesson (inline edit) ──
+  const startEditLesson = (lessonId: string, currentTitle: string) => {
+    setEditingLessonId(lessonId);
+    setEditingLessonName(currentTitle);
+  };
+
+  const cancelEditLesson = () => {
+    setEditingLessonId(null);
+    setEditingLessonName("");
+  };
+
+  const handleSaveLesson = async (lessonId: string, moduleId: string) => {
+    const newTitle = editingLessonName.trim();
+    if (!newTitle) { alert("⚠️ Lesson title cannot be empty."); return; }
+    setSavingLessonId(lessonId);
+    try {
+      const res = await fetch(`/api/admin/lessons/${lessonId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ title: newTitle }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCourse(prev => prev ? {
+          ...prev,
+          modules: prev.modules.map(m => m.id === moduleId
+            ? { ...m, lessons: m.lessons.map(l => l.id === lessonId ? { ...l, title: newTitle } : l) }
+            : m),
+        } : prev);
+        cancelEditLesson();
+      } else {
+        alert(`⚠️ ${data.message || "Failed to update lesson."}`);
+      }
+    } catch {
+      alert("⚠️ Something went wrong.");
+    }
+    setSavingLessonId(null);
   };
 
   // ── Delete Lesson ──
@@ -952,6 +1046,62 @@ export default function ManageCoursePage() {
       alert("⚠️ Something went wrong.");
     }
     setDeletingLessonId(null);
+  };
+
+  // ── Edit Course (details) ──
+  const openEditCourse = () => {
+    if (!course) return;
+    setEditCourseError("");
+    setEditCourseForm({
+      title: course.title || "",
+      subtitle: course.subtitle || "",
+      category: course.category || "",
+      instructor: course.instructor || "",
+      instructorEmail: course.instructorEmail || "",
+    });
+    setShowEditCourse(true);
+  };
+
+  const handleSaveCourse = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEditCourseError("");
+    if (!editCourseForm.title.trim()) return setEditCourseError("Course title is required.");
+    if (!editCourseForm.instructor.trim()) return setEditCourseError("Instructor name is required.");
+    // Instructor's registered email is mandatory — identifies the instructor's
+    // account (same email they log in with) for lesson Q&A routing.
+    if (!editCourseForm.instructorEmail.trim()) return setEditCourseError("Instructor register email is required.");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(editCourseForm.instructorEmail.trim())) return setEditCourseError("Please enter a valid instructor email.");
+    setSavingCourse(true);
+    try {
+      const res = await fetch(`/api/admin/courses/${courseId}/update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({
+          title: editCourseForm.title.trim(),
+          subtitle: editCourseForm.subtitle.trim(),
+          category: editCourseForm.category.trim(),
+          instructor: editCourseForm.instructor.trim(),
+          instructorEmail: editCourseForm.instructorEmail.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCourse(prev => prev ? {
+          ...prev,
+          title: editCourseForm.title.trim(),
+          subtitle: editCourseForm.subtitle.trim(),
+          category: editCourseForm.category.trim(),
+          instructor: editCourseForm.instructor.trim(),
+          instructorEmail: editCourseForm.instructorEmail.trim().toLowerCase(),
+        } : prev);
+        setShowEditCourse(false);
+      } else {
+        setEditCourseError(data.message || "Failed to update course.");
+      }
+    } catch {
+      setEditCourseError("Something went wrong.");
+    }
+    setSavingCourse(false);
   };
 
   // ── Delete Course ──
@@ -1011,11 +1161,21 @@ export default function ManageCoursePage() {
               </span>
               <h1 className="text-2xl font-extrabold text-white mb-1">{course.title}</h1>
               <p className="text-white/70 text-sm">{course.subtitle || "No description"}</p>
+              {course.instructor || course.instructorEmail ? (
+                <p className="text-white/60 text-xs mt-2">
+                  Instructor: <span className="text-white/80 font-semibold">{course.instructor || "—"}</span>
+                  {course.instructorEmail ? <span className="text-white/50"> · {course.instructorEmail}</span> : null}
+                </p>
+              ) : null}
               <div className="flex items-center gap-4 mt-3 text-white/60 text-xs">
                 <span>{course.modules.length} modules</span>
                 <span>{course.modules.reduce((a, m) => a + m.lessons.length, 0)} lessons</span>
+                <button onClick={openEditCourse}
+                  className="ml-auto flex items-center gap-1 text-white hover:text-white bg-white/15 hover:bg-white/25 px-3 py-1 rounded-lg transition-colors text-xs font-semibold">
+                  <Pencil size={12} /> Edit Course
+                </button>
                 <button onClick={handleDeleteCourse}
-                  className="ml-auto flex items-center gap-1 text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 px-3 py-1 rounded-lg transition-colors text-xs font-semibold">
+                  className="flex items-center gap-1 text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 px-3 py-1 rounded-lg transition-colors text-xs font-semibold">
                   <Trash2 size={12} /> Delete Course
                 </button>
               </div>
@@ -1049,18 +1209,51 @@ export default function ManageCoursePage() {
                   {/* Module Header */}
                   <button onClick={() => toggleModule(mod.id)}
                     className="w-full flex items-center justify-between px-6 py-4 hover:bg-white/5 transition-colors">
-                    <div className="flex items-center gap-3">
-                      <span className="w-7 h-7 rounded-lg bg-purple-500/20 border border-purple-500/30 text-purple-400 text-xs font-bold flex items-center justify-center">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <span className="w-7 h-7 rounded-lg bg-purple-500/20 border border-purple-500/30 text-purple-400 text-xs font-bold flex items-center justify-center shrink-0">
                         {mi + 1}
                       </span>
-                      <span className="text-white font-semibold">{mod.title}</span>
-                      <span className="text-slate-500 text-xs">{mod.lessons.length} lessons</span>
+                      {editingModuleId === mod.id ? (
+                        <input
+                          autoFocus
+                          value={editingModuleName}
+                          onChange={(e) => setEditingModuleName(e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") { e.preventDefault(); handleSaveModule(mod.id); }
+                            if (e.key === "Escape") { e.preventDefault(); cancelEditModule(); }
+                          }}
+                          className="flex-1 min-w-0 bg-white/5 border border-purple-500/50 focus:border-purple-500 rounded-lg px-3 py-1.5 text-white text-sm font-semibold outline-none"
+                        />
+                      ) : (
+                        <span className="text-white font-semibold truncate">{mod.title}</span>
+                      )}
+                      <span className="text-slate-500 text-xs shrink-0">{mod.lessons.length} lessons</span>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span onClick={(e) => { e.stopPropagation(); handleDeleteModule(mod.id, mod.title); }}
-                        className="w-7 h-7 rounded-lg flex items-center justify-center text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors cursor-pointer">
-                        {deletingModuleId === mod.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
-                      </span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {editingModuleId === mod.id ? (
+                        <>
+                          <span onClick={(e) => { e.stopPropagation(); handleSaveModule(mod.id); }}
+                            className="w-7 h-7 rounded-lg flex items-center justify-center text-green-400 hover:text-green-300 hover:bg-green-500/10 transition-colors cursor-pointer">
+                            {savingModuleId === mod.id ? <Loader2 size={13} className="animate-spin" /> : <Check size={14} />}
+                          </span>
+                          <span onClick={(e) => { e.stopPropagation(); cancelEditModule(); }}
+                            className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-200 hover:bg-white/10 transition-colors cursor-pointer">
+                            <X size={14} />
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span onClick={(e) => { e.stopPropagation(); startEditModule(mod.id, mod.title); }}
+                            className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-purple-300 hover:bg-purple-500/10 transition-colors cursor-pointer">
+                            <Pencil size={13} />
+                          </span>
+                          <span onClick={(e) => { e.stopPropagation(); handleDeleteModule(mod.id, mod.title); }}
+                            className="w-7 h-7 rounded-lg flex items-center justify-center text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors cursor-pointer">
+                            {deletingModuleId === mod.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                          </span>
+                        </>
+                      )}
                       {expandedModules.has(mod.id) ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
                     </div>
                   </button>
@@ -1086,12 +1279,44 @@ export default function ManageCoursePage() {
                               {mod.lessons.map((lesson, li) => (
                                 <div key={lesson.id}
                                   className="flex items-center justify-between bg-white/5 rounded-xl px-4 py-3">
-                                  <div className="flex items-center gap-3">
-                                    <span className="text-slate-500 text-xs w-5">{li + 1}.</span>
-                                    <span className="text-white text-sm font-medium">{lesson.title}</span>
-                                    {lesson.videoUrl && <FileVideo size={13} className="text-purple-400" />}
-                                    {lesson.notes && <FileText size={13} className="text-pink-400" />}
+                                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                                    <span className="text-slate-500 text-xs w-5 shrink-0">{li + 1}.</span>
+                                    {editingLessonId === lesson.id ? (
+                                      <input
+                                        autoFocus
+                                        value={editingLessonName}
+                                        onChange={(e) => setEditingLessonName(e.target.value)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter") { e.preventDefault(); handleSaveLesson(lesson.id, mod.id); }
+                                          if (e.key === "Escape") { e.preventDefault(); cancelEditLesson(); }
+                                        }}
+                                        className="flex-1 min-w-0 bg-white/5 border border-purple-500/50 focus:border-purple-500 rounded-lg px-3 py-1 text-white text-sm font-medium outline-none"
+                                      />
+                                    ) : (
+                                      <>
+                                        <span className="text-white text-sm font-medium truncate">{lesson.title}</span>
+                                        <button onClick={() => startEditLesson(lesson.id, lesson.title)}
+                                          className="shrink-0 text-slate-400 hover:text-purple-300 hover:bg-purple-500/10 rounded p-1 transition-colors"
+                                          title="Rename lesson">
+                                          <Pencil size={12} />
+                                        </button>
+                                      </>
+                                    )}
+                                    {lesson.videoUrl && <FileVideo size={13} className="text-purple-400 shrink-0" />}
+                                    {lesson.notes && <FileText size={13} className="text-pink-400 shrink-0" />}
                                   </div>
+                                  {editingLessonId === lesson.id ? (
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <button onClick={() => handleSaveLesson(lesson.id, mod.id)}
+                                      className="flex items-center gap-1 text-xs text-green-400 hover:text-green-300 bg-green-500/10 px-2 py-1 rounded-lg transition-colors">
+                                      {savingLessonId === lesson.id ? <Loader2 size={11} className="animate-spin" /> : <Check size={12} />} Save
+                                    </button>
+                                    <button onClick={cancelEditLesson}
+                                      className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 bg-white/5 hover:bg-white/10 px-2 py-1 rounded-lg transition-colors">
+                                      <X size={12} /> Cancel
+                                    </button>
+                                  </div>
+                                  ) : (
                                   <div className="flex items-center gap-2">
                                     {lesson.videoUrl && (
                                       <button onClick={() => handlePreviewVideo(lesson.videoUrl)}
@@ -1128,6 +1353,7 @@ export default function ManageCoursePage() {
                                       {deletingLessonId === lesson.id ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
                                     </button>
                                   </div>
+                                  )}
                                 </div>
                               ))}
                             </div>
@@ -1279,6 +1505,67 @@ export default function ManageCoursePage() {
                     className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-60 flex items-center justify-center gap-2"
                     style={{ background: "linear-gradient(135deg,#7c3aed,#ec4899)" }}>
                     {creatingModule ? <><Loader2 size={14} className="animate-spin" /> Adding...</> : "Add Module"}
+                  </motion.button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Edit Course Modal */}
+      <AnimatePresence>
+        {showEditCourse && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6 overflow-y-auto"
+            style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(10px)" }}
+            onClick={e => e.target === e.currentTarget && setShowEditCourse(false)}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.92, y: 20 }}
+              className="w-full max-w-sm rounded-2xl p-7 relative my-auto"
+              style={{ background: "linear-gradient(145deg,#0f0a1e,#16213e)", border: "1px solid rgba(124,58,237,0.25)", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" }}>
+              <button onClick={() => setShowEditCourse(false)}
+                className="absolute top-4 right-4 w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-all">
+                <X size={14} />
+              </button>
+              <h3 className="text-xl font-extrabold text-white mb-1">Edit Course</h3>
+              <p className="text-slate-400 text-sm mb-6">Update course details</p>
+
+              {editCourseError && (
+                <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-xs px-4 py-3 rounded-xl mb-4">⚠️ {editCourseError}</div>
+              )}
+
+              <form onSubmit={handleSaveCourse} className="space-y-4">
+                {[
+                  { label: "Course Title *", key: "title", placeholder: "e.g. Complete React Course" },
+                  { label: "Short Description", key: "subtitle", placeholder: "e.g. Learn React from scratch" },
+                  { label: "Category", key: "category", placeholder: "e.g. Programming" },
+                  { label: "Instructor Name *", key: "instructor", placeholder: "e.g. John Doe" },
+                  { label: "Instructor Register Email *", key: "instructorEmail", placeholder: "instructor's login email", type: "email" },
+                ].map(({ label, key, placeholder, type }) => (
+                  <div key={key}>
+                    <label className="text-xs font-semibold text-slate-300 block mb-1.5">{label}</label>
+                    <input
+                      type={type || "text"}
+                      placeholder={placeholder}
+                      value={editCourseForm[key as keyof typeof editCourseForm]}
+                      onChange={e => setEditCourseForm(p => ({ ...p, [key]: e.target.value }))}
+                      className="w-full bg-white/5 border border-white/10 focus:border-purple-500 rounded-xl px-4 py-2.5 text-white text-sm outline-none transition-colors placeholder:text-slate-500"
+                    />
+                  </div>
+                ))}
+                <div className="flex gap-3 pt-1">
+                  <button type="button" onClick={() => setShowEditCourse(false)}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-slate-300 bg-white/5 hover:bg-white/10 transition-colors">
+                    Cancel
+                  </button>
+                  <motion.button type="submit" disabled={savingCourse}
+                    whileHover={!savingCourse ? { scale: 1.02 } : {}}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-60 flex items-center justify-center gap-2"
+                    style={{ background: "linear-gradient(135deg,#7c3aed,#ec4899)" }}>
+                    {savingCourse ? <><Loader2 size={14} className="animate-spin" /> Saving...</> : "Save Changes"}
                   </motion.button>
                 </div>
               </form>

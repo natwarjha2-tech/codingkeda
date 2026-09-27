@@ -79,6 +79,15 @@ export async function parseBody<T>(
 /** Email validation schema */
 export const emailSchema = z.string().email("Invalid email format.").max(255);
 
+/**
+ * Quick boolean email-format check (reuses `emailSchema`).
+ * For routes that do manual (non-Zod) validation — avoids duplicating an
+ * email regex. Trims before checking so leading/trailing spaces don't fail.
+ */
+export function isValidEmail(email: string): boolean {
+  return emailSchema.safeParse((email ?? "").trim()).success;
+}
+
 /** Password schema (length only — use validatePassword() for full strength check) */
 export const passwordSchema = z.string().min(8, "Password must be at least 8 characters.").max(128);
 

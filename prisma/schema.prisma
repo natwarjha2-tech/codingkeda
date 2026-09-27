@@ -57,12 +57,13 @@ model Referral {
 }
 
 model Course {
-  id          String       @id @default(uuid())
-  title       String
-  subtitle    String
-  category    String
-  instructor  String
-  institute   String
+  id              String       @id @default(uuid())
+  title           String
+  subtitle        String
+  category        String
+  instructor      String
+  instructorEmail String       @default("") // Instructor's registered login email — used to route lesson Q&A notifications to the correct instructor. Default "" keeps existing courses valid; required for new/edited courses via API validation.
+  institute       String
   students    Int          @default(0)
   rating      Float        @default(0)
   totalHours  Int
@@ -491,6 +492,26 @@ model ModuleMaterial {
   module    Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
 
   @@index([moduleId])
+}
+
+// Lesson-level group Q&A chat: students of a course ask doubts on a specific
+// lesson; the course's instructor replies. Shared thread per lesson (not 1:1).
+// Follows the same "plain String lessonId/courseId (no FK relation)" convention
+// used by Achievement / WeeklyStreak / CoinTransaction so no existing model is
+// touched. courseId is denormalized for fast enrolled-students / instructor lookup.
+model LessonChatMessage {
+  id         String   @id @default(uuid())
+  lessonId   String
+  courseId   String
+  senderId   String // User.id of the sender
+  senderRole String // "student" | "instructor"
+  text       String
+  parentId   String? // optional reply threading (id of the message being replied to)
+  createdAt  DateTime @default(now())
+
+  @@index([lessonId, createdAt])
+  @@index([courseId])
+  @@index([senderId])
 }
 
 model EmailOtp {

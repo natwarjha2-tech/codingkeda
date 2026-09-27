@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
+import { isValidEmail } from "@/app/lib/validation";
 
 /**
  * GET /api/admin/courses
@@ -45,6 +46,7 @@ export async function POST(req: NextRequest) {
       subtitle,
       category,
       instructor,
+      instructorEmail,
       institute,
       totalHours,
       totalVideos,
@@ -56,6 +58,15 @@ export async function POST(req: NextRequest) {
     // Required fields validation
     if (!title?.trim() || !subtitle?.trim() || !category?.trim() || !instructor?.trim()) {
       return apiError(400, "title, subtitle, category and instructor are required.");
+    }
+
+    // Instructor's registered email is required — it identifies the instructor's
+    // account so lesson Q&A questions can be routed to the correct instructor.
+    if (!instructorEmail?.trim()) {
+      return apiError(400, "Instructor register email is required.");
+    }
+    if (!isValidEmail(instructorEmail)) {
+      return apiError(400, "Invalid instructor email format.");
     }
 
     const parsedHours = parseInt(totalHours ?? "0");
@@ -71,6 +82,7 @@ export async function POST(req: NextRequest) {
         subtitle: subtitle.trim(),
         category: category.trim(),
         instructor: instructor.trim(),
+        instructorEmail: instructorEmail.trim().toLowerCase(),
         institute: institute?.trim() || "",
         totalHours: parsedHours,
         totalVideos: parsedVideos,

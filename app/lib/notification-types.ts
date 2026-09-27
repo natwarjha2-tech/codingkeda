@@ -28,6 +28,9 @@ export const NOTIF_TYPES = {
   COUPON_REDEEMED: "coupon_redeemed",   // #18
   WELCOME: "welcome",                   // #19
   DOWNLOAD_EXPIRING: "download_expiring", // #17 (mobile client-side local)
+  // ── Lesson Q&A chat ──
+  LESSON_QUESTION: "lesson_question",   // student asked a doubt → notify course instructor
+  LESSON_ANSWER: "lesson_answer",       // instructor replied → notify enrolled students
 } as const;
 
 export type NotifType = (typeof NOTIF_TYPES)[keyof typeof NOTIF_TYPES];

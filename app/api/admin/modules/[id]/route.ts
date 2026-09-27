@@ -5,6 +5,40 @@ import { apiSuccess, apiError } from "@/app/lib/response";
 import { deleteS3Prefix, deleteFromS3, getS3KeyFromUrl } from "@/app/lib/s3";
 
 /**
+ * PATCH /api/admin/modules/[id]
+ * Rename a module (update its title). Content/lessons are untouched.
+ * Requires admin authentication.
+ */
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { error } = requireAdmin(req);
+    if (error) return error;
+
+    const { id } = await params;
+    if (!id) return apiError(400, "Module ID is required.");
+
+    const { title } = await req.json();
+    if (!title?.trim()) return apiError(400, "Module title is required.");
+
+    const mod = await prisma.module.findUnique({ where: { id } });
+    if (!mod) return apiError(404, "Module not found.");
+
+    const module = await prisma.module.update({
+      where: { id },
+      data: { title: title.trim() },
+    });
+
+    return apiSuccess({ message: "Module updated successfully.", module });
+  } catch (err) {
+    console.error("Update module error:", err);
+    return apiError(500, "Internal server error.");
+  }
+}
+
+/**
  * DELETE /api/admin/modules/[id]
  * Permanently delete a module and all its related data:
  * - DB: lessons (cascade: quizzes, exercises, progress, homework), weeklyStreaks, achievements, coinTransactions, media
