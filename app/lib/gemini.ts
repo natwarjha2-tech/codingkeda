@@ -127,6 +127,110 @@ export function isGeminiConfigured(): boolean {
   return !!GEMINI_API_KEY;
 }
 
+// ---------------------------------------------------------------------------
+// Embeddings (for RAG / semantic search over study material)
+// ---------------------------------------------------------------------------
+
+// Gemini embedding model. gemini-embedding-001 defaults to 3072 dims but
+// supports a configurable output size; we request 768 to match the
+// MaterialChunk.embedding vector(768) column. If you ever change EMBED_DIM,
+// update the DB column dimension (migration) to match.
+export const EMBED_MODEL = "gemini-embedding-001";
+export const EMBED_DIM = 768;
+
+/**
+ * Embed a single piece of text into a 768-dim vector.
+ *
+ * - `taskType` tunes the embedding: use "RETRIEVAL_DOCUMENT" when indexing
+ *   study material, and "RETRIEVAL_QUERY" when embedding a student's question.
+ *   Matching the task types improves retrieval quality.
+ * - Returns null on failure (never throws) so callers can degrade gracefully.
+ */
+export async function embedText(
+  text: string,
+  taskType: "RETRIEVAL_DOCUMENT" | "RETRIEVAL_QUERY" = "RETRIEVAL_QUERY",
+  maxRetries = 3
+): Promise<number[] | null> {
+  if (!GEMINI_API_KEY) return null;
+  const clean = (text || "").trim();
+  if (!clean) return null;
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${EMBED_MODEL}:embedContent?key=${GEMINI_API_KEY}`;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: `models/${EMBED_MODEL}`,
+          content: { parts: [{ text: clean }] },
+          taskType,
+          // Request 768 dims so vectors fit the vector(768) DB column.
+          outputDimensionality: EMBED_DIM,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const values: number[] | undefined = data?.embedding?.values;
+        if (Array.isArray(values) && values.length === EMBED_DIM) {
+          // gemini-embedding-001 does NOT normalize when a reduced
+          // outputDimensionality is requested, so we L2-normalize here to make
+          // cosine similarity (pgvector <=>) behave correctly.
+          return l2Normalize(values);
+        }
+        // Unexpected shape — don't retry, it won't fix itself.
+        return null;
+      }
+
+      if (res.status === 429) {
+        await sleep(attempt * 2000); // rate limited — back off
+        continue;
+      }
+      if (res.status === 503 || res.status === 500) {
+        await sleep(attempt * 1500); // transient — retry
+        continue;
+      }
+      // 4xx other than 429 — won't succeed on retry.
+      return null;
+    } catch {
+      if (attempt < maxRetries) {
+        await sleep(attempt * 1500);
+        continue;
+      }
+      return null;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Embed many texts sequentially (keeps us under free-tier rate limits).
+ * Returns an array aligned with the input; failed items are null.
+ */
+export async function embedTexts(
+  texts: string[],
+  taskType: "RETRIEVAL_DOCUMENT" | "RETRIEVAL_QUERY" = "RETRIEVAL_DOCUMENT"
+): Promise<(number[] | null)[]> {
+  const out: (number[] | null)[] = [];
+  for (const t of texts) {
+    out.push(await embedText(t, taskType));
+    await sleep(150); // gentle pacing for the free tier
+  }
+  return out;
+}
+
+/** L2-normalize a vector so cosine distance equals dot-product distance. */
+function l2Normalize(vec: number[]): number[] {
+  let sum = 0;
+  for (const v of vec) sum += v * v;
+  const norm = Math.sqrt(sum);
+  if (norm === 0) return vec;
+  return vec.map((v) => v / norm);
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }

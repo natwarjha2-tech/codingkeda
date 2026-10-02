@@ -1,10 +1,12 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
 }
 
 model User {
@@ -492,6 +494,28 @@ model ModuleMaterial {
   module    Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
 
   @@index([moduleId])
+}
+
+// RAG store: study material split into small chunks, each with a Gemini
+// embedding vector (text-embedding-004 => 768 dims). The AI mentor searches
+// these by vector similarity and answers ONLY from the matched chunks.
+// `embedding` is a pgvector column — Prisma has no native type, so it is
+// declared Unsupported and queried via raw SQL. The vector index + extension
+// are created in the accompanying SQL migration.
+model MaterialChunk {
+  id         String   @id @default(uuid())
+  // Where this chunk came from (for citations + re-indexing / cleanup).
+  sourceType String // "lesson_notes" | "lesson_ppt" | "module_material"
+  sourceId   String // Lesson.id or ModuleMaterial.id
+  courseId   String? // optional: scope search to a course/subject
+  title      String   @default("") // human-readable source label
+  chunkIndex Int      @default(0) // order within the source document
+  content    String // the chunk text (what gets fed to Gemini)
+  embedding  Unsupported("vector(768)")?
+  createdAt  DateTime @default(now())
+
+  @@index([sourceType, sourceId])
+  @@index([courseId])
 }
 
 // Lesson-level group Q&A chat: students of a course ask doubts on a specific

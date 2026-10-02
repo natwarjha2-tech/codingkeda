@@ -4,6 +4,7 @@ import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { callGemini, isGeminiConfigured } from "@/app/lib/gemini";
 import { getSignedFileUrlFromUrl, getS3KeyFromUrl } from "@/app/lib/s3";
+import { searchChunks } from "@/app/lib/rag";
 import { logger } from "@/app/lib/logger";
 
 /**
@@ -24,6 +25,75 @@ export async function POST(req: NextRequest) {
 
     if (!question?.trim()) {
       return apiError(400, "Question is required.");
+    }
+
+    // ----------------------------------------------------------------------
+    // RAG FIRST: try to answer from the student's own study material.
+    // If relevant chunks are found, Coco answers STRICTLY from them (kid-
+    // friendly). If nothing relevant is found, we fall through to the normal
+    // Gemini mentor below so the student still gets a helpful answer.
+    // ----------------------------------------------------------------------
+    try {
+      // In lesson mode, scope the search to that lesson's course so answers
+      // stay on-subject; in general mode, search across all material.
+      let ragCourseId: string | null = null;
+      if (mode === "lesson" && lessonId) {
+        const l = await prisma.lesson.findUnique({
+          where: { id: lessonId },
+          select: { module: { select: { courseId: true } } },
+        });
+        ragCourseId = l?.module?.courseId ?? null;
+      }
+
+      const matches = await searchChunks(question.trim(), {
+        topK: 5,
+        courseId: ragCourseId,
+        maxDistance: 0.5, // only confident matches count as "in the material"
+      });
+
+      if (matches.length > 0) {
+        const material = matches
+          .map((m, i) => `[Source ${i + 1}: ${m.title}]\n${m.content}`)
+          .join("\n\n---\n\n");
+
+        const ragPrompt = `You are Coco, the friendly AI mentor inside the CodingKida learning app for kids.
+
+Answer the student's question using ONLY the study material provided below.
+Rules:
+1. Use ONLY facts from the study material. Do NOT add outside knowledge.
+2. Explain simply and warmly, like talking to a curious child. Short sentences.
+3. If helpful, include a small, correct code example drawn from the material.
+4. Reply in the SAME language the student used (English stays English, Hinglish stays Hinglish).
+5. If the material does not actually contain the answer, reply EXACTLY:
+"NOT_IN_MATERIAL"
+
+STUDY MATERIAL:
+${material}
+
+Student's question: ${question.trim()}`;
+
+        const ragAnswer = await callGemini(ragPrompt, {
+          temperature: 0.4,
+          maxOutputTokens: 2048,
+        });
+
+        // Only use the material-grounded answer if the model actually found it
+        // in the material (otherwise fall through to the general mentor).
+        if (ragAnswer && !ragAnswer.includes("NOT_IN_MATERIAL")) {
+          logger.success("ai-mentor", "rag_answer", {
+            userId: user!.userId,
+            mode,
+            chunks: matches.length,
+          });
+          return apiSuccess({ answer: ragAnswer, source: "study_material" });
+        }
+      }
+    } catch (ragErr) {
+      // RAG is best-effort; never block the student if it fails.
+      logger.warn("ai-mentor", "rag_failed", {
+        userId: user!.userId,
+        error: (ragErr as Error)?.message,
+      });
     }
 
     // Build context based on mode
