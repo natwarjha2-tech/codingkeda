@@ -309,7 +309,10 @@ Your explanation:`;
           try {
             for await (const piece of callGeminiStream(prompt, {
               temperature: 0.5,
-              maxOutputTokens: 400,
+              // Hindi (Devanagari) uses several tokens per character, so a low
+              // cap truncates the answer mid-sentence. 1024 gives it room to
+              // finish while still being a short, kid-friendly explanation.
+              maxOutputTokens: 1024,
             })) {
               full += piece;
               send({ type: "text", chunk: piece });
@@ -323,7 +326,7 @@ Your explanation:`;
           if (!full) {
             const oneShot = await callGemini(prompt, {
               temperature: 0.5,
-              maxOutputTokens: 400,
+              maxOutputTokens: 1024, // Hindi needs more tokens; avoid truncation
             });
             if (oneShot) {
               full = oneShot;
@@ -369,11 +372,11 @@ Your explanation:`;
     }
 
     // ---- Non-streaming path (unchanged shape for other clients) -----------
-    // Short, kid-friendly answers finish fast. Capping output tokens makes
-    // Gemini stop generating sooner, cutting the biggest chunk of latency.
+    // Hindi (Devanagari) uses several tokens per character; a low cap would cut
+    // the answer short. 1024 lets it finish while staying brief.
     const answer = await callGemini(prompt, {
       temperature: 0.5,
-      maxOutputTokens: 400,
+      maxOutputTokens: 1024,
     });
 
     if (!answer) {
