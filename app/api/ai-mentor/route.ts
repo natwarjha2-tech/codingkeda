@@ -4,7 +4,7 @@ import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { callGemini, isGeminiConfigured } from "@/app/lib/gemini";
 import { getSignedFileUrlFromUrl, getS3KeyFromUrl } from "@/app/lib/s3";
-import { searchChunks } from "@/app/lib/rag";
+import { searchChunks, resolveSources } from "@/app/lib/rag";
 import { logger } from "@/app/lib/logger";
 
 /**
@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
           .map((m, i) => `[Source ${i + 1}: ${m.title}]\n${m.content}`)
           .join("\n\n---\n\n");
 
-        const ragPrompt = `You are Coco, the friendly AI mentor inside the CodingKida learning app for kids.
+        const ragPrompt = `You are Codo, the friendly AI mentor inside the CodingKida learning app for kids.
 
 Answer the student's question using ONLY the study material provided below.
 Rules:
@@ -85,7 +85,10 @@ Student's question: ${question.trim()}`;
             mode,
             chunks: matches.length,
           });
-          return apiSuccess({ answer: ragAnswer, source: "study_material" });
+          // Attach document sources (name + open link + Ctrl-F snippet) so the
+          // client can show "From your course material" like the quiz Help.
+          const sources = await resolveSources(matches);
+          return apiSuccess({ answer: ragAnswer, source: "study_material", sources });
         }
       }
     } catch (ragErr) {

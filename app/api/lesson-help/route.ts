@@ -3,7 +3,7 @@ import { prisma } from "@/app/lib/prisma";
 import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { callGemini, isGeminiConfigured } from "@/app/lib/gemini";
-import { searchChunks } from "@/app/lib/rag";
+import { searchChunks, resolveSources } from "@/app/lib/rag";
 import { logger } from "@/app/lib/logger";
 
 /**
@@ -93,6 +93,10 @@ export async function POST(req: NextRequest) {
 
     // ---- Pull supporting study material via RAG (best-effort) -------------
     let material = "";
+    // Sources shown to the student: the document(s) the explanation drew from,
+    // each with a name, a file URL to open, and a short "search for this"
+    // snippet so the student can Ctrl+F it inside a large PDF.
+    let sources: { name: string; fileUrl: string | null; snippet: string }[] = [];
     try {
       const matches = await searchChunks(questionText, {
         topK: 4,
@@ -103,6 +107,8 @@ export async function POST(req: NextRequest) {
         material = matches
           .map((m, i) => `[Source ${i + 1}: ${m.title}]\n${m.content}`)
           .join("\n\n---\n\n");
+
+        sources = await resolveSources(matches);
       }
     } catch (e) {
       logger.warn("lesson-help", "rag_failed", { error: (e as Error)?.message });
@@ -119,7 +125,7 @@ export async function POST(req: NextRequest) {
 
     if (stage === "hint") {
       // A nudge only — must NOT reveal the answer.
-      prompt = `You are Coco, a warm, encouraging AI buddy for kids on the CodingKida learning app.
+      prompt = `You are Codo, a warm, encouraging AI buddy for kids on the CodingKida learning app.
 The child is working on a ${kind} about "${topicLabel}" and tapped "Help".
 
 Give ONE small, friendly HINT that nudges them toward figuring it out THEMSELVES.
@@ -135,7 +141,7 @@ ${questionText}
 Your hint:`;
     } else {
       // Full answer: ground truth + kid-friendly reasons.
-      prompt = `You are Coco, a warm, encouraging AI buddy for kids on the CodingKida learning app.
+      prompt = `You are Codo, a warm, encouraging AI buddy for kids on the CodingKida learning app.
 The child is working on a ${kind} about "${topicLabel}" and asked to see the answer.
 
 The CORRECT answer (ground truth — trust this completely) is:
@@ -169,7 +175,7 @@ Your explanation:`;
           source: "stored",
         });
       }
-      return apiError(429, "Coco is a little busy. Please try again in a moment.");
+      return apiError(429, "Codo is a little busy. Please try again in a moment.");
     }
 
     logger.success("lesson-help", "help_generated", {
@@ -183,8 +189,13 @@ Your explanation:`;
       stage,
       help: answer,
       source: material ? "study_material" : storedExplanation ? "teacher_note" : "ai",
+      // Only reveal document sources on the full answer (not the hint), and
+      // only when the explanation actually came from study material.
+      sources: stage === "answer" && material ? sources : [],
     });
   } catch {
     return apiError(500, "Internal server error.");
   }
 }
+
+

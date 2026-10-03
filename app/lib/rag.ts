@@ -266,3 +266,81 @@ export async function searchChunks(
 
   return rows.filter((r) => Number(r.distance) <= maxDistance);
 }
+
+// ---------------------------------------------------------------------------
+// Source attribution — turn matched chunks into user-facing document sources
+// (name + openable fileUrl + a "search for this" snippet). Shared by the
+// quiz Help (lesson-help) and the AI Mentor (ai-mentor) so both show identical
+// "From your course material" citations.
+// ---------------------------------------------------------------------------
+
+export interface MaterialSource {
+  name: string;
+  fileUrl: string | null;
+  snippet: string;
+}
+
+/**
+ * Resolve matched chunks to a de-duplicated list of document sources.
+ * Chunk.sourceId points to:
+ *   - "module_material" -> ModuleMaterial.id (title + fileUrl)
+ *   - "lesson_notes" / "lesson_ppt" -> Lesson.id (notes URL / pptUrl)
+ */
+export async function resolveSources(
+  matches: { title: string; sourceType: string; sourceId: string; content: string }[]
+): Promise<MaterialSource[]> {
+  const seen = new Set<string>();
+  const unique = matches.filter((m) => {
+    const key = `${m.sourceType}:${m.sourceId}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  const out: MaterialSource[] = [];
+  for (const m of unique) {
+    const snippet = makeSnippet(m.content);
+    try {
+      if (m.sourceType === "module_material") {
+        const mat = await prisma.moduleMaterial.findUnique({
+          where: { id: m.sourceId },
+          select: { title: true, fileUrl: true },
+        });
+        out.push({ name: mat?.title || m.title, fileUrl: mat?.fileUrl || null, snippet });
+      } else if (m.sourceType === "lesson_notes") {
+        const lesson = await prisma.lesson.findUnique({
+          where: { id: m.sourceId },
+          select: { title: true, notes: true },
+        });
+        out.push({ name: lesson?.title ? `${lesson.title} (Notes)` : m.title, fileUrl: lesson?.notes || null, snippet });
+      } else if (m.sourceType === "lesson_ppt") {
+        const lesson = await prisma.lesson.findUnique({
+          where: { id: m.sourceId },
+          select: { title: true, pptUrl: true },
+        });
+        out.push({ name: lesson?.title ? `${lesson.title} (Slides)` : m.title, fileUrl: lesson?.pptUrl || null, snippet });
+      } else {
+        out.push({ name: m.title, fileUrl: null, snippet });
+      }
+    } catch {
+      out.push({ name: m.title, fileUrl: null, snippet });
+    }
+  }
+  return out;
+}
+
+/**
+ * Build a short, clean "search for this in the PDF" snippet from a chunk, so a
+ * student can Ctrl+F it inside a large document. First sentence (or ~140 chars).
+ */
+export function makeSnippet(content: string): string {
+  const clean = (content || "")
+    .replace(/\s+/g, " ")
+    .replace(/--\s*\d+\s*of\s*\d+\s*--/gi, "") // strip page markers
+    .trim();
+  if (!clean) return "";
+  const slice = clean.slice(0, 160);
+  const sentenceEnd = slice.search(/[.!?]\s/);
+  const snippet = sentenceEnd > 40 ? slice.slice(0, sentenceEnd + 1) : slice;
+  return snippet.trim() + (clean.length > snippet.length ? "\u2026" : "");
+}
