@@ -36,6 +36,88 @@ function pickVoice(text: string) {
   return /[\u0900-\u097F]/.test(text) ? HINDI_VOICE : ENGLISH_VOICE;
 }
 
+// Escape the five XML special chars so user/AI text is safe inside SSML.
+function escapeXml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+/**
+ * Synthesize speech for `text` and return { audio(base64 mp3), voice }.
+ * Shared by this route AND the lesson-help route (which pre-generates and
+ * stores audio in the DB cache). Uses the in-memory cache so identical text
+ * isn't re-synthesized within a server session.
+ *
+ * Returns null when TTS is not configured or Google fails — callers then let
+ * the client fall back to the browser voice.
+ */
+export async function synthesizeSpeech(
+  text: string
+): Promise<{ audio: string; voice: string } | null> {
+  if (!GOOGLE_TTS_API_KEY) return null;
+
+  const clean = (text || "").toString().trim();
+  if (!clean) return null;
+
+  // Google TTS has a 5000-byte input limit; trim very long answers.
+  const input = clean.length > 4500 ? clean.slice(0, 4500) : clean;
+  const voice = pickVoice(input);
+
+  const cacheKey = `${voice.name}:${input}`;
+  const cached = CACHE.get(cacheKey);
+  if (cached) return { audio: cached, voice: voice.name };
+
+  // Lively <prosody> so Codo sounds energetic for kids (brighter + a touch
+  // faster). XML-escape the text so stray &, <, > don't break the markup.
+  const ssml = `<speak><prosody pitch="+3st" rate="108%">${escapeXml(input)}</prosody></speak>`;
+
+  let res: Response;
+  try {
+    res = await fetch(
+      `https://texttospeech.googleapis.com/v1/text:synthesize?key=${GOOGLE_TTS_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          input: { ssml },
+          voice: { languageCode: voice.languageCode, name: voice.name },
+          audioConfig: {
+            audioEncoding: "MP3",
+            speakingRate: 1.04,
+            pitch: 2.0,
+          },
+        }),
+      }
+    );
+  } catch (e) {
+    logger.warn("tts", "google_tts_network", { error: (e as Error)?.message });
+    return null;
+  }
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    logger.warn("tts", "google_tts_failed", { status: res.status, detail: detail.slice(0, 200) });
+    return null;
+  }
+
+  const data = await res.json();
+  const audioContent: string | undefined = data?.audioContent;
+  if (!audioContent) return null;
+
+  // Store in the bounded cache (evict oldest if full).
+  if (CACHE.size >= CACHE_MAX) {
+    const firstKey = CACHE.keys().next().value;
+    if (firstKey) CACHE.delete(firstKey);
+  }
+  CACHE.set(cacheKey, audioContent);
+
+  return { audio: audioContent, voice: voice.name };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { error } = requireAuth(req);
@@ -50,52 +132,10 @@ export async function POST(req: NextRequest) {
     const clean = (text || "").toString().trim();
     if (!clean) return apiError(400, "text is required.");
 
-    // Google TTS has a 5000-byte input limit; trim very long answers.
-    const input = clean.length > 4500 ? clean.slice(0, 4500) : clean;
-    const voice = pickVoice(input);
+    const result = await synthesizeSpeech(clean);
+    if (!result) return apiError(502, "TTS generation failed.");
 
-    const cacheKey = `${voice.name}:${input}`;
-    const cached = CACHE.get(cacheKey);
-    if (cached) {
-      return apiSuccess({ audio: cached, voice: voice.name, cached: true });
-    }
-
-    const res = await fetch(
-      `https://texttospeech.googleapis.com/v1/text:synthesize?key=${GOOGLE_TTS_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          input: { text: input },
-          voice: { languageCode: voice.languageCode, name: voice.name },
-          audioConfig: {
-            audioEncoding: "MP3",
-            speakingRate: 0.96, // a touch slower for kids
-            pitch: 0,
-          },
-        }),
-      }
-    );
-
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      logger.warn("tts", "google_tts_failed", { status: res.status, detail: detail.slice(0, 200) });
-      // Let the client fall back to the browser voice.
-      return apiError(502, "TTS generation failed.");
-    }
-
-    const data = await res.json();
-    const audioContent: string | undefined = data?.audioContent;
-    if (!audioContent) return apiError(502, "TTS returned no audio.");
-
-    // Store in the bounded cache (evict oldest if full).
-    if (CACHE.size >= CACHE_MAX) {
-      const firstKey = CACHE.keys().next().value;
-      if (firstKey) CACHE.delete(firstKey);
-    }
-    CACHE.set(cacheKey, audioContent);
-
-    return apiSuccess({ audio: audioContent, voice: voice.name, cached: false });
+    return apiSuccess({ audio: result.audio, voice: result.voice, cached: false });
   } catch {
     return apiError(500, "Internal server error.");
   }

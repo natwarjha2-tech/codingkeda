@@ -314,6 +314,33 @@ model Exercise {
   @@index([lessonId])
 }
 
+// Pre-computed Codo "Help" responses so the FIRST student triggers generation
+// and EVERY student after gets the stored text + audio instantly (no Gemini /
+// no TTS call). Quiz/Exercise answers are the same for everyone, so this is a
+// safe, big latency + cost win. Keyed by (kind, itemId, stage).
+//   kind  : "quiz" | "exercise"
+//   itemId: the Quiz.id or Exercise.id
+//   stage : "hint" | "answer"
+// audioBase64 is the MP3 (base64) for Codo's voice reading helpText; voice is
+// the Google voice name used. source/sources mirror the live response so the
+// attribution block renders identically from cache.
+model LessonHelpCache {
+  id          String   @id @default(uuid())
+  kind        String
+  itemId      String
+  stage       String
+  helpText    String
+  audioBase64 String? // MP3 base64 for the spoken answer (null until synthesized)
+  voice       String? // Google voice name used (e.g. hi-IN-Neural2-B)
+  source      String? // study_material | teacher_note | ai | stored
+  sources     Json? // [{ name, fileUrl, snippet }]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([kind, itemId, stage])
+  @@index([itemId])
+}
+
 model QuizAttempt {
   id        String   @id @default(uuid())
   userId    String

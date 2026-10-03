@@ -98,6 +98,94 @@ export async function callGemini(
 }
 
 /**
+ * Stream Gemini text as it is generated.
+ *
+ * Uses the SSE streaming endpoint (streamGenerateContent?alt=sse) so the
+ * caller can forward text chunks to the client the moment they arrive — the
+ * first words show up in a few hundred ms instead of waiting for the whole
+ * answer. Keeps the same model-fallback chain and key handling as callGemini.
+ *
+ * Yields incremental text pieces (not cumulative). On total failure it yields
+ * nothing (the route should fall back to the non-streaming path).
+ */
+export async function* callGeminiStream(
+  prompt: string,
+  config: GeminiConfig = {}
+): AsyncGenerator<string, void, unknown> {
+  if (!GEMINI_API_KEY) return;
+
+  const opts = { ...DEFAULT_CONFIG, ...config };
+
+  for (const model of MODEL_CHAIN) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${GEMINI_API_KEY}`;
+
+    try {
+      const generationConfig: Record<string, unknown> = {
+        temperature: opts.temperature,
+        maxOutputTokens: opts.maxOutputTokens,
+      };
+      if (opts.responseMimeType) {
+        generationConfig.responseMimeType = opts.responseMimeType;
+      }
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig,
+        }),
+      });
+
+      // Model unavailable / rate limited — try the next model in the chain.
+      if (!res.ok || !res.body) {
+        continue;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let emittedAny = false;
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        // SSE frames are separated by blank lines; each "data:" line holds a
+        // JSON chunk. Process complete lines, keep the remainder buffered.
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith("data:")) continue;
+          const payload = trimmed.slice(5).trim();
+          if (!payload || payload === "[DONE]") continue;
+          try {
+            const json = JSON.parse(payload);
+            const piece: string =
+              json?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+            if (piece) {
+              emittedAny = true;
+              yield piece;
+            }
+          } catch {
+            // Partial/invalid JSON frame — skip it.
+          }
+        }
+      }
+
+      // If this model produced output, we're done. Otherwise fall through to
+      // the next model in the chain.
+      if (emittedAny) return;
+    } catch {
+      // Network error — try the next model.
+      continue;
+    }
+  }
+}
+
+/**
  * Call Gemini and parse response as JSON.
  * Automatically strips markdown code blocks (```json ... ```).
  * Returns null on failure (never throws).
