@@ -16,9 +16,13 @@
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 
 const MODEL_CHAIN = [
-  "gemini-2.5-flash",
-  "gemini-2.0-flash",
-  "gemini-2.0-flash-lite",
+  // Current GA Flash models (verified callable on this account). The old
+  // gemini-2.5/2.0-flash models were retired (404 "no longer available"), and
+  // gemini-3.1-flash also 404s here — both removed. gemini-3.8-flash is the GA
+  // workhorse; gemini-flash-latest is an alias that always points at the newest
+  // Flash (currently resolves to 3.8) as a safety fallback.
+  "gemini-3.8-flash",
+  "gemini-flash-latest",
 ];
 
 export interface GeminiConfig {
