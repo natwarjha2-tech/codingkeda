@@ -262,8 +262,14 @@ The child is working on a ${kind} about "${topicLabel}" and tapped "Help".
 
 Give ONE small, friendly HINT that nudges them toward figuring it out THEMSELVES.
 Rules:
-- Reply in HINDI, written in Devanagari script (हिंदी). Simple, everyday kid-friendly Hindi.
-- You MAY keep programming keywords, code, and technical terms (like "function", "loop", "variable", or any code) in English where that is clearer. Everything else must be Hindi.
+- Reply in simple HINGLISH — everyday spoken Hindi (Devanagari) MIXED with common
+  English words, the way Indian kids and teachers actually talk. Example style:
+  "ye loop तब तक चलता है जब तक condition true है".
+- Use EASY, common Hindi words only. Do NOT use hard/formal/literary Hindi
+  (avoid words like कार्यक्रम, चर, पुनरावृत्ति, अनुक्रमणिका). Keep technical terms,
+  programming keywords, and code in ENGLISH (loop, function, variable, array,
+  pointer, program, etc.) — don't translate them to Hindi.
+- If a Hindi word would be hard for a 10-year-old, use the simple English word instead.
 - Do NOT reveal the correct answer or which option is right.
 - Keep it to 1-2 short, simple sentences a child understands.
 - Be positive and playful (one emoji is fine).
@@ -285,8 +291,14 @@ Write a short, friendly explanation for a child:
 1. Clearly state the correct answer.
 2. Explain WHY it is correct, in simple words, using ONLY the material/teacher note below when available. Do not invent facts.
 3. Keep it short, warm, and encouraging (a couple of short sentences; one emoji is fine).
-4. Reply in HINDI, written in Devanagari script (हिंदी). Use simple, everyday kid-friendly Hindi.
-5. You MAY keep programming keywords, code, option letters (A/B/C/D), and technical terms in English where that is clearer. Everything else must be Hindi.
+4. Reply in simple HINGLISH — everyday spoken Hindi (Devanagari) MIXED with common
+   English words, the way Indian kids and teachers actually talk. Example style:
+   "सही answer B है क्योंकि ye loop हर number को check करता है".
+5. Use EASY, common Hindi words only. Do NOT use hard/formal/literary Hindi
+   (avoid words like कार्यक्रम, चर, पुनरावृत्ति, अनुक्रमणिका). Keep technical terms,
+   programming keywords, code, and option letters (A/B/C/D) in ENGLISH — don't
+   translate them. If a Hindi word would be hard for a 10-year-old, use the
+   simple English word instead.
 ${materialBlock}
 QUESTION:
 ${questionText}

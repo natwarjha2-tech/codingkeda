@@ -123,6 +123,69 @@ function ensurePdfGlobals() {
 }
 
 /** Download a PDF from its (possibly S3) URL and extract its text. */
+/**
+ * Extract text from a .pptx file at an S3 URL. Mirrors the admin extract-ppt
+ * route: a .pptx is a ZIP of XML; slide text lives in <a:t> run nodes inside
+ * ppt/slides/slideN.xml. We fetch (signing the S3 URL), unzip, and pull the
+ * text slide-by-slide. Returns "" on any failure so indexing degrades safely.
+ */
+async function extractPptxText(fileUrl: string): Promise<string> {
+  try {
+    const url = getS3KeyFromUrl(fileUrl)
+      ? await getSignedFileUrlFromUrl(fileUrl, 300)
+      : fileUrl;
+    const res = await fetch(url);
+    if (!res.ok) return "";
+    const buffer = Buffer.from(await res.arrayBuffer());
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const AdmZip = require("adm-zip");
+    const zip = new AdmZip(buffer);
+    const entries = zip.getEntries();
+    const slideEntries = entries
+      .filter((e: { entryName: string }) => /ppt\/slides\/slide\d+\.xml$/.test(e.entryName))
+      .sort((a: { entryName: string }, b: { entryName: string }) => {
+        const na = parseInt(a.entryName.match(/slide(\d+)/)?.[1] || "0");
+        const nb = parseInt(b.entryName.match(/slide(\d+)/)?.[1] || "0");
+        return na - nb;
+      });
+
+    let allText = "";
+    for (const entry of slideEntries) {
+      const xml = entry.getData().toString("utf8");
+      const matches = xml.match(/<a:t[^>]*>([\s\S]*?)<\/a:t>/g);
+      if (matches && matches.length > 0) {
+        let slideContent = "";
+        for (const m of matches) {
+          const content = m.replace(/<[^>]+>/g, "").trim();
+          if (content) slideContent += content + " ";
+        }
+        if (slideContent.trim()) allText += slideContent.trim() + "\n";
+      }
+    }
+    return allText.trim();
+  } catch (err) {
+    logger.warn("rag", "pptx_extract_failed", {
+      fileUrl,
+      error: (err as Error)?.message,
+    });
+    return "";
+  }
+}
+
+/**
+ * Extract text from a document URL, dispatching by file extension:
+ * .pptx -> PPTX slide text; everything else -> PDF text. The URL may carry a
+ * query string (signed URLs), so we test the path before the "?".
+ */
+async function extractDocText(fileUrl: string): Promise<string> {
+  const pathPart = (fileUrl || "").split("?")[0].toLowerCase();
+  if (pathPart.endsWith(".pptx") || pathPart.endsWith(".ppt")) {
+    return extractPptxText(fileUrl);
+  }
+  return extractPdfText(fileUrl);
+}
+
 async function extractPdfText(fileUrl: string): Promise<string> {
   try {
     ensurePdfGlobals();
@@ -185,7 +248,9 @@ export async function indexSource(params: {
 
   let rawText = params.text || "";
   if (!rawText && params.pdfUrl) {
-    rawText = await extractPdfText(params.pdfUrl);
+    // pdfUrl may actually be a .pptx (course study material) — extractDocText
+    // dispatches by extension so PPTX slide text is extracted too.
+    rawText = await extractDocText(params.pdfUrl);
   }
 
   const chunks = chunkText(rawText);
