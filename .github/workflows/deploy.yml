@@ -1,0 +1,39 @@
+name: Deploy to EC2
+
+# Auto-deploy: on every push to main, SSH into the EC2 and update the running
+# app (pull latest code, install deps, regenerate Prisma client, rebuild, and
+# restart via PM2). Mirrors the manual deploy steps so a push "just deploys",
+# like the old Vercel flow.
+on:
+  push:
+    branches: [main]
+  # Also allow manual runs from the Actions tab (a "Run workflow" button).
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          # FFmpeg/HLS not used, but builds can be slow — give it room.
+          command_timeout: 20m
+          script: |
+            set -e
+            cd ~/codingkeda
+            echo "== Pulling latest code =="
+            git pull origin main
+            echo "== Installing dependencies =="
+            npm install
+            echo "== Generating Prisma client =="
+            npx prisma generate
+            echo "== Building Next.js =="
+            npm run build
+            echo "== Restarting app (PM2) =="
+            pm2 restart codingkeda
+            pm2 save
+            echo "== Deploy complete =="
