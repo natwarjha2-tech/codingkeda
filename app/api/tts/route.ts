@@ -37,6 +37,9 @@ function pickVoice(text: string) {
 }
 
 // Escape the five XML special chars so user/AI text is safe inside SSML.
+// NOTE: run cleanForSpeech() BEFORE this — cleanForSpeech turns & < > into
+// words ("and"/"less than"/...), so by the time text reaches here those chars
+// are already gone; this just guards any residual.
 function escapeXml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -44,6 +47,42 @@ function escapeXml(s: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
+}
+
+/**
+ * Normalize AI/markdown text into clean, natural speech text — IDENTICAL to the
+ * desktop/mobile client's _plainForSpeech so the audio we synthesize (and store
+ * in the help cache) never reads emoji names ("star", "चमकता सितारा") or symbol
+ * noise, and speaks math operators as words. Keeping this on the SERVER means
+ * the cached audio served to later students matches what the first student
+ * heard — the fix for "next user hears the emoji name".
+ */
+function cleanForSpeech(text: string): string {
+  return String(text || "")
+    .replace(/```[\s\S]*?```/g, " . Here is a code example on screen. ") // code blocks
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/[_#>`]/g, "")
+    // Strip emoji & pictographs so TTS never reads "star"/"rocket"/"चमकता सितारा".
+    .replace(/\p{Extended_Pictographic}/gu, "")
+    .replace(/[\u2600-\u27BF\u2B00-\u2BFF\u2190-\u21FF\uFE0F\u200D\u20E3]/g, "")
+    .replace(/[\u{1F000}-\u{1FAFF}]/gu, "")
+    // Speak MATH/LOGIC operators as words so "5+4" reads "5 plus 4".
+    .replace(/\+/g, " plus ")
+    .replace(/(\w)\s*-\s*(\w)/g, "$1 minus $2") // minus only between terms
+    .replace(/\*/g, " times ")
+    .replace(/÷/g, " divided by ")
+    .replace(/=/g, " equals ")
+    .replace(/%/g, " percent ")
+    .replace(/&&/g, " and ")
+    .replace(/\|\|/g, " or ")
+    .replace(/&/g, " and ")
+    .replace(/</g, " less than ")
+    .replace(/>/g, " greater than ")
+    // Remove noisy brackets/slashes; keep sentence punctuation (. , ? !).
+    .replace(/[()[\]{}|/\\~^]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /**
@@ -60,7 +99,9 @@ export async function synthesizeSpeech(
 ): Promise<{ audio: string; voice: string } | null> {
   if (!GOOGLE_TTS_API_KEY) return null;
 
-  const clean = (text || "").toString().trim();
+  // Normalize FIRST so emoji/symbols never reach the voice and the stored audio
+  // matches what every student should hear.
+  const clean = cleanForSpeech(text);
   if (!clean) return null;
 
   // Google TTS has a 5000-byte input limit; trim very long answers.
