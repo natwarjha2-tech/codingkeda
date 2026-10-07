@@ -116,8 +116,12 @@ export async function DELETE(
     await prisma.module.delete({ where: { id } });
 
     // Safety net: clean up any orphaned inactive Media records (uploaded but never saved)
+    // Safety net: ONLY stale, never-saved uploads (inactive AND >1 hour old).
+    // The age gate prevents wiping in-use media (e.g. study-material PDFs) whose
+    // Media row happens to be inactive — the bug that deleted PDFs from S3.
+    const _oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const orphanedMedia = await prisma.media.findMany({
-      where: { isActive: false },
+      where: { isActive: false, createdAt: { lt: _oneHourAgo } },
       select: { id: true, s3Key: true },
     });
     for (const m of orphanedMedia) {

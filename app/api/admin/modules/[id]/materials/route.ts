@@ -63,6 +63,21 @@ export async function POST(
       },
     });
 
+    // Mark the uploaded Media row ACTIVE now that it's saved as a real material.
+    // Without this the Media row stays isActive:false forever, which made it a
+    // permanent target for the orphan-cleanup sweep on course/module/lesson
+    // delete — the root cause of study-material PDFs being deleted from S3.
+    try {
+      await prisma.media.updateMany({
+        where: { s3Url: fileUrl, isActive: false },
+        data: { isActive: true },
+      });
+    } catch (e) {
+      console.error("Failed to activate material media:", e);
+      // Non-fatal: the material row is already created; the age-gated cleanup
+      // still protects the file. Logged for visibility.
+    }
+
     return NextResponse.json({ success: true, material }, { status: 201 });
   } catch (err) {
     console.error("Add material error:", err);
@@ -96,6 +111,14 @@ export async function DELETE(
     // Delete from S3
     const s3Key = getS3KeyFromUrl(material.fileUrl);
     if (s3Key) await deleteFromS3(s3Key);
+
+    // Remove the matching Media row too (it was activated when the material was
+    // saved), so no orphaned Media record lingers after the file is gone.
+    try {
+      await prisma.media.deleteMany({ where: { s3Url: material.fileUrl } });
+    } catch (e) {
+      console.error("Failed to delete material media row:", e);
+    }
 
     // Delete from DB
     await prisma.moduleMaterial.delete({ where: { id: materialId } });
