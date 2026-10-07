@@ -31,6 +31,8 @@ jobs:
             npm install
             echo "== Generating Prisma client =="
             npx prisma generate
+            echo "== Applying DB migrations (idempotent — no-op when none pending) =="
+            npx prisma migrate deploy
             echo "== Building Next.js =="
             npm run build
             echo "== Restarting app (PM2) =="

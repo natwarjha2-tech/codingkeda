@@ -638,3 +638,16 @@ model UserDevice {
   @@index([userId, active])
   @@index([pushToken])
 }
+
+// Fixed Codo voice lines that are the SAME for every student (e.g. the
+// "lesson complete — take a quiz?" prompt and the post-quiz thank-you). Stored
+// in the DB (not AI-generated) so there is zero AI/model cost: the text is
+// constant and the audio is produced once via /api/tts and cached. Edit a
+// line here (or via admin) and it updates for everyone with no app release.
+model CodoScript {
+  id        String   @id @default(uuid())
+  key       String   @unique // e.g. "lesson_complete_prompt", "quiz_complete_thanks"
+  text      String // the Hinglish line Codo speaks
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
