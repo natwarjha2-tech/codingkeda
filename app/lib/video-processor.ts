@@ -16,12 +16,13 @@ import {
   HeadObjectCommand,
   ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { Readable } from "stream";
+import { pipeline } from "stream/promises";
 import { logger } from "@/app/lib/logger";
 import { createNotification } from "@/app/lib/notification";
 import { NOTIF_TYPES, NOTIF_CATEGORIES, NOTIF_PRIORITIES } from "@/app/lib/notification-types";
@@ -92,14 +93,28 @@ async function findExistingQualitiesInS3(mediaId: string, s3Key: string, storedP
   return { prefix, found: [] };
 }
 
-async function getSignedS3Url(key: string): Promise<string> {
-  return getSignedUrl(s3, new GetObjectCommand({ Bucket: BUCKET, Key: key }), { expiresIn: 21600 });
-}
 async function uploadToS3(buffer: Buffer, key: string, contentType: string) {
   await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: buffer, ContentType: contentType }));
 }
-async function downloadFile(url: string, destPath: string) {
-  await execAsync("curl", ["-L", "--retry", "3", "--retry-delay", "5", "-C", "-", "--retry-connrefused", "-o", destPath, url]);
+// Download the source object straight from S3 via the SDK and stream it to
+// disk. We deliberately avoid a presigned URL + curl: AWS SDK v3 now injects
+// `x-amz-checksum-mode=ENABLED` into presigned GET URLs, which plain curl can't
+// satisfy, so the download would fail. The SDK handles checksums natively.
+async function downloadFromS3(key: string, destPath: string) {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+      const body = res.Body as Readable | undefined;
+      if (!body) throw new Error("empty S3 body");
+      await pipeline(body, fs.createWriteStream(destPath));
+      return;
+    } catch (err) {
+      lastErr = err;
+      await new Promise((r) => setTimeout(r, attempt * 2000));
+    }
+  }
+  throw new Error(`S3 download failed: ${(lastErr as Error)?.message || "unknown error"}`);
 }
 
 async function encodeOne(mediaId: string, notify = true): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
@@ -148,8 +163,7 @@ async function encodeOne(mediaId: string, notify = true): Promise<{ ok: boolean;
 
     await prisma.media.update({ where: { id: media.id }, data: { hlsStatus: "processing" } });
 
-    const signedUrl = await getSignedS3Url(media.s3Key);
-    await downloadFile(signedUrl, srcFile);
+    await downloadFromS3(media.s3Key, srcFile);
     if (!fs.existsSync(srcFile) || fs.statSync(srcFile).size === 0) throw new Error("source download failed/empty");
 
     let sourceHeight = 1080;
