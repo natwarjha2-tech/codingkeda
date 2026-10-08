@@ -31,6 +31,12 @@ export const NOTIF_TYPES = {
   // ── Lesson Q&A chat ──
   LESSON_QUESTION: "lesson_question",   // student asked a doubt → notify course instructor
   LESSON_ANSWER: "lesson_answer",       // instructor replied → notify enrolled students
+  // ── Admin video quality processing ──
+  VIDEO_PROCESSED: "video_processed",   // qualities generated → notify the admin who uploaded
+  VIDEO_PROCESS_FAILED: "video_process_failed", // encoding failed → notify the admin
+  // ── Admin lesson content pipeline (video + quiz + exercise, one combined notice) ──
+  LESSON_CONTENT_READY: "lesson_content_ready",   // all parts settled OK → notify the admin
+  LESSON_CONTENT_FAILED: "lesson_content_failed", // one or more parts failed → notify the admin
 } as const;
 
 export type NotifType = (typeof NOTIF_TYPES)[keyof typeof NOTIF_TYPES];

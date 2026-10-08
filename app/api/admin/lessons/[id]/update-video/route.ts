@@ -3,6 +3,7 @@ import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { deleteVideoMediaS3, getS3KeyFromUrl } from "@/app/lib/s3";
+import { triggerLessonPipeline } from "@/app/lib/lesson-pipeline";
 
 /**
  * POST /api/admin/lessons/[id]/update-video
@@ -52,8 +53,9 @@ export async function POST(
       }
 
       finalVideoUrl = media.s3Url;
-      // Activate the media record — upload is now confirmed by Save
-      await prisma.media.update({ where: { id: mediaId }, data: { isActive: true } });
+      // Activate the media record — upload is now confirmed by Save — and mark
+      // "pending" so the background video worker auto-generates qualities.
+      await prisma.media.update({ where: { id: mediaId }, data: { isActive: true, hlsStatus: "pending" } });
     }
 
     // Does the video actually change? (replace with a different file, or remove)
@@ -117,6 +119,12 @@ export async function POST(
     if (resetStats) {
       await prisma.lessonReaction.deleteMany({ where: { lessonId } });
     }
+
+    // Kick off the full content pipeline (background, server): video quality
+    // processing for the newly-set video (only when a new video was attached,
+    // not a remove) plus quiz + exercise generation for this lesson. One
+    // combined notification is sent when it settles. Fire-and-forget.
+    triggerLessonPipeline(lessonId, (mediaId && !removeVideo) ? mediaId : undefined);
 
     return apiSuccess({
       message: removeVideo

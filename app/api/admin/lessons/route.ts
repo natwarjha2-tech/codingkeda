@@ -3,6 +3,7 @@ import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
 import { MediaType } from "@prisma/client";
 import { apiSuccess, apiError } from "@/app/lib/response";
+import { triggerLessonPipeline } from "@/app/lib/lesson-pipeline";
 
 /**
  * POST /api/admin/lessons
@@ -44,11 +45,14 @@ export async function POST(req: NextRequest) {
         if (!videoUrl) {
           videoUrl = media.s3Url;
         }
-        // Activate the media record — upload is now confirmed by Save.
-        // NOTE: Auto HLS (720/480/360) generation is intentionally DISABLED —
-        // video quality processing is done manually via
-        // scripts/process-pending-videos.sh.
-        await prisma.media.update({ where: { id: mediaId }, data: { isActive: true } });
+        // Activate the media record — upload is now confirmed by Save — and
+        // mark it "pending". Processing is kicked off AFTER the lesson is
+        // created (below), so the lesson↔video link exists for the readable S3
+        // prefix. If encoding fails, status becomes "failed" (visible to admin).
+        await prisma.media.update({
+          where: { id: mediaId },
+          data: { isActive: true, hlsStatus: "pending" },
+        });
       }
     }
 
@@ -68,6 +72,13 @@ export async function POST(req: NextRequest) {
         notes: notes?.trim() || "",
       },
     });
+
+    // Now that the lesson (and its video link) exists, kick off the full content
+    // pipeline — video quality processing (if a video is attached) + quiz +
+    // exercise generation — in the background on the server. Fire-and-forget so
+    // the admin's Save returns instantly; the work runs after the response and
+    // sends one combined notification when it settles.
+    triggerLessonPipeline(lesson.id, mediaId || undefined);
 
     return apiSuccess({ message: "Lesson created successfully.", lesson }, 201);
   } catch (err) {
