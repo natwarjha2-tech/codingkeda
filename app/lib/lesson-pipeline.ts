@@ -61,11 +61,15 @@ async function getLessonTitle(lessonId: string): Promise<string> {
   return lesson?.title || "Lesson";
 }
 
-// Describe one part for the SUCCESS body.
+// Describe one part for the SUCCESS body. Shows the FULL status of every part
+// that ran — including skipped — so the admin sees the complete picture, e.g.
+// "Video processed, Quiz skipped (already exists), Exercise skipped (already
+// exists)". Only a part that didn't run at all (no video attached) is omitted.
 function describeSuccessPart(label: string, r: PartResult | null): string | null {
-  if (!r) return null; // part not run (e.g. no video)
-  if (r.skipped) return `${label} skipped`;
-  return `${label} ${r.count !== undefined ? `generated (${r.count})` : "ready"}`;
+  if (!r) return null; // part not run (e.g. no video attached)
+  if (r.skipped) return `${label} skipped (already exists)`;
+  if (label === "Video") return "Video processed";
+  return `${label} generated${r.count !== undefined ? ` (${r.count})` : ""}`;
 }
 
 async function runJob(job: Job): Promise<void> {
@@ -95,19 +99,36 @@ async function runJob(job: Job): Promise<void> {
   const failed = parts.filter((p) => p.r && !p.r.ok);
   const allOk = failed.length === 0;
 
+  // Did any part actually DO something this run? A part "did work" when it ran
+  // and was neither skipped (content already existed / no source PDF) nor absent
+  // (no video attached). A re-save where quiz+exercise already exist and the
+  // video is unchanged produces all-skipped → nothing happened.
+  const didWork = parts.some((p) => p.r && p.r.ok && !p.r.skipped);
+
   logger.info("lesson-pipeline", allOk ? "settled_ok" : "settled_with_failures", {
     lessonId,
+    didWork,
     video: video ? (video.ok ? (video.skipped ? "skipped" : "ok") : "failed") : "none",
     quiz: quiz.ok ? (quiz.skipped ? "skipped" : "ok") : "failed",
     exercise: exercise.ok ? (exercise.skipped ? "skipped" : "ok") : "failed",
   });
+
+  // Suppress the notification when the run succeeded but did NO real work — i.e.
+  // everything was skipped/none (a re-save of a lesson whose content already
+  // exists). Only notify on genuine success (something generated/processed) or
+  // on any failure. This stops the "video skipped, quiz skipped, exercise
+  // skipped" noise notifications.
+  if (allOk && !didWork) {
+    logger.info("lesson-pipeline", "no_notification_all_skipped", { lessonId });
+    return;
+  }
 
   const userId = await resolveAdminUserId(lessonId, videoMediaId);
   if (!userId) return; // no resolvable admin → skip notification silently
 
   if (allOk) {
     const summary = parts
-      .map((p) => describeSuccessPart(p.label.toLowerCase(), p.r))
+      .map((p) => describeSuccessPart(p.label, p.r))
       .filter(Boolean)
       .join(", ");
     await createNotification({
@@ -131,9 +152,10 @@ async function runJob(job: Job): Promise<void> {
       .filter((p) => p.r) // skip parts that didn't run (e.g. no video)
       .map((p) => {
         const r = p.r!;
-        if (!r.ok) return `${p.label} generation failed: ${r.error || "unknown error"}.`;
-        if (r.skipped) return `${p.label} skipped (no matching PDF).`;
-        return `${p.label} ready.`;
+        if (!r.ok) return `${p.label} failed: ${r.error || "unknown error"}.`;
+        if (r.skipped) return `${p.label} skipped (already exists or no source).`;
+        if (p.label === "Video") return "Video processed.";
+        return `${p.label} generated${r.count !== undefined ? ` (${r.count})` : ""}.`;
       });
     await createNotification({
       userId,
@@ -182,6 +204,20 @@ export function triggerLessonPipeline(
   opts: { forceVideo?: boolean } = {},
 ): void {
   if (!lessonId) return;
-  queue.push({ lessonId, videoMediaId, forceVideo: opts.forceVideo === true });
+  const forceVideo = opts.forceVideo === true;
+
+  // Deduplicate: the admin UI can fire the save/update-video endpoint more than
+  // once for a single Save (observed twice ~30s apart). Each enqueue = one
+  // pipeline run = one notification, which spams the admin. If a PENDING job for
+  // the same lesson+video is already queued, merge into it instead of adding a
+  // duplicate (keep forceVideo if either caller wanted it). A job that's already
+  // mid-run isn't in the queue, so a genuine later re-save still runs — but the
+  // rapid double-fire of a single Save collapses to one.
+  const dup = queue.find((j) => j.lessonId === lessonId && j.videoMediaId === videoMediaId);
+  if (dup) {
+    if (forceVideo) dup.forceVideo = true;
+    return;
+  }
+  queue.push({ lessonId, videoMediaId, forceVideo });
   void drain();
 }
