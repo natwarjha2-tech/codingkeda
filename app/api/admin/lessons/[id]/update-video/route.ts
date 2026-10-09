@@ -4,6 +4,7 @@ import { requireAdmin } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { deleteVideoMediaS3, getS3KeyFromUrl } from "@/app/lib/s3";
 import { triggerLessonPipeline } from "@/app/lib/lesson-pipeline";
+import { cancelVideoProcessing } from "@/app/lib/video-processor";
 
 /**
  * POST /api/admin/lessons/[id]/update-video
@@ -71,10 +72,15 @@ export async function POST(
       try {
         const oldKey = getS3KeyFromUrl(oldVideoUrl);
         const oldMedia = oldKey
-          ? await prisma.media.findFirst({ where: { s3Key: oldKey }, select: { hlsS3Prefix: true } })
+          ? await prisma.media.findFirst({ where: { s3Key: oldKey }, select: { id: true, hlsS3Prefix: true } })
           : null;
-        // Fire-and-forget; do not block the save on S3 cleanup.
-        deleteVideoMediaS3(oldVideoUrl, oldMedia?.hlsS3Prefix || null).catch(() => {});
+        // Cancel any in-flight/queued quality processing for the OLD video so it
+        // stops wasting CPU and never writes stale qualities over the new one.
+        if (oldMedia?.id) cancelVideoProcessing(oldMedia.id);
+        // Fire-and-forget; do not block the save on S3 cleanup. Pass the mediaId
+        // so qualities are removed even when hlsS3Prefix was never stored (video
+        // deleted/replaced before processing finished).
+        deleteVideoMediaS3(oldVideoUrl, oldMedia?.hlsS3Prefix || null, oldMedia?.id || null).catch(() => {});
       } catch { /* cleanup must never break the update */ }
     }
 
@@ -124,7 +130,13 @@ export async function POST(
     // processing for the newly-set video (only when a new video was attached,
     // not a remove) plus quiz + exercise generation for this lesson. One
     // combined notification is sent when it settles. Fire-and-forget.
-    triggerLessonPipeline(lessonId, (mediaId && !removeVideo) ? mediaId : undefined);
+    // forceVideo when the video actually changed → the processor wipes any
+    // partial/old qualities and re-encodes the new file from scratch.
+    triggerLessonPipeline(
+      lessonId,
+      (mediaId && !removeVideo) ? mediaId : undefined,
+      { forceVideo: videoChanged },
+    );
 
     return apiSuccess({
       message: removeVideo

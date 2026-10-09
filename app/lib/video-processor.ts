@@ -15,6 +15,7 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
+  DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { execFile } from "child_process";
 import { promisify } from "util";
@@ -40,6 +41,55 @@ const QUALITY_VARIANTS = [
 // Videos triggered while one is running are queued (processed sequentially).
 let encoding = false;
 const queue: string[] = [];
+
+// ── Cancellation / replace handling ──────────────────────────────────────────
+// When a lesson's video is REPLACED while its old encode is still in flight (or
+// queued), we must stop wasting work on the old video and not leave a mix of
+// old+new quality files. We track which mediaId is currently encoding and a set
+// of mediaIds that have been cancelled. A running encode checks `isCancelled`
+// at safe checkpoints (after download, between ffmpeg variants, before the final
+// DB write) and bails out cleanly. ffmpeg itself can't be interrupted mid-file,
+// but the longest wait is a single variant, after which we abort.
+let currentEncodingMediaId: string | null = null;
+const cancelled = new Set<string>();
+
+function isCancelled(mediaId: string): boolean {
+  return cancelled.has(mediaId);
+}
+
+/**
+ * Cancel any in-flight OR queued processing for a mediaId. Called when a lesson's
+ * video is replaced/removed so the superseded encode stops and its (possibly
+ * partial) output is treated as discarded. Safe to call for a mediaId that isn't
+ * currently processing — it just removes it from the queue and marks it cancelled.
+ */
+export function cancelVideoProcessing(mediaId: string): void {
+  if (!mediaId) return;
+  // Remove from the pending queue so it never starts.
+  for (let i = queue.length - 1; i >= 0; i--) if (queue[i] === mediaId) queue.splice(i, 1);
+  // Mark cancelled so a running encode for it aborts at its next checkpoint.
+  cancelled.add(mediaId);
+  logger.info("video-processor", "cancel_requested", { mediaId, running: currentEncodingMediaId === mediaId });
+}
+
+// Delete every quality object under a prefix (used to wipe partial/old qualities
+// before a forced re-encode). Non-fatal.
+async function wipeQualityPrefix(prefix: string): Promise<void> {
+  if (!prefix) return;
+  try {
+    let token: string | undefined;
+    const keys: { Key: string }[] = [];
+    do {
+      const res = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: `${prefix}/`, ContinuationToken: token }));
+      for (const o of res.Contents || []) if (o.Key) keys.push({ Key: o.Key });
+      token = res.IsTruncated ? res.NextContinuationToken : undefined;
+    } while (token);
+    for (const k of keys) {
+      await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: k.Key })).catch(() => {});
+    }
+    if (keys.length) logger.info("video-processor", "wiped_old_qualities", { prefix, count: keys.length });
+  } catch { /* non-fatal */ }
+}
 
 function slugify(name: string | null | undefined): string {
   const s = String(name || "").toLowerCase().trim()
@@ -117,13 +167,22 @@ async function downloadFromS3(key: string, destPath: string) {
   throw new Error(`S3 download failed: ${(lastErr as Error)?.message || "unknown error"}`);
 }
 
-async function encodeOne(mediaId: string, notify = true): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
+async function encodeOne(mediaId: string, notify = true, force = false): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
+  // A fresh (re)start for this media clears any prior cancellation flag — this
+  // IS the new encode the admin asked for.
+  cancelled.delete(mediaId);
+  currentEncodingMediaId = mediaId;
+
   const media = await prisma.media.findUnique({
     where: { id: mediaId },
     select: { id: true, s3Key: true, hlsS3Prefix: true, type: true, title: true, uploadedBy: true },
   });
   // Nothing to do for a missing/non-video media — treat as a skip (not a failure).
-  if (!media || media.type !== "VIDEO") return { ok: true, skipped: true };
+  if (!media || media.type !== "VIDEO") {
+    if (currentEncodingMediaId === mediaId) currentEncodingMediaId = null;
+    cancelled.delete(mediaId);
+    return { ok: true, skipped: true };
+  }
 
   // Notify the admin who uploaded this video of the outcome. Idempotency key
   // includes the mediaId + outcome so a success and a (prior) failure are
@@ -151,17 +210,39 @@ async function encodeOne(mediaId: string, notify = true): Promise<{ ok: boolean;
   fs.mkdirSync(tmpDir, { recursive: true });
   const srcFile = path.join(tmpDir, "source.mp4");
 
+  // If the media/lesson gets deleted while we encode (admin removed it), the
+  // final update would throw "Record to update not found". And if the admin
+  // replaced the video, `cancelVideoProcessing` marks this media cancelled.
+  // Guard against both at every safe checkpoint.
+  const stillExists = async () =>
+    (await prisma.media.count({ where: { id: media.id } })) > 0;
+  const aborted = async (): Promise<"deleted" | "cancelled" | null> => {
+    if (isCancelled(media.id)) return "cancelled";
+    if (!(await stillExists())) return "deleted";
+    return null;
+  };
+
   try {
-    // Skip if qualities already exist in S3 (idempotent).
     const { prefix, found } = await findExistingQualitiesInS3(media.id, media.s3Key, media.hlsS3Prefix);
-    if (found.length > 0) {
+
+    // FORCE = the video was replaced for this lesson. Wipe any existing/partial
+    // qualities so we never serve a mix of the old and new video, then always
+    // re-encode (don't take the "already exists" short-circuit).
+    if (force) {
+      await wipeQualityPrefix(prefix);
+    } else if (found.length > 0) {
+      // Not forced and qualities already exist in S3 → idempotent no-op.
       await prisma.media.update({ where: { id: media.id }, data: { hlsStatus: "ready", hlsQualities: found, hlsS3Prefix: prefix, hlsMasterUrl: null } });
-      // Qualities already present (e.g. re-save of an existing video) — treat as
-      // ready, no notification needed (nothing was actually processed).
       return { ok: true, skipped: true };
     }
 
     await prisma.media.update({ where: { id: media.id }, data: { hlsStatus: "processing" } });
+
+    const ab0 = await aborted();
+    if (ab0) {
+      logger.info("video-processor", ab0 === "cancelled" ? "aborted_superseded" : "aborted_media_deleted", { mediaId: media.id });
+      return { ok: true, skipped: true };
+    }
 
     await downloadFromS3(media.s3Key, srcFile);
     if (!fs.existsSync(srcFile) || fs.statSync(srcFile).size === 0) throw new Error("source download failed/empty");
@@ -177,9 +258,17 @@ async function encodeOne(mediaId: string, notify = true): Promise<{ ok: boolean;
     const qualities: string[] = [];
 
     for (const variant of applicable) {
+      // Stop between variants if the video was replaced (cancelled) or deleted.
+      const abv = await aborted();
+      if (abv) {
+        logger.info("video-processor", abv === "cancelled" ? "aborted_superseded" : "aborted_media_deleted", { mediaId: media.id, afterQualities: qualities });
+        return { ok: true, skipped: true };
+      }
       const outputFile = path.join(tmpDir, `${variant.quality}.mp4`);
       const s3DestKey = `${prefix}/${variant.quality}.mp4`;
-      if (await s3ObjectExists(s3DestKey)) { qualities.push(variant.quality); continue; }
+      // When NOT forced, reuse an existing quality object (idempotent resume).
+      // When forced we already wiped the prefix, so always re-encode.
+      if (!force && await s3ObjectExists(s3DestKey)) { qualities.push(variant.quality); continue; }
       const vf = `scale=${variant.width}:${variant.height}:force_original_aspect_ratio=decrease,pad=${variant.width}:${variant.height}:(ow-iw)/2:(oh-ih)/2`;
       await execAsync("ffmpeg", [
         "-y", "-i", srcFile, "-map", "0:v:0", "-map", "0:a:0?", "-vf", vf,
@@ -187,10 +276,23 @@ async function encodeOne(mediaId: string, notify = true): Promise<{ ok: boolean;
         "-b:v", variant.videoBitrate, "-maxrate", variant.videoBitrate, "-bufsize", `${parseInt(variant.videoBitrate) * 2}k`,
         "-c:a", "copy", "-movflags", "+faststart", outputFile,
       ], { maxBuffer: 100 * 1024 * 1024 });
+      // The ffmpeg run for this variant may have taken a while — if we were
+      // superseded/deleted meanwhile, discard this output instead of uploading.
+      const abAfter = await aborted();
+      if (abAfter) {
+        logger.info("video-processor", abAfter === "cancelled" ? "aborted_superseded" : "aborted_media_deleted", { mediaId: media.id });
+        return { ok: true, skipped: true };
+      }
       await uploadToS3(fs.readFileSync(outputFile), s3DestKey, "video/mp4");
       qualities.push(variant.quality);
     }
 
+    // Final checkpoint before marking ready.
+    const abFinal = await aborted();
+    if (abFinal) {
+      logger.info("video-processor", abFinal === "cancelled" ? "aborted_superseded" : "aborted_media_deleted", { mediaId: media.id });
+      return { ok: true, skipped: true };
+    }
     await prisma.media.update({ where: { id: media.id }, data: { hlsStatus: "ready", hlsQualities: qualities, hlsS3Prefix: prefix, hlsMasterUrl: null } });
     logger.success("video-processor", "ready", { mediaId: media.id, qualities });
     await notifyAdmin(true);
@@ -198,11 +300,17 @@ async function encodeOne(mediaId: string, notify = true): Promise<{ ok: boolean;
   } catch (err) {
     const msg = (err as Error)?.message || "unknown error";
     logger.warn("video-processor", "failed", { mediaId: media.id, error: msg });
-    await prisma.media.update({ where: { id: media.id }, data: { hlsStatus: "failed" } }).catch(() => {});
-    await notifyAdmin(false, msg);
+    // Only mark failed if this media still exists AND wasn't superseded — a
+    // cancelled/deleted media must not be flipped to "failed".
+    if (!isCancelled(media.id)) {
+      await prisma.media.update({ where: { id: media.id }, data: { hlsStatus: "failed" } }).catch(() => {});
+      await notifyAdmin(false, msg);
+    }
     return { ok: false, error: msg };
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
+    if (currentEncodingMediaId === media.id) currentEncodingMediaId = null;
+    cancelled.delete(media.id); // this encode is done; clear its flag
   }
 }
 
@@ -213,14 +321,16 @@ async function encodeOne(mediaId: string, notify = true): Promise<{ ok: boolean;
  * and the same single-encode guard/queue as triggerVideoProcessing so two heavy
  * encodes never run at once. Never throws.
  */
-export async function processVideoById(mediaId: string): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
+export async function processVideoById(mediaId: string, opts: { force?: boolean } = {}): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
   if (!mediaId) return { ok: true, skipped: true };
   // Wait for any in-flight encode (from the fire-and-forget queue) to finish so
-  // we don't run two CPU-heavy encodes simultaneously, then run ours.
+  // we don't run two CPU-heavy encodes simultaneously, then run ours. If an old
+  // encode is running for a DIFFERENT media that has since been cancelled, it
+  // will bail at its next checkpoint — so this wait stays short.
   while (encoding) await new Promise((r) => setTimeout(r, 500));
   encoding = true;
   try {
-    return await encodeOne(mediaId, /* notify */ false);
+    return await encodeOne(mediaId, /* notify */ false, opts.force === true);
   } catch (err) {
     return { ok: false, error: (err as Error)?.message || "unknown error" };
   } finally {

@@ -30,6 +30,9 @@ type PartResult = { ok: boolean; skipped?: boolean; count?: number; error?: stri
 interface Job {
   lessonId: string;
   videoMediaId?: string;
+  // When the lesson's video was REPLACED, force a fresh re-encode (wipe any
+  // partial/old qualities first) rather than reusing whatever is in S3.
+  forceVideo?: boolean;
 }
 
 // Serialize pipeline runs so two saves don't fire concurrent heavy jobs.
@@ -66,7 +69,7 @@ function describeSuccessPart(label: string, r: PartResult | null): string | null
 }
 
 async function runJob(job: Job): Promise<void> {
-  const { lessonId, videoMediaId } = job;
+  const { lessonId, videoMediaId, forceVideo } = job;
   const lessonTitle = await getLessonTitle(lessonId);
 
   // Run all three IN PARALLEL. They use different resources — video is CPU-bound
@@ -76,7 +79,7 @@ async function runJob(job: Job): Promise<void> {
   // resource. Each generator already catches its own errors and resolves to a
   // PartResult, so Promise.all never rejects here.
   const videoP: Promise<PartResult | null> = videoMediaId
-    ? processVideoById(videoMediaId)
+    ? processVideoById(videoMediaId, { force: forceVideo === true })
     : Promise.resolve(null);
   const [video, quiz, exercise]: [PartResult | null, PartResult, PartResult] = await Promise.all([
     videoP,
@@ -169,9 +172,16 @@ async function drain(): Promise<void> {
  * Kick off the full lesson content pipeline (video + quiz + exercise) for ONE
  * lesson. Fire-and-forget: returns immediately so the admin's Save request is
  * never blocked. Concurrent calls are queued and run sequentially. Never throws.
+ *
+ * Pass `opts.forceVideo` when the lesson's video was REPLACED, so the video step
+ * wipes any partial/old qualities and re-encodes the new file from scratch.
  */
-export function triggerLessonPipeline(lessonId: string, videoMediaId?: string): void {
+export function triggerLessonPipeline(
+  lessonId: string,
+  videoMediaId?: string,
+  opts: { forceVideo?: boolean } = {},
+): void {
   if (!lessonId) return;
-  queue.push({ lessonId, videoMediaId });
+  queue.push({ lessonId, videoMediaId, forceVideo: opts.forceVideo === true });
   void drain();
 }

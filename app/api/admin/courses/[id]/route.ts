@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAdmin } from "@/app/lib/middleware";
-import { deleteS3Prefix, deleteFromS3, getS3KeyFromUrl } from "@/app/lib/s3";
+import { deleteS3Prefix, deleteFromS3, getS3KeyFromUrl, deleteQualitiesByMediaId } from "@/app/lib/s3";
 import { apiSuccess, apiError } from "@/app/lib/response";
 
 /**
@@ -51,14 +51,14 @@ export async function DELETE(
         const videoKey = getS3KeyFromUrl(lesson.videoUrl);
         if (videoKey) await deleteFromS3(videoKey);
 
-        // Find Media to get quality prefix
+        // Find Media to clean up its processed qualities. Use the stored prefix
+        // when present, and ALWAYS also sweep by mediaId — the real quality
+        // prefix is qualities/<course>/<module>/<slug>-<mediaId>, so the old
+        // `qualities/<mediaId>/` fallback never matched and orphaned the files.
         const media = await prisma.media.findFirst({ where: { s3Url: lesson.videoUrl } });
         if (media) {
-          if (media.hlsS3Prefix) {
-            await deleteS3Prefix(`${media.hlsS3Prefix}/`);
-          } else {
-            await deleteS3Prefix(`qualities/${media.id}/`);
-          }
+          if (media.hlsS3Prefix) await deleteS3Prefix(`${media.hlsS3Prefix}/`);
+          await deleteQualitiesByMediaId(media.id);
           await deleteS3Prefix(`hls/${media.id}/`);
         }
       }

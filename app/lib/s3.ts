@@ -149,15 +149,57 @@ export async function deleteS3Prefix(prefix: string): Promise<boolean> {
 export async function deleteVideoMediaS3(
   s3UrlOrKey: string | null | undefined,
   hlsS3Prefix?: string | null,
+  mediaId?: string | null,
 ): Promise<void> {
   if (s3UrlOrKey) {
     const key = getS3KeyFromUrl(s3UrlOrKey) || s3UrlOrKey;
     if (key) await deleteFromS3(key);
   }
-  // Delete processed qualities using the stored prefix.
+  // 1) Delete processed qualities using the stored prefix (fast, exact).
   if (hlsS3Prefix && hlsS3Prefix.trim()) {
     const pfx = hlsS3Prefix.endsWith("/") ? hlsS3Prefix : hlsS3Prefix + "/";
     await deleteS3Prefix(pfx);
+  }
+  // 2) ALSO sweep by mediaId. The stored prefix is frequently null — the video
+  //    was deleted/replaced before processing finished (status pending/
+  //    processing/failed never stored a prefix), or an encode wrote qualities
+  //    after the row's prefix was read. Every quality key embeds the mediaId
+  //    (qualities/.../<slug>-<mediaId>/<q>.mp4), so we can always find and
+  //    remove them by id even when hlsS3Prefix is missing. Non-fatal.
+  if (mediaId && mediaId.trim()) {
+    await deleteQualitiesByMediaId(mediaId);
+  }
+}
+
+/**
+ * Delete every object under the `qualities/` prefix whose key contains the given
+ * mediaId. A reliable fallback when `hlsS3Prefix` wasn't stored. Paginates the
+ * full listing and batch-deletes. Fails silently (logged).
+ */
+export async function deleteQualitiesByMediaId(mediaId: string): Promise<void> {
+  if (!mediaId) return;
+  try {
+    const toDelete: { Key: string }[] = [];
+    let token: string | undefined;
+    do {
+      const res = await s3.send(
+        new ListObjectsV2Command({ Bucket: BUCKET, Prefix: "qualities/", ContinuationToken: token }),
+      );
+      for (const o of res.Contents || []) {
+        if (o.Key && o.Key.includes(mediaId)) toDelete.push({ Key: o.Key });
+      }
+      token = res.IsTruncated ? res.NextContinuationToken : undefined;
+    } while (token);
+
+    if (toDelete.length === 0) return;
+    // Delete in batches of 1000 (S3 DeleteObjects limit).
+    for (let i = 0; i < toDelete.length; i += 1000) {
+      const batch = toDelete.slice(i, i + 1000);
+      await s3.send(new DeleteObjectsCommand({ Bucket: BUCKET, Delete: { Objects: batch } }));
+    }
+    console.log(`S3 qualities deleted by mediaId ${mediaId} (${toDelete.length} objects)`);
+  } catch (err) {
+    console.error(`S3 quality cleanup by mediaId failed: ${mediaId}`, err);
   }
 }
 
