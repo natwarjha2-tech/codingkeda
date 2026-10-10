@@ -43,17 +43,33 @@ export async function GET(
     if (!lesson) return apiError(404, "Lesson not found.");
 
     const courseId = lesson.module?.courseId;
-
-    // Access check: enrolled in the course OR the lesson is free.
-    let isEnrolled = false;
     const authUser = extractUser(req);
-    if (authUser && courseId) {
-      const enrollment = await prisma.enrollment.findUnique({
-        where: { userId_courseId: { userId: authUser.userId, courseId } },
-      });
-      isEnrolled = !!enrollment;
-    }
+    const s3KeyRaw = lesson.videoUrl ? getS3KeyFromUrl(lesson.videoUrl) : null;
 
+    // Fire the two INDEPENDENT follow-up queries in PARALLEL — both only depend
+    // on the lesson we already have, not on each other:
+    //   • enrollment  → access check
+    //   • media       → HLS/quality info
+    // Running them together (instead of sequentially) saves one DB round-trip,
+    // which matters on the first/cold request. We fetch media here even if the
+    // lesson turns out locked (one extra lightweight read) to keep this a single
+    // parallel step; its result is simply unused when access is denied.
+    const [enrollment, media] = await Promise.all([
+      authUser && courseId
+        ? prisma.enrollment.findUnique({
+            where: { userId_courseId: { userId: authUser.userId, courseId } },
+            select: { id: true },
+          })
+        : Promise.resolve(null),
+      s3KeyRaw
+        ? prisma.media.findFirst({
+            where: { s3Key: s3KeyRaw, isActive: true },
+            select: { id: true, hlsStatus: true, hlsQualities: true, hlsS3Prefix: true },
+          })
+        : Promise.resolve(null),
+    ]);
+
+    const isEnrolled = !!enrollment;
     const canAccess = isEnrolled || lesson.isFree;
     if (!canAccess) {
       // Locked — no playable URL (client shows the paywall).
@@ -74,45 +90,42 @@ export async function GET(
       });
     }
 
-    // Sign the original video URL (skip if already signed).
-    const alreadySigned = lesson.videoUrl?.includes("X-Amz-Signature");
-    const signedVideoUrl =
-      !alreadySigned && getS3KeyFromUrl(lesson.videoUrl)
-        ? await getSignedFileUrlFromUrl(lesson.videoUrl)
-        : lesson.videoUrl;
-
-    // HLS / quality info from the Media table (matched by the video's s3Key).
+    // HLS / quality info from the Media row we already fetched above (parallel).
     let mediaId: string | null = null;
     let hlsStatus = "none";
     let hlsQualities: string[] = [];
     const qualityUrls: Record<string, string> = {};
-    if (lesson.videoUrl) {
-      const s3KeyRaw = getS3KeyFromUrl(lesson.videoUrl);
-      const media = s3KeyRaw
-        ? await prisma.media.findFirst({
-            where: { s3Key: s3KeyRaw, isActive: true },
-            select: { id: true, hlsStatus: true, hlsQualities: true, hlsS3Prefix: true },
-          })
-        : null;
-      if (media) {
-        mediaId = media.id;
-        hlsStatus = media.hlsStatus || "none";
-        hlsQualities = media.hlsQualities || [];
-        if (media.hlsStatus === "ready" && media.hlsS3Prefix && hlsQualities.length > 0) {
-          const entries = await Promise.all(
-            hlsQualities.map(async (q) => {
-              const qKey = `${media.hlsS3Prefix}/${q}.mp4`;
-              const url = await getSignedFileUrlFromUrl(
-                `https://${process.env.AWS_S3_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${qKey}`,
-                3600
-              );
-              return [q, url] as const;
-            })
+
+    // Sign the original video URL (skip if already signed). Presigning is a
+    // local HMAC op (~1ms) — collect all signing promises and await them in one
+    // parallel batch rather than sequentially.
+    const alreadySigned = lesson.videoUrl?.includes("X-Amz-Signature");
+    const signUrls: Promise<void>[] = [];
+    let signedVideoUrl = lesson.videoUrl;
+    if (!alreadySigned && s3KeyRaw) {
+      signUrls.push(
+        getSignedFileUrlFromUrl(lesson.videoUrl).then((u) => { signedVideoUrl = u; })
+      );
+    }
+
+    if (media) {
+      mediaId = media.id;
+      hlsStatus = media.hlsStatus || "none";
+      hlsQualities = media.hlsQualities || [];
+      if (media.hlsStatus === "ready" && media.hlsS3Prefix && hlsQualities.length > 0) {
+        for (const q of hlsQualities) {
+          const qKey = `${media.hlsS3Prefix}/${q}.mp4`;
+          signUrls.push(
+            getSignedFileUrlFromUrl(
+              `https://${process.env.AWS_S3_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${qKey}`,
+              3600
+            ).then((u) => { qualityUrls[q] = u; })
           );
-          for (const [q, url] of entries) qualityUrls[q] = url;
         }
       }
     }
+    // Resolve the original-video + all quality signings together.
+    if (signUrls.length) await Promise.all(signUrls);
 
     return apiSuccess({
       lesson: {
