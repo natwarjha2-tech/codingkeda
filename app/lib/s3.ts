@@ -1,5 +1,6 @@
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command, DeleteObjectsCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import crypto from "crypto";
 
 export const s3 = new S3Client({
   region: process.env.AWS_REGION!,
@@ -27,22 +28,42 @@ export async function getSignedFileUrl(key: string, expiresIn = 3600) {
   return getSignedUrl(s3, command, { expiresIn });
 }
 
+// Extract the object KEY from either an S3 URL (…amazonaws.com/<key>) or a
+// CloudFront URL (https://<cf-domain>/<key>). Returns the path (minus the
+// leading "/") with any query params (signatures) stripped — so it works for
+// raw, S3-signed, or CloudFront-signed URLs alike.
 export function getS3KeyFromUrl(url: string) {
   try {
     const parsed = new URL(url);
-    const marker = ".amazonaws.com/";
-    const index = parsed.href.indexOf(marker);
-    if (index === -1) return null;
-    // Use pathname only — strip query params (signed URL params)
+    const isS3 = parsed.href.indexOf(".amazonaws.com/") !== -1;
+    const cfHost = (process.env.CLOUDFRONT_DOMAIN || "").replace(/^https?:\/\//, "");
+    const isCf = cfHost && parsed.host === cfHost;
+    if (!isS3 && !isCf) return null;
+    // Use pathname only — strip query params (signed-URL params).
     return decodeURIComponent(parsed.pathname.substring(1));
   } catch {
     return null;
   }
 }
 
+/**
+ * Sign a key for delivery to the client. When CloudFront is fully configured
+ * (CLOUDFRONT_DOMAIN + CLOUDFRONT_KEY_PAIR_ID + CLOUDFRONT_PRIVATE_KEY), return
+ * a CloudFront SIGNED URL so the bytes are served from the CDN edge (fast,
+ * cached). Otherwise fall back to an S3 presigned URL (current behaviour) — so
+ * nothing breaks before the CloudFront env vars are set in production.
+ *
+ * This is the single choke point every caller (lesson /play, Codo sources,
+ * study material, downloads) already routes through, so flipping to CloudFront
+ * requires no change anywhere else — and no app change (clients just play the
+ * URL they're given).
+ */
 export async function getSignedFileUrlFromUrl(url: string, expiresIn = 3600) {
   const key = getS3KeyFromUrl(url);
-  if (!key) throw new Error("Invalid S3 URL.");
+  if (!key) throw new Error("Invalid S3/CloudFront URL.");
+  if (isCloudFrontConfigured()) {
+    return signCloudFrontUrl(key, expiresIn);
+  }
   return getSignedFileUrl(key, expiresIn);
 }
 
@@ -76,9 +97,65 @@ export async function uploadHlsFile(
   return getPublicUrl(key);
 }
 
-// CloudFront base URL (optional — falls back to S3 direct if not set)
-const CF_DOMAIN = process.env.CLOUDFRONT_DOMAIN; // e.g. "d1234.cloudfront.net"
+// ── CloudFront signed URLs ───────────────────────────────────────────────────
+// Serve video/quality/material bytes from the CloudFront edge (fast, cached)
+// instead of straight from S3. We sign with a canned policy using Node's crypto
+// (RSA-SHA1 over the policy) — the same thing @aws-sdk/cloudfront-signer does
+// internally — so NO extra npm dependency is needed.
+//
+// Required env (all three, else we fall back to S3 presigning automatically):
+//   CLOUDFRONT_DOMAIN       e.g. "d1234abcd.cloudfront.net" (no scheme)
+//   CLOUDFRONT_KEY_PAIR_ID  the public key / key-pair id from the CF key group
+//   CLOUDFRONT_PRIVATE_KEY  the PEM private key (literal, with \n line breaks)
+const CF_DOMAIN = (process.env.CLOUDFRONT_DOMAIN || "").replace(/^https?:\/\//, "");
+const CF_KEY_PAIR_ID = process.env.CLOUDFRONT_KEY_PAIR_ID || "";
+// Private key may be stored in .env with literal "\n" sequences — normalise them.
+const CF_PRIVATE_KEY = (process.env.CLOUDFRONT_PRIVATE_KEY || "").replace(/\\n/g, "\n");
 
+export function isCloudFrontConfigured(): boolean {
+  return !!(CF_DOMAIN && CF_KEY_PAIR_ID && CF_PRIVATE_KEY);
+}
+
+// CloudFront-safe base64 (per AWS docs: +→-, =→_, /→~).
+function cfSafeBase64(input: Buffer | string): string {
+  const b64 = (Buffer.isBuffer(input) ? input : Buffer.from(input)).toString("base64");
+  return b64.replace(/\+/g, "-").replace(/=/g, "_").replace(/\//g, "~");
+}
+
+/**
+ * Build a CloudFront SIGNED URL (canned policy) for an object key, valid for
+ * `expiresIn` seconds. Caller must have verified access already — signing just
+ * authorizes delivery of this one object from the CDN.
+ */
+export function signCloudFrontUrl(key: string, expiresIn = 3600): string {
+  const resourceUrl = `https://${CF_DOMAIN}/${key}`;
+  const expires = Math.floor(Date.now() / 1000) + expiresIn;
+
+  // Canned policy: single resource + expiry. CloudFront reconstructs it from
+  // the Expires param, so we don't send Policy for a canned policy.
+  const policy = JSON.stringify({
+    Statement: [
+      {
+        Resource: resourceUrl,
+        Condition: { DateLessThan: { "AWS:EpochTime": expires } },
+      },
+    ],
+  });
+
+  const signer = crypto.createSign("RSA-SHA1");
+  signer.update(policy);
+  const signature = cfSafeBase64(signer.sign(CF_PRIVATE_KEY));
+
+  const sep = resourceUrl.includes("?") ? "&" : "?";
+  return (
+    `${resourceUrl}${sep}Expires=${expires}` +
+    `&Signature=${signature}` +
+    `&Key-Pair-Id=${CF_KEY_PAIR_ID}`
+  );
+}
+
+// Base CDN URL for a key (unsigned). Used where the asset is public or signing
+// is handled elsewhere; falls back to the S3 public URL when CF isn't set.
 export function getHlsUrl(s3Key: string): string {
   if (CF_DOMAIN) {
     return `https://${CF_DOMAIN}/${s3Key}`;
@@ -86,10 +163,10 @@ export function getHlsUrl(s3Key: string): string {
   return getPublicUrl(s3Key);
 }
 
-// Sign a CloudFront URL using signed cookies is complex — for now we sign the S3 key
-// In production replace this with CloudFront signed URL via @aws-sdk/cloudfront-signer
+// Signed CDN URL for an HLS/segment key — now a real CloudFront signed URL when
+// configured (else an S3 presigned URL fallback).
 export async function getSignedHlsUrl(s3Key: string, expiresIn = 3600): Promise<string> {
-  // If CloudFront domain is set but no CF signing keys configured, return signed S3 URL
+  if (isCloudFrontConfigured()) return signCloudFrontUrl(s3Key, expiresIn);
   return getSignedFileUrl(s3Key, expiresIn);
 }
 
