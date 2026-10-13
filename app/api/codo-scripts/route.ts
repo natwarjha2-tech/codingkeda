@@ -33,10 +33,14 @@ const FALLBACKS: Record<string, string> = {
     "Shabaash! Tumne quiz complete kar liya! Mujhe tum par bahut proud feel ho raha hai. Aise hi seekhte raho, aur aage badhte raho!",
   // ── Prefix/postfix that wrap every Codo solution ──────────────────────────
   // Always the same for every student. Audio generated once, stored forever.
+  // Prefix: clearer wording so "wrong" is distinctly audible ("get this one
+  // wrong" with a pause reads more clearly than "got this question wrong").
   codo_solution_prefix:
-    "Hey Codo squad! Most students got this question wrong, so don't worry at all :)",
-  codo_solution_postfix:
-    "Keep exploring, keep learning and keep rocking Codo squad!",
+    "Hey Codo squad! A lot of students get this one wrong. So don't worry at all!",
+  // Postfix removed — Gemini now ends the answer naturally and signs off with
+  // "Codo squad" itself (see the lesson-help prompt). Kept as empty so any
+  // cached/old client that still reads it gets nothing extra.
+  codo_solution_postfix: "",
 };
 
 export async function GET() {

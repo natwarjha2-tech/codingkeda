@@ -270,7 +270,9 @@ The CORRECT answer (ground truth — trust this completely) is:
 ${correctAnswerText || "(not available)"}
 
 Write a short, friendly explanation for a child:
-1. Clearly state the correct answer.
+1. Clearly state the correct answer as a COMPLETE sentence. Never a fragment —
+   e.g. say "Sahi answer C hai" (NOT just "Sahi answer C"), "The correct answer
+   is C" (NOT just "answer C").
 2. Explain WHY it is correct, in simple words, using ONLY the material/teacher note below when available. Do not invent facts.
 3. Keep it short, warm, and encouraging (a couple of short sentences; one emoji is fine).
 4. Reply in simple HINGLISH — everyday spoken Hindi (Devanagari) MIXED with common
@@ -281,6 +283,9 @@ Write a short, friendly explanation for a child:
    programming keywords, code, and option letters (A/B/C/D) in ENGLISH — don't
    translate them. If a Hindi word would be hard for a 10-year-old, use the
    simple English word instead.
+6. END with a short, warm, encouraging closing line that ALWAYS addresses the
+   child as "Codo squad" — e.g. "You are doing awesome, Codo squad!" or "Aise hi
+   seekhte raho, Codo squad!". Vary the words but always finish with "Codo squad".
 ${materialBlock}
 QUESTION:
 ${questionText}
