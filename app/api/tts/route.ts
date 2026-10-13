@@ -76,15 +76,29 @@ function cleanForSpeech(text: string): string {
     .replace(/```[\s\S]*?```/g, " . Here is a code example on screen. ") // code blocks
     .replace(/`([^`]+)`/g, "$1")
     .replace(/\*\*([^*]+)\*\*/g, "$1")
+    // Emoticons like :) :-) :( — remove BEFORE other symbol handling so the
+    // ":" / ")" don't get read as noise.
+    .replace(/[:;]-?[)(DP]/g, " ")
     .replace(/[_#>`]/g, "")
     // Strip emoji & pictographs so TTS never reads "star"/"rocket"/"चमकता सितारा".
     .replace(/\p{Extended_Pictographic}/gu, "")
     .replace(/[\u2600-\u27BF\u2B00-\u2BFF\u2190-\u21FF\uFE0F\u200D\u20E3]/g, "")
     .replace(/[\u{1F000}-\u{1FAFF}]/gu, "")
-    // Speak MATH/LOGIC operators as words so "5+4" reads "5 plus 4".
-    .replace(/\+/g, " plus ")
-    .replace(/(\w)\s*-\s*(\w)/g, "$1 minus $2") // minus only between terms
-    .replace(/\*/g, " times ")
+    // Function calls like printf(), main() → say the name + "function" and DROP
+    // the empty parentheses so TTS doesn't choke on "( )". Do this BEFORE the
+    // generic bracket strip below.
+    .replace(/([A-Za-z_]\w*)\s*\(\s*\)/g, "$1 function")
+    // MATH operators → words. IMPORTANT: only turn "-" into "minus" when it sits
+    // between NUMBERS (a real subtraction like "5-3"), NOT between words — so
+    // "ready-made" and "built-in" keep their hyphen (read as one word), not
+    // "ready minus made".
+    .replace(/(\d)\s*-\s*(\d)/g, "$1 minus $2")
+    // Any remaining hyphen between word characters → just a space so compound
+    // words read naturally ("ready-made" → "ready made", not "ready minus made").
+    .replace(/(\w)-(\w)/g, "$1 $2")
+    .replace(/(\d)\s*\+\s*(\d)/g, "$1 plus $2") // "+" as plus only between numbers
+    .replace(/\+/g, " plus ")                    // stray + → plus
+    .replace(/(\d)\s*\*\s*(\d)/g, "$1 times $2") // "*" as times only between numbers
     .replace(/÷/g, " divided by ")
     .replace(/=/g, " equals ")
     .replace(/%/g, " percent ")
@@ -94,7 +108,7 @@ function cleanForSpeech(text: string): string {
     .replace(/</g, " less than ")
     .replace(/>/g, " greater than ")
     // Remove noisy brackets/slashes; keep sentence punctuation (. , ? !).
-    .replace(/[()[\]{}|/\\~^]/g, " ")
+    .replace(/[()[\]{}|/\\~^*]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }

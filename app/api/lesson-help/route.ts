@@ -188,6 +188,7 @@ export async function POST(req: NextRequest) {
     // ---- Load the item + its lesson/course for RAG scoping ----------------
     let questionText = "";
     let correctAnswerText = ""; // ground-truth answer (never AI-guessed)
+    let correctLetter = "";     // just the option letter (e.g. "C") for quizzes
     let storedExplanation = "";
     let courseId: string | null = null;
     let topicLabel = "";
@@ -207,6 +208,7 @@ export async function POST(req: NextRequest) {
         .join("\n");
       questionText = `${quiz.question}\n${optionsText}`;
       const correctIdx = Number(quiz.answer);
+      correctLetter = letters[correctIdx] || `Option ${correctIdx + 1}`;
       correctAnswerText =
         options[correctIdx] !== undefined
           ? `${letters[correctIdx]}. ${String(options[correctIdx])}`
@@ -273,6 +275,17 @@ export async function POST(req: NextRequest) {
     ];
     const closingLine = CODO_CLOSINGS[Math.floor(Math.random() * CODO_CLOSINGS.length)];
 
+    // Rule 1 differs for quiz (state only the OPTION LETTER, never read the
+    // option's text/code) vs exercise (no letters — state the answer normally).
+    const answerRule =
+      kind === "quiz"
+        ? `1. Start by stating the correct answer using ONLY its OPTION LETTER as a
+   COMPLETE sentence — e.g. "Sahi answer option ${correctLetter || "C"} hai." or
+   "The correct answer is option ${correctLetter || "C"}." Do NOT read out or
+   repeat the option's text/code/value when stating the answer (e.g. do NOT say
+   "option C printf"). Just the letter. Then explain in the next sentences.`
+        : `1. Clearly state the correct answer as a COMPLETE sentence, then explain.`;
+
     // Full answer: ground truth + kid-friendly reasons.
     const prompt = `You are Codo, a warm, encouraging AI buddy for kids on the CodingKida learning app.
 The child is working on a ${kind} about "${topicLabel}" and asked to see the answer.
@@ -281,9 +294,7 @@ The CORRECT answer (ground truth — trust this completely) is:
 ${correctAnswerText || "(not available)"}
 
 Write a short, friendly explanation for a child:
-1. Clearly state the correct answer as a COMPLETE sentence. Never a fragment —
-   e.g. say "Sahi answer C hai" (NOT just "Sahi answer C"), "The correct answer
-   is C" (NOT just "answer C").
+${answerRule}
 2. Explain WHY it is correct, in simple words, using ONLY the material/teacher note below when available. Do not invent facts.
 3. Keep it short, warm, and encouraging (a couple of short sentences; one emoji is fine).
 4. Reply in simple HINGLISH — everyday spoken Hindi (Devanagari) MIXED with common
