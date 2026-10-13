@@ -76,12 +76,16 @@ async function persistHelp(
   stage: string,
   helpText: string,
   source: string,
-  sources: HelpSource[]
+  sources: HelpSource[],
+  // Optional pre-synthesized audio: when the caller already generated the voice
+  // (e.g. the streaming path, so it can send audio in the `done` frame), pass it
+  // here so we DON'T call ElevenLabs a second time.
+  presynth?: { audio: string; voice: string } | null
 ): Promise<void> {
   if (!itemId || !helpText) return;
   try {
-    // Synthesize the voice once so later students skip the TTS call too.
-    const tts = await synthesizeSpeech(helpText).catch(() => null);
+    // Reuse pre-synthesized audio if provided; else synthesize once.
+    const tts = presynth ?? (await synthesizeSpeech(helpText).catch(() => null));
     await prisma.lessonHelpCache.upsert({
       where: { kind_itemId_stage: { kind, itemId, stage } },
       create: {
@@ -145,7 +149,11 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const kind: string = body?.kind;
-    const stage: string = body?.stage === "answer" ? "answer" : "hint";
+    // Hint stage removed — Codo always gives the full solution directly.
+    // We keep `stage = "answer"` so existing LessonHelpCache entries
+    // (keyed by stage) are reused, and old clients sending stage:"hint"
+    // also get the solution (the key is just remapped).
+    const stage = "answer";
     // Opt-in streaming: when the client sends { stream: true } we return an
     // SSE stream (text chunks, then a final meta frame). Older/other clients
     // omit the flag and keep getting the plain JSON response unchanged.
@@ -253,35 +261,9 @@ export async function POST(req: NextRequest) {
       ? `TEACHER NOTE (use this to explain simply):\n${storedExplanation}\n`
       : "";
 
-    let prompt = "";
-
-    if (stage === "hint") {
-      // A nudge only — must NOT reveal the answer.
-      prompt = `You are Codo, a warm, encouraging AI buddy for kids on the CodingKida learning app.
-The child is working on a ${kind} about "${topicLabel}" and tapped "Help".
-
-Give ONE small, friendly HINT that nudges them toward figuring it out THEMSELVES.
-Rules:
-- Reply in simple HINGLISH — everyday spoken Hindi (Devanagari) MIXED with common
-  English words, the way Indian kids and teachers actually talk. Example style:
-  "ye loop तब तक चलता है जब तक condition true है".
-- Use EASY, common Hindi words only. Do NOT use hard/formal/literary Hindi
-  (avoid words like कार्यक्रम, चर, पुनरावृत्ति, अनुक्रमणिका). Keep technical terms,
-  programming keywords, and code in ENGLISH (loop, function, variable, array,
-  pointer, program, etc.) — don't translate them to Hindi.
-- If a Hindi word would be hard for a 10-year-old, use the simple English word instead.
-- Do NOT reveal the correct answer or which option is right.
-- Keep it to 1-2 short, simple sentences a child understands.
-- Be positive and playful (one emoji is fine).
-- Base the hint on the material if provided.
-${materialBlock}
-QUESTION:
-${questionText}
-
-Your hint:`;
-    } else {
-      // Full answer: ground truth + kid-friendly reasons.
-      prompt = `You are Codo, a warm, encouraging AI buddy for kids on the CodingKida learning app.
+    // Always show the full answer — hint stage removed.
+    // Full answer: ground truth + kid-friendly reasons.
+    const prompt = `You are Codo, a warm, encouraging AI buddy for kids on the CodingKida learning app.
 The child is working on a ${kind} about "${topicLabel}" and asked to see the answer.
 
 The CORRECT answer (ground truth — trust this completely) is:
@@ -304,11 +286,10 @@ QUESTION:
 ${questionText}
 
 Your explanation:`;
-    }
 
     // Metadata the client needs once the full answer is known.
     const sourceType = material ? "study_material" : storedExplanation ? "teacher_note" : "ai";
-    const outSources = stage === "answer" && material ? sources : [];
+    const outSources = material ? sources : [];
 
     // ---- Streaming path (opt-in): forward text as Gemini produces it ------
     if (wantStream) {
@@ -351,14 +332,26 @@ Your explanation:`;
             }
           }
 
-          // Final metadata frame: full text + source attribution.
+          // Synthesize the voice (Codo's cloned voice via ElevenLabs) BEFORE
+          // the done frame, so the client gets the audio immediately — on the
+          // wrong-answer prefetch this means the audio is in memory the instant
+          // the student taps Codo (no second /api/tts call). Done once; reused
+          // by persistHelp so ElevenLabs is NOT called twice.
           const doneSource = full ? sourceType : "stored";
+          let synth: { audio: string; voice: string } | null = null;
+          if (full) {
+            synth = await synthesizeSpeech(full).catch(() => null);
+          }
+
+          // Final metadata frame: full text + source attribution + audio.
           send({
             type: "done",
             stage,
             help: full,
             source: doneSource,
             sources: outSources,
+            audio: synth?.audio ?? null,
+            voice: synth?.voice ?? null,
           });
           controller.close();
 
@@ -366,10 +359,9 @@ Your explanation:`;
             logger.success("lesson-help", "help_streamed", {
               userId: user!.userId, kind, stage, usedMaterial: !!material,
             });
-            // Persist text + synthesize/store audio so the NEXT student gets
-            // this instantly. Runs after the stream closes; we stay inside
-            // start() (awaited) so the serverless invocation isn't cut off.
-            await persistHelp(kind, itemId, stage, full, doneSource, outSources);
+            // Persist text + the ALREADY-synthesized audio so the next student
+            // gets both instantly from DB. Passing `synth` avoids a 2nd TTS call.
+            await persistHelp(kind, itemId, stage, full, doneSource, outSources, synth);
           }
         },
       });
@@ -412,20 +404,22 @@ Your explanation:`;
       usedMaterial: !!material,
     });
 
-    // Persist text + synthesize/store audio so the next student is instant.
-    await persistHelp(kind, itemId, stage, answer, sourceType, outSources);
+    // Synthesize the voice once (Codo's cloned voice) so we can both return it
+    // to this client AND store it — ElevenLabs is called only once.
+    const synth = await synthesizeSpeech(answer).catch(() => null);
+
+    // Persist text + the already-synthesized audio so the next student is instant.
+    await persistHelp(kind, itemId, stage, answer, sourceType, outSources, synth);
 
     return apiSuccess({
       stage,
       help: answer,
       source: sourceType,
-      // Only reveal document sources on the full answer (not the hint), and
-      // only when the explanation actually came from study material.
       sources: outSources,
-      // Include the audio we just synthesized so the client can play it
-      // without a second /api/tts round-trip.
-      audio: null,
-      voice: null,
+      // Include the audio we just synthesized so the client plays it without a
+      // second /api/tts round-trip.
+      audio: synth?.audio ?? null,
+      voice: synth?.voice ?? null,
     });
   } catch {
     return apiError(500, "Internal server error.");

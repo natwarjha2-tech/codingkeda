@@ -144,7 +144,16 @@ async function findExistingQualitiesInS3(mediaId: string, s3Key: string, storedP
 }
 
 async function uploadToS3(buffer: Buffer, key: string, contentType: string) {
-  await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: buffer, ContentType: contentType }));
+  // Immutable media (unique keyed) — long cache so CloudFront holds it at the
+  // edge instead of weakly caching + re-missing (see IMMUTABLE_CACHE_CONTROL in
+  // app/lib/s3.ts).
+  await s3.send(new PutObjectCommand({
+    Bucket: BUCKET,
+    Key: key,
+    Body: buffer,
+    ContentType: contentType,
+    CacheControl: "public, max-age=31536000, immutable",
+  }));
 }
 // Download the source object straight from S3 via the SDK and stream it to
 // disk. We deliberately avoid a presigned URL + curl: AWS SDK v3 now injects

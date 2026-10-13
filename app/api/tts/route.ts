@@ -22,6 +22,20 @@ import { logger } from "@/app/lib/logger";
 
 const GOOGLE_TTS_API_KEY = process.env.GOOGLE_TTS_API_KEY || "";
 
+// ElevenLabs (Codo's cloned voice). When these are set, we synthesize with the
+// cloned Codo voice and only fall back to Google TTS if ElevenLabs fails. The
+// voice is the SAME for every student and the audio is cached (in-memory here +
+// in the lesson-help DB cache), so each unique line is generated at most once —
+// keeping ElevenLabs character usage (and cost) low.
+const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "";
+const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "";
+// Multilingual model so Hinglish (Hindi + English mixed) is pronounced well.
+const ELEVENLABS_MODEL = process.env.ELEVENLABS_MODEL || "eleven_multilingual_v2";
+
+function isElevenLabsConfigured(): boolean {
+  return !!(ELEVENLABS_API_KEY && ELEVENLABS_VOICE_ID);
+}
+
 // Male Neural2 voices. Devanagari text -> Hindi voice; else Indian-English.
 const HINDI_VOICE = { languageCode: "hi-IN", name: "hi-IN-Neural2-B" };
 const ENGLISH_VOICE = { languageCode: "en-IN", name: "en-IN-Neural2-B" };
@@ -86,23 +100,90 @@ function cleanForSpeech(text: string): string {
 }
 
 /**
+ * Synthesize `text` with ElevenLabs using Codo's cloned voice. Returns a base64
+ * MP3 (to match the Google path, so clients play it identically) or null on any
+ * failure — the caller then falls back to Google TTS. Uses the multilingual
+ * model so Hinglish is pronounced naturally.
+ */
+async function synthesizeElevenLabs(input: string): Promise<string | null> {
+  if (!isElevenLabsConfigured()) return null;
+  try {
+    const res = await fetch(
+      `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}?output_format=mp3_44100_128`,
+      {
+        method: "POST",
+        headers: {
+          "xi-api-key": ELEVENLABS_API_KEY,
+          "Content-Type": "application/json",
+          Accept: "audio/mpeg",
+        },
+        body: JSON.stringify({
+          text: input,
+          model_id: ELEVENLABS_MODEL,
+          // Lively but consistent — tuned for a friendly kid mascot. Adjust via
+          // env if needed later.
+          voice_settings: {
+            stability: 0.4,
+            similarity_boost: 0.85,
+            style: 0.3,
+            use_speaker_boost: true,
+          },
+        }),
+      }
+    );
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      logger.warn("tts", "elevenlabs_failed", { status: res.status, detail: detail.slice(0, 200) });
+      return null;
+    }
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (!buf.length) return null;
+    return buf.toString("base64");
+  } catch (e) {
+    logger.warn("tts", "elevenlabs_network", { error: (e as Error)?.message });
+    return null;
+  }
+}
+
+/**
  * Synthesize speech for `text` and return { audio(base64 mp3), voice }.
  * Shared by this route AND the lesson-help route (which pre-generates and
  * stores audio in the DB cache). Uses the in-memory cache so identical text
  * isn't re-synthesized within a server session.
  *
- * Returns null when TTS is not configured or Google fails — callers then let
- * the client fall back to the browser voice.
+ * Voice priority: ElevenLabs (Codo's cloned voice) when configured, else
+ * Google TTS. On ElevenLabs failure we fall back to Google so Codo never goes
+ * silent. Returns null only when NEITHER is available — callers then let the
+ * client fall back to the browser voice.
  */
 export async function synthesizeSpeech(
   text: string
 ): Promise<{ audio: string; voice: string } | null> {
-  if (!GOOGLE_TTS_API_KEY) return null;
+  if (!GOOGLE_TTS_API_KEY && !isElevenLabsConfigured()) return null;
 
   // Normalize FIRST so emoji/symbols never reach the voice and the stored audio
   // matches what every student should hear.
   const clean = cleanForSpeech(text);
   if (!clean) return null;
+
+  // ── Try ElevenLabs (Codo's cloned voice) first ──────────────────────────────
+  if (isElevenLabsConfigured()) {
+    const elInput = clean.length > 4500 ? clean.slice(0, 4500) : clean;
+    const elCacheKey = `el:${ELEVENLABS_VOICE_ID}:${elInput}`;
+    const elCached = CACHE.get(elCacheKey);
+    if (elCached) return { audio: elCached, voice: "elevenlabs:codo" };
+    const elAudio = await synthesizeElevenLabs(elInput);
+    if (elAudio) {
+      if (CACHE.size >= CACHE_MAX) {
+        const firstKey = CACHE.keys().next().value;
+        if (firstKey) CACHE.delete(firstKey);
+      }
+      CACHE.set(elCacheKey, elAudio);
+      return { audio: elAudio, voice: "elevenlabs:codo" };
+    }
+    // ElevenLabs failed — fall through to Google (if configured).
+    if (!GOOGLE_TTS_API_KEY) return null;
+  }
 
   // Google TTS has a 5000-byte input limit; trim very long answers.
   const input = clean.length > 4500 ? clean.slice(0, 4500) : clean;
@@ -164,8 +245,8 @@ export async function POST(req: NextRequest) {
     const { error } = requireAuth(req);
     if (error) return error;
 
-    if (!GOOGLE_TTS_API_KEY) {
-      // Not configured — client will use the browser voice fallback.
+    if (!GOOGLE_TTS_API_KEY && !isElevenLabsConfigured()) {
+      // Neither voice provider configured — client uses browser voice fallback.
       return apiError(503, "TTS not configured.");
     }
 

@@ -645,9 +645,11 @@ model UserDevice {
 // constant and the audio is produced once via /api/tts and cached. Edit a
 // line here (or via admin) and it updates for everyone with no app release.
 model CodoScript {
-  id        String   @id @default(uuid())
-  key       String   @unique // e.g. "lesson_complete_prompt", "quiz_complete_thanks"
-  text      String // the Hinglish line Codo speaks
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(uuid())
+  key         String   @unique // e.g. "lesson_complete_prompt", "quiz_complete_thanks"
+  text        String   // the Hinglish line Codo speaks
+  audioBase64 String?  // MP3 base64 — generated once via synthesizeSpeech, reused forever
+  voice       String?  // voice name used (e.g. "elevenlabs:codo")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }

@@ -12,12 +12,25 @@ export const s3 = new S3Client({
 
 const BUCKET = process.env.AWS_S3_BUCKET_NAME!;
 
-export async function uploadToS3(file: Buffer, key: string, contentType: string) {
+// Default Cache-Control for immutable media (videos, qualities, images, PDFs).
+// Every asset is stored under a unique key (slug + mediaId / timestamp), so the
+// bytes never change — safe to let CloudFront + the client cache them for a
+// year. Setting this header is what makes CloudFront hold the object at the
+// edge aggressively (without it, CF caches weakly and re-misses often).
+export const IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable";
+
+export async function uploadToS3(
+  file: Buffer,
+  key: string,
+  contentType: string,
+  cacheControl: string = IMMUTABLE_CACHE_CONTROL,
+) {
   const command = new PutObjectCommand({
     Bucket: BUCKET,
     Key: key,
     Body: file,
     ContentType: contentType,
+    CacheControl: cacheControl,
   });
   await s3.send(command);
   return `https://${BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
@@ -85,11 +98,18 @@ export async function uploadHlsFile(
   contentType: string
 ) {
   const body = typeof content === "string" ? Buffer.from(content) : content;
+  // .m3u8 playlists can be regenerated, so cache them briefly; .ts segments are
+  // immutable and safe to cache for a year.
+  const isPlaylist = key.endsWith(".m3u8") || contentType.includes("mpegurl");
+  const cacheControl = isPlaylist
+    ? "public, max-age=300"
+    : IMMUTABLE_CACHE_CONTROL;
   const command = new PutObjectCommand({
     Bucket: BUCKET,
     Key: key,
     Body: body,
     ContentType: contentType,
+    CacheControl: cacheControl,
     // HLS assets are public — segments are useless without the signed master URL
     // and CloudFront can add auth layer on top if needed
   });

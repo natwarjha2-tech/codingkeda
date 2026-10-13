@@ -49,3 +49,8 @@ next-env.d.ts
 # Internal documentation (never push)
 Judge0-Documentation.md
 build_output.txt
+
+# Codo voice sample(s) — source audio for ElevenLabs cloning, not app code
+codo.mp3
+codo_long.mp3
+_replicate.cjs
