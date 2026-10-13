@@ -262,6 +262,17 @@ export async function POST(req: NextRequest) {
       : "";
 
     // Always show the full answer — hint stage removed.
+    // Pick one of 5 fixed sign-offs at random so the ending is varied but
+    // controlled (never the old "keep exploring/learning" phrasing).
+    const CODO_CLOSINGS = [
+      "You are doing great, Codo squad!",
+      "You nailed it, Codo squad!",
+      "Shabaash, Codo squad!",
+      "You're a superstar, Codo squad!",
+      "Well tried, Codo squad!",
+    ];
+    const closingLine = CODO_CLOSINGS[Math.floor(Math.random() * CODO_CLOSINGS.length)];
+
     // Full answer: ground truth + kid-friendly reasons.
     const prompt = `You are Codo, a warm, encouraging AI buddy for kids on the CodingKida learning app.
 The child is working on a ${kind} about "${topicLabel}" and asked to see the answer.
@@ -278,14 +289,24 @@ Write a short, friendly explanation for a child:
 4. Reply in simple HINGLISH — everyday spoken Hindi (Devanagari) MIXED with common
    English words, the way Indian kids and teachers actually talk. Example style:
    "सही answer B है क्योंकि ye loop हर number को check करता है".
+   IMPORTANT: Write ALL Hindi words in DEVANAGARI script (e.g. बढ़िया, सही, क्योंकि)
+   — never in Roman/Latin letters (NOT "badhiya", NOT "sahi"). Devanagari makes
+   the voice pronounce Hindi correctly. Only English words stay in Latin letters.
 5. Use EASY, common Hindi words only. Do NOT use hard/formal/literary Hindi
    (avoid words like कार्यक्रम, चर, पुनरावृत्ति, अनुक्रमणिका). Keep technical terms,
    programming keywords, code, and option letters (A/B/C/D) in ENGLISH — don't
    translate them. If a Hindi word would be hard for a 10-year-old, use the
    simple English word instead.
-6. END with a short, warm, encouraging closing line that ALWAYS addresses the
-   child as "Codo squad" — e.g. "You are doing awesome, Codo squad!" or "Aise hi
-   seekhte raho, Codo squad!". Vary the words but always finish with "Codo squad".
+6. END with EXACTLY ONE of these five closing lines, chosen at random, written
+   on its own as the last line (do not modify the wording):
+   - "You are doing great, Codo squad!"
+   - "You nailed it, Codo squad!"
+   - "Shabaash, Codo squad!"
+   - "You're a superstar, Codo squad!"
+   - "Well tried, Codo squad!"
+   Use "${closingLine}" this time.
+   STRICT: Do NOT write any other closing. Do NOT use "keep exploring",
+   "keep learning", or "keep rocking". Nothing after the closing line.
 ${materialBlock}
 QUESTION:
 ${questionText}

@@ -63,6 +63,31 @@ export async function GET() {
     // Table missing (pre-migration) — serve fallbacks with null audio.
   }
 
+  // ── Force-sync the FIXED prefix/postfix to the current code value ────────────
+  // These two are controlled by the code (not admin-edited), so if the DB text
+  // differs from the current FALLBACK, update the DB and CLEAR its audio so it
+  // re-synthesizes. This is what makes a text change here (e.g. emptying the
+  // postfix) actually take effect — otherwise the old DB row (and old audio)
+  // would keep being served forever.
+  const FIXED_KEYS = ["codo_solution_prefix", "codo_solution_postfix"];
+  for (const key of FIXED_KEYS) {
+    const want = FALLBACKS[key] ?? "";
+    const row = rows.find((r) => r.key === key);
+    if (row && row.text !== want) {
+      try {
+        await prisma.codoScript.update({
+          where: { key },
+          data: { text: want, audioBase64: null, voice: null }, // clear audio → re-synth
+        });
+        // Reflect in the response + the local rows list so downstream logic
+        // (re-synth / return) uses the corrected value.
+        scripts[key] = { text: want, audio: null };
+        row.text = want;
+        row.audioBase64 = null;
+      } catch { /* best-effort */ }
+    }
+  }
+
   // ── Lazy audio synthesis ────────────────────────────────────────────────────
   // For any script that exists in DB but has no audio yet, synthesize it now
   // (ElevenLabs → Codo's cloned voice), store it permanently, and return it.
