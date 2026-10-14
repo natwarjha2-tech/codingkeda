@@ -17,6 +17,8 @@
     "cache:clear": "ts-node -r tsconfig-paths/register --compiler-options '{\"module\":\"CommonJS\"}' scripts/clear-help-cache.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-chime-sdk-media-pipelines": "^3.1148.0",
+    "@aws-sdk/client-chime-sdk-meetings": "^3.1148.0",
     "@aws-sdk/client-s3": "^3.1042.0",
     "@aws-sdk/s3-request-presigner": "^3.1042.0",
     "@neondatabase/serverless": "^1.1.0",

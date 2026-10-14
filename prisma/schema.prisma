@@ -565,6 +565,98 @@ model LessonChatMessage {
   @@index([senderId])
 }
 
+// ── Live Class (ISOLATED feature) ──
+// One row per live class session (= the PDF's "LiveSession"; kept as LiveClass).
+// Standalone model with plain String courseId/hostUserId and NO FK relations —
+// same convention as LessonChatMessage / Achievement / WeeklyStreak — so adding/
+// removing the live-class feature never touches Course / User / Lesson or any
+// existing model. Lifecycle: scheduled → live → ended (or cancelled).
+model LiveClass {
+  id             String    @id @default(uuid())
+  courseId       String // which course this class belongs to
+  hostUserId     String // instructor (teacher) who hosts the class
+  chimeMeetingId String    @default("") // Amazon Chime SDK meeting id (set when started)
+  mediaRegion    String    @default("") // Chime media region used for this meeting
+  title          String    @default("")
+  instructorName String    @default("") // display name of who hosts (shown to students)
+  durationMinutes Int? // planned duration in minutes (optional)
+  agenda         String    @default("") // optional topic/agenda for the class
+  scheduledAt    DateTime? // when the class is scheduled to start (nullable)
+  status         String    @default("scheduled") // scheduled | live | ended | cancelled
+  recordingUrl   String? // convenience pointer to the latest recording (full metadata in LiveRecording)
+  startedAt      DateTime? // set when the teacher actually starts the class
+  endedAt        DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([courseId, status])
+  @@index([hostUserId])
+  @@index([chimeMeetingId])
+}
+
+// ── Live Class participants (attendance / tracking) ──
+// One logical row per (class, user). joinedAt/leftAt power attendance + analytics.
+// chimeAttendeeId is the transient Chime identity (may change on reconnect).
+model LiveParticipant {
+  id              String    @id @default(uuid())
+  liveClassId     String
+  userId          String
+  role            String    @default("student") // teacher | student
+  clientType      String    @default("") // TEACHER_DESKTOP | STUDENT_DESKTOP | STUDENT_MOBILE
+  chimeAttendeeId String    @default("")
+  joinedAt        DateTime  @default(now())
+  leftAt          DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([liveClassId, userId]) // one logical participant record per user per class
+  @@index([liveClassId])
+  @@index([userId])
+}
+
+// ── Shared live-classroom chat (visible to all participants of the class) ──
+model LiveChatMessage {
+  id               String   @id @default(uuid())
+  liveClassId      String
+  senderId         String
+  senderRole       String // teacher | student
+  message          String
+  messageType      String   @default("TEXT") // TEXT | QUESTION | ANNOUNCEMENT | EMOJI | SYSTEM
+  replyToMessageId String? // optional: id of the LiveChatMessage being answered/replied to
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([liveClassId, createdAt])
+  @@index([senderId])
+}
+
+// ── Reactions on a chat message (persisted for analytics; real-time via transport) ──
+model LiveChatReaction {
+  id        String   @id @default(uuid())
+  messageId String // LiveChatMessage.id
+  userId    String
+  reaction  String
+  createdAt DateTime @default(now())
+
+  @@index([messageId])
+  @@index([userId])
+}
+
+// ── Recording metadata (actual media stored privately in S3) ──
+model LiveRecording {
+  id          String   @id @default(uuid())
+  liveClassId String
+  pipelineId  String   @default("") // Chime Media Capture Pipeline id (needed to stop it)
+  s3Bucket    String
+  s3Key       String
+  status      String   @default("processing") // processing | ready | failed
+  duration    Int? // seconds (set when finalized)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([liveClassId])
+}
+
 model EmailOtp {
   id        String   @id @default(uuid())
   email     String

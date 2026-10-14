@@ -9,6 +9,7 @@ import {
 import Navbar from "@/components/Navbar";
 import EditQuizModal from "./EditQuizModal";
 import EditExerciseModal from "./EditExerciseModal";
+import LiveClassesSection from "./LiveClassesSection";
 
 interface Lesson {
   id: string;
@@ -1181,6 +1182,9 @@ export default function ManageCoursePage() {
               </div>
             </div>
           </div>
+
+          {/* Live Classes (ISOLATED feature — self-contained section) */}
+          <LiveClassesSection courseId={courseId} token={getToken()} />
 
           {/* Add Module Button */}
           <div className="flex items-center justify-between mb-6">

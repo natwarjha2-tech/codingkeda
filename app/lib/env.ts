@@ -42,6 +42,11 @@ const REQUIRED_ENV_VARS: EnvVar[] = [
 
   // ─── AI (AI features degraded without this) ───
   { name: "GEMINI_API_KEY", critical: false, description: "Google Gemini AI API key" },
+
+  // ─── Live Class (ISOLATED feature — degraded/off without these, never crashes) ───
+  // Reuses the existing AWS_* credentials above for Chime; only region/prefix are new.
+  { name: "CHIME_CONTROL_REGION", critical: false, description: "Chime SDK control-plane region (default us-east-1)" },
+  { name: "CHIME_MEDIA_REGION", critical: false, description: "Chime SDK media region (default AWS_REGION / ap-south-1)" },
 ];
 
 /**
