@@ -20,13 +20,23 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          # FFmpeg/HLS not used, but builds can be slow — give it room.
+          # Video quality encoding (video-processor.ts) shells out to ffmpeg/
+          # ffprobe, and builds can be slow — give it room.
           command_timeout: 20m
           script: |
             set -e
             cd ~/codingkeda
             echo "== Pulling latest code =="
             git pull origin main
+            echo "== Ensuring ffmpeg is installed (needed by video-processor) =="
+            # Self-healing: install ffmpeg only when missing (e.g. a fresh EC2
+            # instance). A no-op on an instance that already has it.
+            if ! command -v ffmpeg >/dev/null 2>&1; then
+              echo "ffmpeg not found — installing..."
+              sudo apt-get update && sudo apt-get install -y ffmpeg
+            else
+              echo "ffmpeg present: $(ffmpeg -version | head -1)"
+            fi
             echo "== Installing dependencies =="
             npm install
             echo "== Generating Prisma client =="

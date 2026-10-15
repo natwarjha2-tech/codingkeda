@@ -38,6 +38,7 @@ model User {
   devices              UserDevice[]
   referralsMade        Referral[]            @relation("Referrer")
   referralReceived     Referral?             @relation("Referred")
+  dailyActivity        DailyActivity[]
 }
 
 // One row per referral relationship (a referred user + their referrer).
@@ -744,4 +745,24 @@ model CodoScript {
   voice       String?  // voice name used (e.g. "elevenlabs:codo")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+// Per-day learning activity, stored server-side so the "My Report" calendar can
+// show the FULL history (join month → now) across devices — not just the ~30
+// days the apps keep locally. One row per (userId, date). The client records
+// minutes/sessions for "today"; the server accumulates them (idempotent-ish:
+// minutes are added, capped per day). Date is a plain YYYY-MM-DD string so it's
+// timezone-stable with the client's local day.
+model DailyActivity {
+  id        String   @id @default(uuid())
+  userId    String
+  date      String // "YYYY-MM-DD" (the student's local calendar day)
+  minutes   Int      @default(0) // total learning minutes that day (capped)
+  sessions  Int      @default(0) // number of app-open sessions that day
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId])
 }
