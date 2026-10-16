@@ -114,6 +114,21 @@ export async function postChatMessage(opts: {
   const access = await loadClassWithAccess(opts.requesterId, opts.liveClassId);
   if (!access.ok) return fail(access.status, access.message);
 
+  // Host moderation (Phase 7): a participant the host has chat-blocked cannot
+  // post. Server-authoritative — enforced here so a tampered client can never
+  // bypass it (the message is simply never stored). Teachers are never blocked.
+  if (access.role !== "teacher") {
+    const me = await prisma.liveParticipant.findUnique({
+      where: {
+        liveClassId_userId: { liveClassId: opts.liveClassId, userId: opts.requesterId },
+      },
+      select: { chatBlocked: true },
+    });
+    if (me?.chatBlocked) {
+      return fail(403, "The host has turned off your chat for this class.");
+    }
+  }
+
   const isTeacher = access.role === "teacher";
   const messageType = normalizeMessageType(opts.messageType, isTeacher);
 

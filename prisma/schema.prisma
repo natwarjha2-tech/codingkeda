@@ -605,6 +605,11 @@ model LiveParticipant {
   role            String    @default("student") // teacher | student
   clientType      String    @default("") // TEACHER_DESKTOP | STUDENT_DESKTOP | STUDENT_MOBILE
   chimeAttendeeId String    @default("")
+  // Host moderation flags (Phase 7). Server-authoritative: enforced on rejoin
+  // (audio/video) and on chat send (chat). Default false = nothing blocked.
+  audioBlocked    Boolean   @default(false)
+  videoBlocked    Boolean   @default(false)
+  chatBlocked     Boolean   @default(false)
   joinedAt        DateTime  @default(now())
   leftAt          DateTime?
   createdAt       DateTime  @default(now())

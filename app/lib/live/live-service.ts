@@ -27,7 +27,11 @@ import {
 } from "@/app/lib/live/live-permissions";
 import { CHIME_MEDIA_REGION } from "@/app/lib/live/live-config";
 import { startMediaCapture, stopMediaCapture } from "@/app/lib/live/recording";
-import { getSignedFileUrl } from "@/app/lib/s3";
+import {
+  getSignedFileUrl,
+  getSignedFileUrlFromUrl,
+  getS3KeyFromUrl,
+} from "@/app/lib/s3";
 import { getEnrolledCourseIds } from "@/app/repositories/enrollment.repository";
 
 /** Result wrapper so routes can map {ok,status,message} → apiSuccess/apiError. */
@@ -437,6 +441,141 @@ export async function leaveLiveClass(opts: {
     });
   }
   return ok({ left: true });
+}
+
+/** Public-safe view of one live-class participant (roster entry). */
+export interface LiveParticipantDTO {
+  userId: string;
+  name: string;
+  avatarUrl: string | null;
+  role: string; // teacher | student
+  joinedAt: string;
+  // Host-moderation state (Phase 7) so the host UI can reflect current toggles.
+  audioBlocked: boolean;
+  videoBlocked: boolean;
+  chatBlocked: boolean;
+}
+
+/**
+ * List the CURRENT participants of a live class (those who have joined and not
+ * left) — the roster that powers the Zoom-style participants panel. Access:
+ * host, course instructor, or enrolled student (same as join access).
+ *
+ * Identity (name + avatar) is resolved server-side from the User table in one
+ * batch read — the client never sends it. Avatars are returned as short-lived
+ * signed URLs (best-effort; a failure just yields null so the UI falls back to
+ * an initial). Isolation preserved: only reads User (no writes, no new FK).
+ */
+export async function listLiveParticipants(opts: {
+  requesterId: string;
+  liveClassId: string;
+}): Promise<ServiceResult<{ participants: LiveParticipantDTO[] }>> {
+  const liveClass = await prisma.liveClass.findUnique({
+    where: { id: opts.liveClassId },
+    select: { id: true, courseId: true, hostUserId: true },
+  });
+  if (!liveClass) return fail(404, "Live class not found.");
+
+  const access = await resolveJoinAccess(opts.requesterId, {
+    courseId: liveClass.courseId,
+    hostUserId: liveClass.hostUserId,
+  });
+  if (!access.allowed) return fail(403, "You don't have access to this class.");
+
+  // Currently-present participants = joined and not yet left.
+  const rows = await prisma.liveParticipant.findMany({
+    where: { liveClassId: liveClass.id, leftAt: null },
+    select: {
+      userId: true,
+      role: true,
+      joinedAt: true,
+      audioBlocked: true,
+      videoBlocked: true,
+      chatBlocked: true,
+    },
+    orderBy: { joinedAt: "asc" },
+  });
+  if (rows.length === 0) return ok({ participants: [] });
+
+  // Batch-resolve names + avatars (one read, no per-row round-trips).
+  const userIds = [...new Set(rows.map((r) => r.userId))];
+  const users = await prisma.user.findMany({
+    where: { id: { in: userIds } },
+    select: { id: true, name: true, avatarUrl: true },
+  });
+  const userMap = new Map(users.map((u) => [u.id, u]));
+
+  // Sign avatars best-effort (never fail the whole roster for one bad URL).
+  const participants: LiveParticipantDTO[] = await Promise.all(
+    rows.map(async (r) => {
+      const u = userMap.get(r.userId);
+      let avatarUrl: string | null = null;
+      if (u?.avatarUrl) {
+        try {
+          avatarUrl = getS3KeyFromUrl(u.avatarUrl)
+            ? await getSignedFileUrlFromUrl(u.avatarUrl, 86400)
+            : u.avatarUrl;
+        } catch {
+          avatarUrl = null;
+        }
+      }
+      return {
+        userId: r.userId,
+        name: u?.name || "Participant",
+        avatarUrl,
+        role: r.role,
+        joinedAt: r.joinedAt.toISOString(),
+        audioBlocked: r.audioBlocked,
+        videoBlocked: r.videoBlocked,
+        chatBlocked: r.chatBlocked,
+      };
+    })
+  );
+
+  return ok({ participants });
+}
+
+/**
+ * Host BULK moderation (Phase 7): enable/disable audio, video, or chat for ALL
+ * participants of a class in one operation. Host/instructor only. Scales to any
+ * class size — a single `updateMany` (plus the client sends one broadcast). The
+ * host themselves is excluded so a host never blocks their own A/V/chat.
+ */
+export async function moderateAllParticipants(opts: {
+  requesterId: string;
+  liveClassId: string;
+  type: "audio" | "video" | "chat";
+  blocked: boolean;
+}): Promise<ServiceResult<{ type: string; blocked: boolean; count: number }>> {
+  if (!["audio", "video", "chat"].includes(opts.type)) {
+    return fail(400, "Invalid moderation type.");
+  }
+
+  const liveClass = await prisma.liveClass.findUnique({
+    where: { id: opts.liveClassId },
+    select: { id: true, courseId: true, hostUserId: true },
+  });
+  if (!liveClass) return fail(404, "Live class not found.");
+
+  const isHost = liveClass.hostUserId === opts.requesterId;
+  if (!isHost && !(await isCourseInstructor(opts.requesterId, liveClass.courseId))) {
+    return fail(403, "Only the host can moderate participants.");
+  }
+
+  const data =
+    opts.type === "audio"
+      ? { audioBlocked: opts.blocked }
+      : opts.type === "video"
+      ? { videoBlocked: opts.blocked }
+      : { chatBlocked: opts.blocked };
+
+  // Apply to everyone in this class EXCEPT the requester (the host).
+  const result = await prisma.liveParticipant.updateMany({
+    where: { liveClassId: liveClass.id, userId: { not: opts.requesterId } },
+    data,
+  });
+
+  return ok({ type: opts.type, blocked: opts.blocked, count: result.count });
 }
 
 /**
