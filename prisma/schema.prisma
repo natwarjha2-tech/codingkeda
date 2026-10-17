@@ -610,6 +610,14 @@ model LiveParticipant {
   audioBlocked    Boolean   @default(false)
   videoBlocked    Boolean   @default(false)
   chatBlocked     Boolean   @default(false)
+  // Host force-remove: true = host removed this user from the class. On rejoin
+  // the user needs host approval (which clears this back to false). Additive,
+  // default false — existing rows are unaffected.
+  removed         Boolean   @default(false)
+  // When a removed user asks to rejoin, this is set so the host (who polls the
+  // roster) sees a pending request + can accept/reject. Nullable, default null
+  // — purely additive, existing rows unaffected.
+  rejoinRequestedAt DateTime?
   joinedAt        DateTime  @default(now())
   leftAt          DateTime?
   createdAt       DateTime  @default(now())

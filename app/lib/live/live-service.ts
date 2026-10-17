@@ -373,6 +373,19 @@ export async function joinLiveClass(opts: {
   });
   if (!access.allowed) return fail(403, "You don't have access to this class.");
 
+  // Host force-remove (Phase 4): a removed user cannot rejoin until the host
+  // approves. The host themselves is never blocked. We return 403 so the client
+  // can show an "ask to rejoin" flow. The host is identified by role=teacher.
+  if (access.role !== "teacher") {
+    const me = await prisma.liveParticipant.findUnique({
+      where: { liveClassId_userId: { liveClassId: liveClass.id, userId: opts.requesterId } },
+      select: { removed: true },
+    });
+    if (me?.removed) {
+      return fail(403, "The host removed you from this class. You can request to rejoin.");
+    }
+  }
+
   // Load the full Chime meeting (incl. MediaPlacement) the client SDK needs to
   // connect. If Chime no longer has it, the meeting effectively ended.
   const meeting = await getChimeMeeting(liveClass.chimeMeetingId);
@@ -576,6 +589,177 @@ export async function moderateAllParticipants(opts: {
   });
 
   return ok({ type: opts.type, blocked: opts.blocked, count: result.count });
+}
+
+/** Shared host-authorization + class load for per-participant host actions. */
+async function _loadClassForHost(
+  requesterId: string,
+  liveClassId: string
+): Promise<
+  | { ok: true; liveClass: { id: string; courseId: string; hostUserId: string } }
+  | { ok: false; status: number; message: string }
+> {
+  const liveClass = await prisma.liveClass.findUnique({
+    where: { id: liveClassId },
+    select: { id: true, courseId: true, hostUserId: true },
+  });
+  if (!liveClass) return { ok: false, status: 404, message: "Live class not found." };
+  const isHost = liveClass.hostUserId === requesterId;
+  if (!isHost && !(await isCourseInstructor(requesterId, liveClass.courseId))) {
+    return { ok: false, status: 403, message: "Only the host can do this." };
+  }
+  return { ok: true, liveClass };
+}
+
+/**
+ * Host PER-PARTICIPANT moderation (Phase 4): enable/disable one participant's
+ * audio, video, or chat. Host/instructor only. Complements the bulk variant.
+ */
+export async function moderateParticipant(opts: {
+  requesterId: string;
+  liveClassId: string;
+  targetUserId: string;
+  type: "audio" | "video" | "chat";
+  blocked: boolean;
+}): Promise<ServiceResult<{ targetUserId: string; type: string; blocked: boolean }>> {
+  const targetUserId = (opts.targetUserId || "").trim();
+  if (!targetUserId) return fail(400, "targetUserId is required.");
+  if (!["audio", "video", "chat"].includes(opts.type)) return fail(400, "Invalid moderation type.");
+
+  const access = await _loadClassForHost(opts.requesterId, opts.liveClassId);
+  if (!access.ok) return fail(access.status, access.message);
+  if (targetUserId === opts.requesterId) return fail(400, "You can't moderate yourself.");
+
+  const participant = await prisma.liveParticipant.findUnique({
+    where: { liveClassId_userId: { liveClassId: access.liveClass.id, userId: targetUserId } },
+    select: { id: true },
+  });
+  if (!participant) return fail(404, "That participant is not in this class.");
+
+  const data =
+    opts.type === "audio" ? { audioBlocked: opts.blocked }
+    : opts.type === "video" ? { videoBlocked: opts.blocked }
+    : { chatBlocked: opts.blocked };
+  await prisma.liveParticipant.update({ where: { id: participant.id }, data });
+
+  return ok({ targetUserId, type: opts.type, blocked: opts.blocked });
+}
+
+/**
+ * Host FORCE-REMOVE (Phase 4): remove a participant from the class. Marks the
+ * row `removed` so a later join needs host approval. The host client also
+ * broadcasts a real-time signal so the target's room closes immediately.
+ */
+export async function removeParticipant(opts: {
+  requesterId: string;
+  liveClassId: string;
+  targetUserId: string;
+}): Promise<ServiceResult<{ targetUserId: string }>> {
+  const targetUserId = (opts.targetUserId || "").trim();
+  if (!targetUserId) return fail(400, "targetUserId is required.");
+
+  const access = await _loadClassForHost(opts.requesterId, opts.liveClassId);
+  if (!access.ok) return fail(access.status, access.message);
+  if (targetUserId === opts.requesterId) return fail(400, "You can't remove yourself.");
+
+  const participant = await prisma.liveParticipant.findUnique({
+    where: { liveClassId_userId: { liveClassId: access.liveClass.id, userId: targetUserId } },
+    select: { id: true },
+  });
+  if (!participant) return fail(404, "That participant is not in this class.");
+
+  await prisma.liveParticipant.update({
+    where: { id: participant.id },
+    data: { removed: true, rejoinRequestedAt: null, leftAt: new Date() },
+  });
+  return ok({ targetUserId });
+}
+
+/**
+ * A removed user asks to REJOIN (Phase 4). Records the request so the host sees
+ * it in the roster and can accept/reject. If the user wasn't actually removed,
+ * this is a no-op success (they can just join normally).
+ */
+export async function requestRejoin(opts: {
+  requesterId: string;
+  liveClassId: string;
+}): Promise<ServiceResult<{ pending: boolean }>> {
+  const participant = await prisma.liveParticipant.findUnique({
+    where: { liveClassId_userId: { liveClassId: opts.liveClassId, userId: opts.requesterId } },
+    select: { id: true, removed: true },
+  });
+  if (!participant || !participant.removed) return ok({ pending: false });
+
+  await prisma.liveParticipant.update({
+    where: { id: participant.id },
+    data: { rejoinRequestedAt: new Date() },
+  });
+  return ok({ pending: true });
+}
+
+/**
+ * Host responds to a rejoin request (Phase 4). accept → clears `removed` so the
+ * user can join again; reject → keeps them removed but clears the pending flag.
+ */
+export async function respondRejoin(opts: {
+  requesterId: string;
+  liveClassId: string;
+  targetUserId: string;
+  accept: boolean;
+}): Promise<ServiceResult<{ targetUserId: string; accepted: boolean }>> {
+  const targetUserId = (opts.targetUserId || "").trim();
+  if (!targetUserId) return fail(400, "targetUserId is required.");
+
+  const access = await _loadClassForHost(opts.requesterId, opts.liveClassId);
+  if (!access.ok) return fail(access.status, access.message);
+
+  const participant = await prisma.liveParticipant.findUnique({
+    where: { liveClassId_userId: { liveClassId: access.liveClass.id, userId: targetUserId } },
+    select: { id: true },
+  });
+  if (!participant) return fail(404, "That participant is not in this class.");
+
+  await prisma.liveParticipant.update({
+    where: { id: participant.id },
+    data: opts.accept
+      ? { removed: false, rejoinRequestedAt: null }
+      : { rejoinRequestedAt: null },
+  });
+  return ok({ targetUserId, accepted: opts.accept });
+}
+
+/**
+ * Pending rejoin requests for a class (host polls this). Returns users who were
+ * removed and have an outstanding rejoin request, with names for the prompt.
+ */
+export async function listRejoinRequests(opts: {
+  requesterId: string;
+  liveClassId: string;
+}): Promise<ServiceResult<{ requests: { userId: string; name: string; requestedAt: string }[] }>> {
+  const access = await _loadClassForHost(opts.requesterId, opts.liveClassId);
+  if (!access.ok) return fail(access.status, access.message);
+
+  const rows = await prisma.liveParticipant.findMany({
+    where: { liveClassId: access.liveClass.id, removed: true, rejoinRequestedAt: { not: null } },
+    select: { userId: true, rejoinRequestedAt: true },
+    orderBy: { rejoinRequestedAt: "asc" },
+  });
+  if (rows.length === 0) return ok({ requests: [] });
+
+  const userIds = [...new Set(rows.map((r) => r.userId))];
+  const users = await prisma.user.findMany({
+    where: { id: { in: userIds } },
+    select: { id: true, name: true },
+  });
+  const nameMap = new Map(users.map((u) => [u.id, u.name || "Participant"]));
+
+  return ok({
+    requests: rows.map((r) => ({
+      userId: r.userId,
+      name: nameMap.get(r.userId) || "Participant",
+      requestedAt: r.rejoinRequestedAt!.toISOString(),
+    })),
+  });
 }
 
 /**
