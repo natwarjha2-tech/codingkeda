@@ -16,6 +16,29 @@ function slugify(name: string | null | undefined): string {
   return s || "untitled";
 }
 
+/**
+ * Keep the EXACT uploaded file name as the S3 object name (spaces + capitals
+ * preserved), stripping only characters that would break an S3 key:
+ *   - path separators (/ \) — would create unintended sub-folders
+ *   - control chars
+ *   - leading/trailing dots & whitespace
+ * Guarantees the correct extension is present. Falls back to "video.<ext>".
+ */
+function safeObjectName(fileName: string | null | undefined, ext: string): string {
+  // Take just the final path component in case a browser sent a full path.
+  let name = String(fileName || "").split(/[\\/]/).pop() || "";
+  // Strip control chars and anything S3/HTTP really can't handle in a key segment.
+  // Allowed: letters, numbers, space, and  . _ - ( ) [ ]  (common in filenames).
+  name = name.replace(/[^A-Za-z0-9 ._()\[\]-]+/g, "").replace(/^[.\s]+|[.\s]+$/g, "").trim();
+  if (!name) name = `video.${ext}`;
+  // Ensure it ends with the right extension (append if the sanitize dropped it).
+  if (!name.toLowerCase().endsWith(`.${ext}`)) {
+    name = name.replace(/\.[^.]*$/, ""); // drop any partial/other ext
+    name = `${name || "video"}.${ext}`;
+  }
+  return name;
+}
+
 const ALLOWED_TYPES: Record<string, string[]> = {
   video: ["video/mp4", "video/avi", "video/quicktime", "video/x-msvideo"],
   pdf: ["application/pdf"],
@@ -109,7 +132,12 @@ export async function POST(req: NextRequest) {
     const leaf = lessonTitle && String(lessonTitle).trim()
       ? `${slugify(lessonTitle)}-${media.id}`
       : media.id;
-    key = `${type}s/${courseSlug}/${moduleSlug}/${leaf}/original.${ext}`;
+    // Store the video under its EXACT uploaded file name (not "original.<ext>")
+    // so the object in S3 matches what the admin uploaded. We only strip path
+    // separators / control chars that would break an S3 key; spaces and
+    // capitals are preserved. The quality processor reads this key as its
+    // source (media.s3Key), so this renamed object IS treated as the original.
+    key = `${type}s/${courseSlug}/${moduleSlug}/${leaf}/${safeObjectName(fileName, ext)}`;
   } else {
     key = `${type}s/${media.id}/original.${ext}`;
   }
