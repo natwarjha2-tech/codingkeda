@@ -18,6 +18,7 @@
 
 import { prisma } from "@/app/lib/prisma";
 import { resolveJoinAccess } from "@/app/lib/live/live-permissions";
+import { LIVE_CHAT_RETENTION_DAYS } from "@/app/lib/live/live-config";
 
 const MESSAGE_MAX = 4000;
 const REACTION_MAX = 32;
@@ -274,4 +275,34 @@ export async function toggleReaction(opts: {
     data: { messageId: opts.messageId, userId: opts.requesterId, reaction },
   });
   return ok({ reacted: true, reaction, messageId: opts.messageId }, 201);
+}
+
+/**
+ * Prune class-chat messages older than the configured retention window
+ * (Phase 7 / F19 + L15). OPT-IN + non-destructive-by-default:
+ *
+ *  - If LIVE_CHAT_RETENTION_DAYS is 0 (the default), this is a NO-OP and returns
+ *    0 — nothing is ever deleted. Chat is kept indefinitely until an operator
+ *    deliberately sets a retention window.
+ *  - When a positive window is configured, it deletes ONLY LiveChatMessage rows
+ *    whose createdAt is strictly older than (now − window). The scope is tightly
+ *    bounded by that cutoff; it never touches recent messages or any other table.
+ *
+ * This helper is NOT wired to run automatically. An operator triggers it
+ * deliberately (e.g. a one-off script or a secured maintenance call) after
+ * reviewing the retention window — keeping the chat data lifecycle explicit and
+ * auditable. Reactions cascade off messages only where the app deletes them;
+ * here we prune messages only (reactions are lightweight + message-scoped).
+ *
+ * @returns the number of messages deleted (0 when retention is disabled).
+ */
+export async function pruneOldChatMessages(): Promise<number> {
+  const days = LIVE_CHAT_RETENTION_DAYS;
+  if (!Number.isFinite(days) || days <= 0) return 0; // disabled → never deletes
+
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const result = await prisma.liveChatMessage.deleteMany({
+    where: { createdAt: { lt: cutoff } },
+  });
+  return result.count;
 }

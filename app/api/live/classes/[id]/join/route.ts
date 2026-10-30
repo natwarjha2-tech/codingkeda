@@ -3,6 +3,7 @@ import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { isLiveClassConfigured } from "@/app/lib/live/live-config";
 import { joinLiveClass } from "@/app/lib/live/live-service";
+import { checkRateLimit } from "@/app/lib/live/rate-limit";
 
 /**
  * POST /api/live/classes/[id]/join
@@ -27,6 +28,13 @@ export async function POST(
 
     const { id } = await params;
     if (!id?.trim()) return apiError(400, "Class id is required.");
+
+    // Abuse protection (L10): cap join attempts per user so a client can't hammer
+    // the Chime CreateAttendee path. Comfortably allows normal reconnect/rejoin.
+    const rl = checkRateLimit(`${user!.userId}:join`, 5, 10_000);
+    if (!rl.allowed) {
+      return apiError(429, "Too many join attempts. Please wait a moment and try again.");
+    }
 
     const body = await req.json().catch(() => ({}));
     const { clientType } = body as { clientType?: string };

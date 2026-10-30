@@ -86,6 +86,52 @@ export const LIVE_LIMITS = {
 };
 
 /**
+ * Host-disconnect policy (Phase 3). The host's client sends a heartbeat while a
+ * class is live. If no heartbeat arrives within LIVE_HOST_GRACE_MS, a lazy
+ * stale-sweep auto-ends the class (Chime meeting deleted, status → ended) so a
+ * host crash/close never leaves a ghost "live" class or a leaked meeting.
+ *
+ * The grace window lets a host survive a transient network blip / app reopen
+ * without the class ending under them (mirrors Zoom/Meet "host can rejoin").
+ */
+export const LIVE_HOST_GRACE_MS = Number(process.env.LIVE_HOST_GRACE_MS) || 120000; // 2 min
+
+/**
+ * Minimum gap between lazy stale-sweeps. The sweep runs opportunistically on
+ * list/join reads; this throttle keeps it from hitting the DB on every request.
+ */
+export const LIVE_SWEEP_THROTTLE_MS = Number(process.env.LIVE_SWEEP_THROTTLE_MS) || 45000; // 45s
+
+/**
+ * Optional shared secret protecting the manual sweep endpoint
+ * (POST /api/live/classes/sweep) so an external scheduler (system cron / CI)
+ * can trigger a sweep even when no one is reading the list. Empty = endpoint
+ * disabled (the lazy on-read sweep already covers the common case).
+ */
+export const LIVE_CRON_SECRET = process.env.LIVE_CRON_SECRET ?? "";
+
+/**
+ * Live-chat retention policy (Phase 7 / F19 + L15).
+ *
+ * How many days class-chat messages are kept before they MAY be pruned. This is
+ * the single knob for the chat data lifecycle.
+ *
+ *   0 (default) = retention DISABLED → messages are kept indefinitely and the
+ *                 prune helper is a no-op. Nothing is ever deleted unless an
+ *                 operator explicitly sets a positive value AND runs the prune.
+ *   N (> 0)     = messages older than N days become eligible for pruning.
+ *
+ * Privacy note (L15): class chat is already access-restricted to class
+ * participants (host / instructor / enrolled student) via resolveJoinAccess,
+ * and stores only user-authored text + a server-resolved display name (no extra
+ * PII). This constant adds a documented retention lifecycle on top of that.
+ *
+ * SAFETY: pruning performs a DELETE. It is deliberately opt-in (default 0) and
+ * never auto-runs; an operator enables a window and triggers it deliberately.
+ */
+export const LIVE_CHAT_RETENTION_DAYS = Number(process.env.LIVE_CHAT_RETENTION_DAYS) || 0;
+
+/**
  * True only when the feature is enabled AND the AWS credentials needed by Chime
  * are present. Routes use this to fail cleanly ("live class unavailable")
  * instead of throwing when the backend isn't configured for live classes yet.

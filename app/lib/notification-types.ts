@@ -31,6 +31,8 @@ export const NOTIF_TYPES = {
   // ── Lesson Q&A chat ──
   LESSON_QUESTION: "lesson_question",   // student asked a doubt → notify course instructor
   LESSON_ANSWER: "lesson_answer",       // instructor replied → notify enrolled students
+  // ── Live class ──
+  LIVE_CLASS_SCHEDULED: "live_class_scheduled", // host scheduled a class → notify enrolled students
   // ── Admin video quality processing ──
   VIDEO_PROCESSED: "video_processed",   // qualities generated → notify the admin who uploaded
   VIDEO_PROCESS_FAILED: "video_process_failed", // encoding failed → notify the admin

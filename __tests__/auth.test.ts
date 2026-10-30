@@ -28,6 +28,29 @@ jest.mock("@/app/lib/auth", () => ({
   signToken: jest.fn(),
 }));
 
+// The signup route now uses a per-IP rate limiter, a structured logger, and a
+// welcome notification. Mock them so the unit tests exercise the route's own
+// logic deterministically (the limiter always allows; the logger/notification
+// are no-ops). These mirror what the route imports today.
+jest.mock("@/app/lib/rate-limit", () => ({
+  createRateLimiter: () => ({ check: () => true, reset: () => {} }),
+}));
+
+jest.mock("@/app/lib/logger", () => ({
+  logger: { info: jest.fn(), success: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+}));
+
+jest.mock("@/app/lib/notification", () => ({
+  notifyWelcome: jest.fn().mockResolvedValue(undefined),
+}));
+
+// The login route signs a fresh avatar URL via S3 helpers — stub them so no
+// real AWS call happens (a user without an avatar skips these anyway).
+jest.mock("@/app/lib/s3", () => ({
+  getSignedFileUrlFromUrl: jest.fn().mockResolvedValue(null),
+  getS3KeyFromUrl: jest.fn().mockReturnValue(null),
+}));
+
 // ─── Imports (after mocks) ────────────────────────────────────────────────────
 
 import { prisma } from "@/app/lib/prisma";
@@ -84,13 +107,17 @@ describe("POST /api/auth/signup", () => {
     mockSignToken.mockReturnValue("mock.jwt.token");
   });
 
+  // A password that satisfies the route's strength policy (validatePassword):
+  // 8+ chars, with an uppercase, lowercase, and a number.
+  const STRONG_PW = "Secret123";
+
   // ── Happy paths ─────────────────────────────────────────────────────────────
 
   it("201 — valid signup returns token + user object", async () => {
     mockUserFindUnique.mockResolvedValue(null);
     mockUserCreate.mockResolvedValue(MOCK_USER as never);
 
-    const res = await signupPOST(req({ email: "arjun@test.com", password: "secret123" }));
+    const res = await signupPOST(req({ email: "arjun@test.com", password: STRONG_PW }));
     const body = await res.json();
 
     expect(res.status).toBe(201);
@@ -100,39 +127,32 @@ describe("POST /api/auth/signup", () => {
     expect(body.user.password).toBeUndefined(); // password must NOT be exposed
   });
 
-  it("201 — role=admin is persisted when explicitly passed", async () => {
-    mockUserFindUnique.mockResolvedValue(null);
-    mockUserCreate.mockResolvedValue(MOCK_ADMIN as never);
-
-    const res = await signupPOST(
-      req({ email: "admin@test.com", password: "secret123", role: "admin" })
-    );
-    const body = await res.json();
-
-    expect(res.status).toBe(201);
-    expect(body.user.role).toBe("admin");
-  });
-
-  it("201 — unknown role defaults to 'user'", async () => {
+  it("201 — new accounts are always created with role 'user'", async () => {
+    // The route hardcodes role: "user" on signup (role is never taken from the
+    // client — admin elevation is a separate, privileged flow). Even if a
+    // client sends role:"admin", the created account is a normal user.
     mockUserFindUnique.mockResolvedValue(null);
     mockUserCreate.mockResolvedValue(MOCK_USER as never);
 
     const res = await signupPOST(
-      req({ email: "arjun@test.com", password: "secret123", role: "superuser" })
+      req({ email: "arjun@test.com", password: STRONG_PW, role: "admin" })
     );
     const body = await res.json();
 
     expect(res.status).toBe(201);
     expect(body.user.role).toBe("user");
+    expect(mockUserCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ role: "user" }) })
+    );
   });
 
   it("201 — password is hashed before saving (bcrypt.hash called)", async () => {
     mockUserFindUnique.mockResolvedValue(null);
     mockUserCreate.mockResolvedValue(MOCK_USER as never);
 
-    await signupPOST(req({ email: "arjun@test.com", password: "secret123" }));
+    await signupPOST(req({ email: "arjun@test.com", password: STRONG_PW }));
 
-    expect(mockBcryptHash).toHaveBeenCalledWith("secret123", 10);
+    expect(mockBcryptHash).toHaveBeenCalledWith(STRONG_PW, 10);
   });
 
   // ── Conflict ─────────────────────────────────────────────────────────────────
@@ -140,7 +160,7 @@ describe("POST /api/auth/signup", () => {
   it("409 — duplicate email returns conflict", async () => {
     mockUserFindUnique.mockResolvedValue(MOCK_USER as never);
 
-    const res = await signupPOST(req({ email: "arjun@test.com", password: "secret123" }));
+    const res = await signupPOST(req({ email: "arjun@test.com", password: STRONG_PW }));
     const body = await res.json();
 
     expect(res.status).toBe(409);
@@ -149,52 +169,54 @@ describe("POST /api/auth/signup", () => {
   });
 
   // ── Validation failures ───────────────────────────────────────────────────────
+  // The route validates body via a Zod schema (parseBody) first, then runs a
+  // password-strength check (validatePassword). Each path returns 400.
 
   it("400 — missing email", async () => {
-    const res = await signupPOST(req({ password: "secret123" }));
+    const res = await signupPOST(req({ password: STRONG_PW }));
     const body = await res.json();
     expect(res.status).toBe(400);
-    expect(body.message).toMatch(/required/i);
+    expect(body.message).toMatch(/email/i);
   });
 
   it("400 — missing password", async () => {
     const res = await signupPOST(req({ email: "arjun@test.com" }));
     const body = await res.json();
     expect(res.status).toBe(400);
-    expect(body.message).toMatch(/required/i);
+    expect(body.message).toMatch(/password/i);
   });
 
   it("400 — empty string email", async () => {
-    const res = await signupPOST(req({ email: "", password: "secret123" }));
+    const res = await signupPOST(req({ email: "", password: STRONG_PW }));
     const body = await res.json();
     expect(res.status).toBe(400);
   });
 
   it("400 — invalid email format (no @)", async () => {
-    const res = await signupPOST(req({ email: "notanemail", password: "secret123" }));
+    const res = await signupPOST(req({ email: "notanemail", password: STRONG_PW }));
     const body = await res.json();
     expect(res.status).toBe(400);
-    expect(body.message).toMatch(/invalid email/i);
+    expect(body.message).toMatch(/email/i);
   });
 
   it("400 — invalid email format (missing domain)", async () => {
-    const res = await signupPOST(req({ email: "user@", password: "secret123" }));
+    const res = await signupPOST(req({ email: "user@", password: STRONG_PW }));
     const body = await res.json();
     expect(res.status).toBe(400);
-    expect(body.message).toMatch(/invalid email/i);
+    expect(body.message).toMatch(/email/i);
   });
 
-  it("400 — password shorter than 6 characters", async () => {
+  it("400 — weak password (too short) is rejected", async () => {
     mockUserFindUnique.mockResolvedValue(null);
-    const res = await signupPOST(req({ email: "arjun@test.com", password: "abc" }));
+    const res = await signupPOST(req({ email: "arjun@test.com", password: "Ab1" }));
     const body = await res.json();
     expect(res.status).toBe(400);
     expect(body.message).toMatch(/at least 8/i);
   });
 
-  it("400 — password exactly 7 characters (boundary)", async () => {
+  it("400 — password without an uppercase/number is rejected", async () => {
     mockUserFindUnique.mockResolvedValue(null);
-    const res = await signupPOST(req({ email: "arjun@test.com", password: "1234567" }));
+    const res = await signupPOST(req({ email: "arjun@test.com", password: "alllowercase" }));
     const body = await res.json();
     expect(res.status).toBe(400);
   });
@@ -205,7 +227,7 @@ describe("POST /api/auth/signup", () => {
     mockUserFindUnique.mockResolvedValue(null);
     mockUserCreate.mockRejectedValue(new Error("DB down") as never);
 
-    const res = await signupPOST(req({ email: "arjun@test.com", password: "secret123" }));
+    const res = await signupPOST(req({ email: "arjun@test.com", password: STRONG_PW }));
     const body = await res.json();
 
     expect(res.status).toBe(500);

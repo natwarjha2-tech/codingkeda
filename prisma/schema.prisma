@@ -586,6 +586,12 @@ model LiveClass {
   status         String    @default("scheduled") // scheduled | live | ended | cancelled
   recordingUrl   String? // convenience pointer to the latest recording (full metadata in LiveRecording)
   startedAt      DateTime? // set when the teacher actually starts the class
+  // Host heartbeat (Phase 3): the host's client pings this while the class is
+  // live. A stale-sweep auto-ends a "live" class whose host hasn't pinged within
+  // the grace window (host crash/close → no ghost classes, no leaked Chime
+  // meetings). Additive + nullable → existing rows are unaffected (null = "no
+  // ping yet"; the sweep also safely covers null via startedAt age).
+  hostLastSeenAt DateTime?
   endedAt        DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt

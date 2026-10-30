@@ -1,7 +1,8 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { Radio, Plus, Loader2, Video, X, Ban, Clock } from "lucide-react";
+import { Radio, Plus, Loader2, Video, X, Ban, Clock, Pencil, Users } from "lucide-react";
 import ScheduleLiveClassModal from "./ScheduleLiveClassModal";
+import EditLiveClassModal from "./EditLiveClassModal";
 
 /**
  * Admin "Live Classes" management section for a course (ISOLATED live-class UI).
@@ -21,6 +22,9 @@ interface LiveClass {
   agenda: string;
   status: string; // scheduled | live | ended | cancelled
   scheduledAt: string | null;
+  startedAt?: string | null;
+  endedAt?: string | null;
+  actualDurationMinutes?: number | null; // M9: derived actual run length
   createdAt: string;
 }
 
@@ -44,6 +48,12 @@ export default function LiveClassesSection({ courseId, token }: { courseId: stri
   const [unavailable, setUnavailable] = useState(false); // feature off (503)
   const [showSchedule, setShowSchedule] = useState(false);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [editing, setEditing] = useState<LiveClass | null>(null); // A10: class being edited
+
+  // M9 — post-class summary (attendance) loaded on demand per ended class.
+  const [summaryFor, setSummaryFor] = useState<string | null>(null);
+  const [summary, setSummary] = useState<{ present: number; total: number } | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
 
   // Recordings preview modal
   const [recordingsFor, setRecordingsFor] = useState<string | null>(null);
@@ -116,6 +126,32 @@ export default function LiveClassesSection({ courseId, token }: { courseId: stri
     }
   };
 
+  // M9: load a class's attendance summary (present / total) on demand. Reuses
+  // the existing participants endpoint — no new backend.
+  const toggleSummary = async (id: string) => {
+    if (summaryFor === id) { setSummaryFor(null); setSummary(null); return; }
+    setSummaryFor(id);
+    setSummary(null);
+    setSummaryLoading(true);
+    try {
+      const res = await fetch(`/api/live/classes/${id}/participants`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.participants)) {
+        const total = data.participants.length;
+        const present = data.participants.filter((p: { present?: boolean }) => p.present).length;
+        setSummary({ present, total });
+      } else {
+        setSummary({ present: 0, total: 0 });
+      }
+    } catch {
+      setSummary({ present: 0, total: 0 });
+    } finally {
+      setSummaryLoading(false);
+    }
+  };
+
   const fmtDate = (iso: string | null) => {
     if (!iso) return "Not scheduled";
     try {
@@ -166,8 +202,9 @@ export default function LiveClassesSection({ courseId, token }: { courseId: stri
             return (
               <div
                 key={c.id}
-                className="rounded-xl border border-white/10 bg-white/5 p-4 flex items-start justify-between gap-3"
+                className="rounded-xl border border-white/10 bg-white/5 p-4 flex flex-col gap-3"
               >
+               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <h4 className="text-sm font-bold text-white truncate">{c.title || "Untitled Class"}</h4>
@@ -185,23 +222,65 @@ export default function LiveClassesSection({ courseId, token }: { courseId: stri
 
                 <div className="flex flex-col gap-2 shrink-0">
                   {c.status === "ended" && (
-                    <button
-                      onClick={() => openRecordings(c.id)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-purple-300 bg-purple-500/10 border border-purple-500/30 hover:bg-purple-500/20 transition-colors"
-                    >
-                      <Video size={12} /> Recordings
-                    </button>
+                    <>
+                      <button
+                        onClick={() => openRecordings(c.id)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-purple-300 bg-purple-500/10 border border-purple-500/30 hover:bg-purple-500/20 transition-colors"
+                      >
+                        <Video size={12} /> Recordings
+                      </button>
+                      <button
+                        onClick={() => toggleSummary(c.id)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-300 bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
+                      >
+                        <Users size={12} /> Summary
+                      </button>
+                    </>
                   )}
                   {c.status === "scheduled" && (
-                    <button
-                      onClick={() => handleCancel(c.id)}
-                      disabled={cancellingId === c.id}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-amber-300 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 transition-colors disabled:opacity-60"
-                    >
-                      {cancellingId === c.id ? <Loader2 size={12} className="animate-spin" /> : <Ban size={12} />} Cancel
-                    </button>
+                    <>
+                      <button
+                        onClick={() => setEditing(c)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-purple-300 bg-purple-500/10 border border-purple-500/30 hover:bg-purple-500/20 transition-colors"
+                      >
+                        <Pencil size={12} /> Edit
+                      </button>
+                      <button
+                        onClick={() => handleCancel(c.id)}
+                        disabled={cancellingId === c.id}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-amber-300 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 transition-colors disabled:opacity-60"
+                      >
+                        {cancellingId === c.id ? <Loader2 size={12} className="animate-spin" /> : <Ban size={12} />} Cancel
+                      </button>
+                    </>
                   )}
                 </div>
+               </div>
+
+               {/* M9 — post-class summary (ended classes): actual duration +
+                   attendance. Toggled by the Summary button; data on demand. */}
+               {c.status === "ended" && summaryFor === c.id && (
+                 <div className="rounded-lg border border-white/10 bg-black/20 px-4 py-3 text-xs text-slate-300 flex flex-wrap gap-x-6 gap-y-1">
+                   <span className="flex items-center gap-1.5">
+                     <Clock size={11} className="text-purple-400" />
+                     Duration:{" "}
+                     <strong className="text-white">
+                       {c.actualDurationMinutes != null ? `${c.actualDurationMinutes} min` : "—"}
+                     </strong>
+                   </span>
+                   <span className="flex items-center gap-1.5">
+                     <Users size={11} className="text-purple-400" />
+                     Attendance:{" "}
+                     {summaryLoading ? (
+                       <Loader2 size={11} className="animate-spin" />
+                     ) : (
+                       <strong className="text-white">
+                         {summary ? `${summary.total} joined` : "—"}
+                       </strong>
+                     )}
+                   </span>
+                 </div>
+               )}
               </div>
             );
           })}
@@ -215,6 +294,16 @@ export default function LiveClassesSection({ courseId, token }: { courseId: stri
           token={token}
           onClose={() => setShowSchedule(false)}
           onCreated={fetchClasses}
+        />
+      )}
+
+      {/* Edit modal (A10) — scheduled classes only; re-notifies on save. */}
+      {editing && (
+        <EditLiveClassModal
+          liveClass={editing}
+          token={token}
+          onClose={() => setEditing(null)}
+          onSaved={fetchClasses}
         />
       )}
 

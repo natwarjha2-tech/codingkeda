@@ -34,6 +34,15 @@ export async function getEnrolledCourseIds(userId: string): Promise<string[]> {
   return enrollments.map(e => e.courseId);
 }
 
+/** Get all user IDs enrolled in a course (for fan-out, e.g. live-class notices) */
+export async function getUsersEnrolledInCourse(courseId: string): Promise<string[]> {
+  const enrollments = await prisma.enrollment.findMany({
+    where: { courseId },
+    select: { userId: true },
+  });
+  return enrollments.map(e => e.userId);
+}
+
 /** Count total enrollments for a user */
 export async function countByUser(userId: string): Promise<number> {
   return prisma.enrollment.count({ where: { userId } });

@@ -639,3 +639,65 @@ export async function notifyLessonAnswer(opts: {
     idempotencyKey: `lesson_answer:${opts.messageId}:${opts.userId}`,
   });
 }
+
+// ═══════════════════════════════════════════════════════
+// LIVE CLASS HELPERS
+// ═══════════════════════════════════════════════════════
+
+/**
+ * Notify: A live class was scheduled → alert ONE enrolled student. Bulk
+ * delivery = call this per enrolled student (the service loops over the course's
+ * enrolled users). One notification per (class, student) pair, so scheduling the
+ * same class twice (or a retry) never double-notifies a student.
+ *
+ * action target "/live" → the client opens the Live Classes page where the
+ * student can see the class (with its countdown) and join when it starts.
+ */
+export async function notifyLiveClassScheduled(opts: {
+  userId: string; // the enrolled student to notify
+  classId: string;
+  courseId: string;
+  courseName?: string;
+  classTitle?: string;
+  instructorName?: string;
+  scheduledAt?: string | null; // ISO; null = starting soon / immediate
+}) {
+  // Human-friendly "when": a formatted date/time, or a soft fallback.
+  let when = "soon";
+  if (opts.scheduledAt) {
+    const d = new Date(opts.scheduledAt);
+    if (!isNaN(d.getTime())) {
+      when = d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+    }
+  }
+
+  const title = (opts.classTitle || "Live Class").trim();
+  const course = (opts.courseName || "").trim();
+  const by = (opts.instructorName || "").trim();
+
+  const body =
+    `"${title}"` +
+    (course ? ` in ${course}` : "") +
+    (by ? ` by ${by}` : "") +
+    ` · ${when}`;
+
+  return createNotification({
+    userId: opts.userId,
+    type: "live_class_scheduled",
+    category: "course",
+    priority: "HIGH",
+    title: "Live Class Scheduled 📹",
+    body,
+    metadata: {
+      classId: opts.classId,
+      courseId: opts.courseId,
+      courseName: opts.courseName ?? null,
+      classTitle: opts.classTitle ?? null,
+      instructorName: opts.instructorName ?? null,
+      scheduledAt: opts.scheduledAt ?? null,
+    },
+    action: { type: "deeplink", target: "/live" },
+    // One notice per (class, student) — idempotent against re-schedule/retry.
+    idempotencyKey: `live_class_scheduled:${opts.classId}:${opts.userId}`,
+  });
+}

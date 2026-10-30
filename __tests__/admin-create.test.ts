@@ -150,6 +150,9 @@ describe("POST /api/admin/courses", () => {
     subtitle: "Learn Python from scratch",
     category: "Programming",
     instructor: "Rahul Sharma",
+    // The route now requires a valid instructor register email (used to route
+    // lesson Q&A notifications). Part of the current create contract.
+    instructorEmail: "rahul@test.com",
     institute: "IIT Delhi",
     totalHours: "20",
     totalVideos: "40",

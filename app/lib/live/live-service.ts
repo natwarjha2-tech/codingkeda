@@ -25,14 +25,22 @@ import {
   isCourseInstructor,
   resolveJoinAccess,
 } from "@/app/lib/live/live-permissions";
-import { CHIME_MEDIA_REGION } from "@/app/lib/live/live-config";
+import {
+  CHIME_MEDIA_REGION,
+  LIVE_HOST_GRACE_MS,
+  LIVE_SWEEP_THROTTLE_MS,
+} from "@/app/lib/live/live-config";
 import { startMediaCapture, stopMediaCapture } from "@/app/lib/live/recording";
 import {
   getSignedFileUrl,
   getSignedFileUrlFromUrl,
   getS3KeyFromUrl,
 } from "@/app/lib/s3";
-import { getEnrolledCourseIds } from "@/app/repositories/enrollment.repository";
+import {
+  getEnrolledCourseIds,
+  getUsersEnrolledInCourse,
+} from "@/app/repositories/enrollment.repository";
+import { notifyLiveClassScheduled } from "@/app/lib/notification";
 
 /** Result wrapper so routes can map {ok,status,message} → apiSuccess/apiError. */
 export interface ServiceResult<T> {
@@ -62,6 +70,10 @@ export interface LiveClassDTO {
   scheduledAt: string | null;
   startedAt: string | null;
   endedAt: string | null;
+  // Actual run length in minutes (M6), DERIVED from startedAt→endedAt. null
+  // until the class has both a start and an end. No new DB column — computed
+  // from the timestamps we already store.
+  actualDurationMinutes: number | null;
   mediaRegion: string;
   recordingUrl: string | null;
   createdAt: string;
@@ -98,6 +110,10 @@ function toDTO(c: LiveClassRow): LiveClassDTO {
     scheduledAt: c.scheduledAt ? c.scheduledAt.toISOString() : null,
     startedAt: c.startedAt ? c.startedAt.toISOString() : null,
     endedAt: c.endedAt ? c.endedAt.toISOString() : null,
+    actualDurationMinutes:
+      c.startedAt && c.endedAt
+        ? Math.max(0, Math.round((c.endedAt.getTime() - c.startedAt.getTime()) / 60000))
+        : null,
     mediaRegion: c.mediaRegion,
     recordingUrl: c.recordingUrl,
     createdAt: c.createdAt.toISOString(),
@@ -154,7 +170,133 @@ export async function createLiveClass(opts: {
     },
   });
 
+  // Notify every enrolled student that a class was scheduled (Problem 1a).
+  await _notifyClassToEnrolled(created, opts.requesterId);
+
   return ok(toDTO(created), 201);
+}
+
+/**
+ * Shared "notify enrolled students about a scheduled class" fan-out. Used by
+ * BOTH createLiveClass and updateLiveClass (reschedule re-notify) — single
+ * source, no duplicated notification logic.
+ *
+ * Best-effort + NON-BLOCKING: a notification failure never fails the caller.
+ * Idempotent per (class, student) at the notification layer so a re-schedule
+ * updates/dedupes rather than spamming. The host (scheduler) is skipped.
+ */
+async function _notifyClassToEnrolled(
+  classRow: LiveClassRow,
+  requesterId: string
+): Promise<void> {
+  try {
+    const studentIds = await getUsersEnrolledInCourse(classRow.courseId);
+    const recipients = studentIds.filter((uid) => uid !== requesterId);
+    if (recipients.length === 0) return;
+
+    let courseName = "";
+    try {
+      const course = await prisma.course.findUnique({
+        where: { id: classRow.courseId },
+        select: { title: true },
+      });
+      courseName = course?.title || "";
+    } catch {
+      // Non-fatal — notification still goes out with an empty course name.
+    }
+
+    const scheduledAtIso = classRow.scheduledAt ? classRow.scheduledAt.toISOString() : null;
+    await Promise.allSettled(
+      recipients.map((uid) =>
+        notifyLiveClassScheduled({
+          userId: uid,
+          classId: classRow.id,
+          courseId: classRow.courseId,
+          courseName,
+          classTitle: classRow.title,
+          instructorName: classRow.instructorName,
+          scheduledAt: scheduledAtIso,
+        })
+      )
+    );
+  } catch (err) {
+    console.error("Live class scheduled-notification fan-out failed (non-fatal):", err);
+  }
+}
+
+/**
+ * Edit a SCHEDULED live class (instructor action). Only not-yet-started classes
+ * are editable (a live/ended/cancelled class can't be rescheduled). Applies the
+ * same validation/normalization as create. On success, re-notifies enrolled
+ * students (reschedule communication) via the shared fan-out.
+ */
+export async function updateLiveClass(opts: {
+  requesterId: string;
+  liveClassId: string;
+  title?: string;
+  instructorName?: string;
+  durationMinutes?: number | null;
+  agenda?: string;
+  scheduledAt?: string | null;
+}): Promise<ServiceResult<LiveClassDTO>> {
+  const liveClass = await prisma.liveClass.findUnique({
+    where: { id: opts.liveClassId },
+  });
+  if (!liveClass) return fail(404, "Live class not found.");
+
+  const isHost = liveClass.hostUserId === opts.requesterId;
+  if (!isHost && !(await isCourseInstructor(opts.requesterId, liveClass.courseId))) {
+    return fail(403, "Only the instructor can edit this class.");
+  }
+
+  // Only a still-scheduled class can be edited. (Mirror cancel's guards.)
+  if (liveClass.status === "live") return fail(409, "A live class is running — end it instead of editing.");
+  if (liveClass.status === "ended") return fail(409, "This class has already ended.");
+  if (liveClass.status === "cancelled") return fail(409, "This class was cancelled.");
+
+  // Build a patch only from fields that were actually provided, with the same
+  // normalization create uses.
+  const data: {
+    title?: string;
+    instructorName?: string;
+    agenda?: string;
+    durationMinutes?: number | null;
+    scheduledAt?: Date | null;
+  } = {};
+
+  if (opts.title !== undefined) data.title = (opts.title || "").trim();
+  if (opts.instructorName !== undefined) data.instructorName = (opts.instructorName || "").trim().slice(0, 120);
+  if (opts.agenda !== undefined) data.agenda = (opts.agenda || "").trim().slice(0, 2000);
+
+  if (opts.durationMinutes !== undefined) {
+    let durationMinutes: number | null = null;
+    if (opts.durationMinutes != null) {
+      const n = Math.round(Number(opts.durationMinutes));
+      if (Number.isFinite(n) && n > 0 && n <= 24 * 60) durationMinutes = n;
+    }
+    data.durationMinutes = durationMinutes;
+  }
+
+  if (opts.scheduledAt !== undefined) {
+    if (opts.scheduledAt) {
+      const d = new Date(opts.scheduledAt);
+      if (isNaN(d.getTime())) return fail(400, "scheduledAt is not a valid date.");
+      data.scheduledAt = d;
+    } else {
+      data.scheduledAt = null;
+    }
+  }
+
+  const updated = await prisma.liveClass.update({
+    where: { id: liveClass.id },
+    data,
+  });
+
+  // Reschedule communication: re-notify enrolled students so they see the
+  // updated details (shared fan-out — no duplicated notify logic).
+  await _notifyClassToEnrolled(updated, opts.requesterId);
+
+  return ok(toDTO(updated));
 }
 
 /**
@@ -189,6 +331,12 @@ export async function listLiveClasses(opts: {
 export async function listStudentClasses(opts: {
   requesterId: string;
 }): Promise<ServiceResult<{ classes: (LiveClassDTO & { courseTitle: string })[] }>> {
+  // Opportunistic host-disconnect sweep (Phase 3): auto-end any ghost "live"
+  // classes before listing, so a student never sees/joins a class whose host
+  // vanished. Throttled + idempotent; awaited so the list reflects the result,
+  // but it is cheap (indexed query, usually finds nothing).
+  await autoEndStaleClasses();
+
   const courseIds = await getEnrolledCourseIds(opts.requesterId);
   if (courseIds.length === 0) return ok({ classes: [] });
 
@@ -223,6 +371,9 @@ export async function listStudentClasses(opts: {
 export async function listHostingClasses(opts: {
   requesterId: string;
 }): Promise<ServiceResult<{ classes: (LiveClassDTO & { courseTitle: string })[] }>> {
+  // Same opportunistic sweep as the student list (Phase 3).
+  await autoEndStaleClasses();
+
   const rows = await prisma.liveClass.findMany({
     where: { hostUserId: opts.requesterId, status: { in: ["scheduled", "live"] } },
     orderBy: [{ status: "asc" }, { scheduledAt: "asc" }],
@@ -785,24 +936,49 @@ export async function endLiveClass(opts: {
     return ok(toDTO(liveClass));
   }
 
+  const updated = await _endClassRow({
+    id: liveClass.id,
+    chimeMeetingId: liveClass.chimeMeetingId,
+  });
+  return ok(toDTO(updated));
+}
+
+/**
+ * Shared end-core (single source of truth for ending a class). Deletes the
+ * Chime meeting, flips status → "ended", stamps endedAt, and closes out any
+ * still-present participants. Used by BOTH the host-triggered endLiveClass and
+ * the auto-end stale-sweep (Phase 3) — so the "end a class" logic exists in
+ * exactly ONE place (no duplication). Access/authorization is the CALLER's
+ * responsibility (endLiveClass checks host; the sweep ends only verified-stale
+ * rows).
+ */
+async function _endClassRow(row: { id: string; chimeMeetingId: string }): Promise<LiveClassRow> {
+  // Finalize any ACTIVE recording first (M8): stop the pipeline + mark it ready
+  // + stamp its duration, so ending a class (via host End, the auto-end sweep,
+  // or a host-leave) never leaves an orphaned pipeline or a "forever processing"
+  // recording. Best-effort — never blocks ending the class.
+  try { await _finalizeRecording(row.id, "ready"); } catch (e) {
+    console.error("_endClassRow: finalize recording failed", row.id, e);
+  }
+
   // Tear down the Chime meeting (idempotent inside deleteChimeMeeting).
-  if (liveClass.chimeMeetingId) {
-    await deleteChimeMeeting(liveClass.chimeMeetingId);
+  if (row.chimeMeetingId) {
+    await deleteChimeMeeting(row.chimeMeetingId);
   }
 
   const now = new Date();
   const updated = await prisma.liveClass.update({
-    where: { id: liveClass.id },
+    where: { id: row.id },
     data: { status: "ended", endedAt: now },
   });
 
   // Close out any participants still marked as present (attendance accuracy).
   await prisma.liveParticipant.updateMany({
-    where: { liveClassId: liveClass.id, leftAt: null },
+    where: { liveClassId: row.id, leftAt: null },
     data: { leftAt: now },
   });
 
-  return ok(toDTO(updated));
+  return updated;
 }
 
 /** Participant (attendance) view for the host dashboard. */
@@ -865,6 +1041,128 @@ function normalizeClientType(v?: string): string {
   return allowed.includes(t) ? t : "";
 }
 
+// ───────────────── Host-disconnect policy (Phase 3) ─────────────────
+// A live class whose HOST has vanished (crash/close without pressing End) must
+// not linger as a ghost "live" class with a leaked Chime meeting. The host's
+// client sends a periodic heartbeat; a lazy stale-sweep auto-ends any live
+// class whose host hasn't pinged within the grace window. No new cron infra —
+// the sweep runs opportunistically (throttled) on list/join reads, and can also
+// be triggered by an optional secret-protected endpoint.
+
+/**
+ * Record a host heartbeat: stamp hostLastSeenAt = now for a LIVE class the
+ * caller actually hosts. Best-effort + cheap (one indexed update). Only the
+ * host updates this — students' presence is already tracked via Chime. Silently
+ * no-ops if the caller isn't the host or the class isn't live, so a tampered
+ * client can never keep a foreign class alive.
+ */
+export async function recordHostHeartbeat(opts: {
+  requesterId: string;
+  liveClassId: string;
+}): Promise<ServiceResult<{ ok: boolean }>> {
+  const liveClass = await prisma.liveClass.findUnique({
+    where: { id: opts.liveClassId },
+    select: { id: true, hostUserId: true, courseId: true, status: true },
+  });
+  if (!liveClass) return fail(404, "Live class not found.");
+  if (liveClass.status !== "live") return ok({ ok: false });
+
+  const isHost = liveClass.hostUserId === opts.requesterId;
+  if (!isHost && !(await isCourseInstructor(opts.requesterId, liveClass.courseId))) {
+    // Not the host — ignore (never trust the client to keep a class alive).
+    return ok({ ok: false });
+  }
+
+  await prisma.liveClass.update({
+    where: { id: liveClass.id },
+    data: { hostLastSeenAt: new Date() },
+  });
+  return ok({ ok: true });
+}
+
+// Throttle so the lazy on-read sweep never hammers the DB. Module-level in the
+// long-running (EC2/PM2) Node process; a stale value just means an extra sweep,
+// which is harmless (the sweep is idempotent).
+let _lastSweepAt = 0;
+
+/**
+ * Auto-end stale LIVE classes whose host has gone silent past the grace window.
+ * "Stale" = status 'live' AND (hostLastSeenAt older than grace, OR never pinged
+ * yet but the class started longer ago than the grace window). Each stale class
+ * is ended via the shared _endClassRow (Chime deleted + status/endedAt +
+ * attendance closed) — students then receive Chime's MeetingEnded, which the
+ * desktop surfaces as the Phase 2 "Class ended" overlay.
+ *
+ * Idempotent + resilient: one failing class never blocks the others.
+ *
+ * @param force skip the throttle (used by the explicit sweep endpoint).
+ * @returns how many classes were auto-ended.
+ */
+export async function autoEndStaleClasses(opts?: { force?: boolean }): Promise<number> {
+  const nowMs = Date.now();
+  if (!opts?.force && nowMs - _lastSweepAt < LIVE_SWEEP_THROTTLE_MS) return 0;
+  _lastSweepAt = nowMs;
+
+  const cutoff = new Date(nowMs - LIVE_HOST_GRACE_MS);
+
+  // Stale if the last host ping is older than the cutoff, OR there is no ping
+  // yet and the class started before the cutoff (covers pre-heartbeat rows and
+  // a host that never pinged). Classes with neither startedAt nor a ping that
+  // are somehow 'live' are left alone (handled by the host via End).
+  const stale = await prisma.liveClass.findMany({
+    where: {
+      status: "live",
+      OR: [
+        { hostLastSeenAt: { lt: cutoff } },
+        { hostLastSeenAt: null, startedAt: { lt: cutoff } },
+      ],
+    },
+    select: { id: true, chimeMeetingId: true },
+  });
+
+  let ended = 0;
+  for (const row of stale) {
+    try {
+      await _endClassRow(row); // also finalizes any active recording (Phase 8)
+      ended += 1;
+    } catch (err) {
+      console.error("autoEndStaleClasses: failed to end", row.id, err);
+    }
+  }
+
+  // Stuck-recording guard (Phase 8 / J8): finalize any recording left in
+  // "processing" whose class is already ended/cancelled (an edge where the
+  // end-path couldn't finalize it). Keeps recording status accurate and avoids
+  // "forever processing" rows + orphaned pipelines. Runs every sweep, cheaply.
+  try {
+    // LiveRecording has no relation to LiveClass, so resolve ended classes
+    // explicitly (isolation preserved — plain id lookups).
+    const processing = await prisma.liveRecording.findMany({
+      where: { status: "processing" },
+      select: { id: true, liveClassId: true },
+    });
+    if (processing.length > 0) {
+      const classIds = [...new Set(processing.map((p) => p.liveClassId))];
+      const endedClasses = await prisma.liveClass.findMany({
+        where: { id: { in: classIds }, status: { in: ["ended", "cancelled"] } },
+        select: { id: true },
+      });
+      const endedSet = new Set(endedClasses.map((c) => c.id));
+      for (const rec of processing) {
+        if (endedSet.has(rec.liveClassId)) {
+          try { await _finalizeRecording(rec.liveClassId, "ready"); } catch (e) {
+            console.error("autoEndStaleClasses: finalize stuck recording failed", rec.liveClassId, e);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error("autoEndStaleClasses: stuck-recording guard failed", err);
+  }
+
+  return ended;
+}
+
 // ───────────────────────── Recording (Phase 10) ─────────────────────────
 // Server-side Chime Media Capture Pipeline → S3. Host-triggered only. The
 // pipeline id is persisted on LiveRecording so stop is reliable. All methods
@@ -913,10 +1211,33 @@ export async function startRecording(opts: {
     return ok(toRecordingDTO(active, null));
   }
 
-  const capture = await startMediaCapture({
-    chimeMeetingId: liveClass.chimeMeetingId,
-    liveClassId: liveClass.id,
-  });
+  // Start the capture pipeline. If AWS rejects it (IAM / config / quota), record
+  // a `failed` row so the UI can show the failure (J7/J9) and return a clean
+  // error instead of letting the exception become a generic 500.
+  let capture;
+  try {
+    capture = await startMediaCapture({
+      chimeMeetingId: liveClass.chimeMeetingId,
+      liveClassId: liveClass.id,
+    });
+  } catch (err) {
+    console.error("startRecording: pipeline creation failed", liveClass.id, err);
+    try {
+      await prisma.liveRecording.create({
+        data: {
+          liveClassId: liveClass.id,
+          pipelineId: "",
+          s3Bucket: "",
+          s3Key: "",
+          status: "failed",
+        },
+      });
+    } catch (e) {
+      // Non-fatal: even if we can't persist the failed row, still return a clean
+      // error to the caller.
+    }
+    return fail(502, "Could not start recording. Please try again.");
+  }
 
   const created = await prisma.liveRecording.create({
     data: {
@@ -929,6 +1250,63 @@ export async function startRecording(opts: {
   });
 
   return ok(toRecordingDTO(created, null), 201);
+}
+
+/**
+ * Shared recording-finalize core (single source of truth for ending a
+ * recording). Stops the active pipeline (idempotent), stamps the status
+ * (`ready` | `failed`), computes + stores the actual recording duration
+ * (createdAt → now), and — on success — points the class at the recording key.
+ *
+ * Used by BOTH the host-triggered stopRecording AND the class-end path
+ * (_endClassRow) so a recording is finalized exactly once, the same way, no
+ * matter how the class ends (manual stop, host End, auto-end sweep, host-leave)
+ * — no duplicated stop logic, no orphaned pipelines, no "forever processing"
+ * (M8/J8). Best-effort + resilient: a stop/sign failure never throws out of the
+ * end flow.
+ *
+ * @returns the finalized recording row (or null if there was nothing active).
+ */
+async function _finalizeRecording(
+  liveClassId: string,
+  outcome: "ready" | "failed"
+): Promise<LiveRecordingRow | null> {
+  const active = await prisma.liveRecording.findFirst({
+    where: { liveClassId, status: "processing" },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!active) return null;
+
+  // Stop the pipeline (idempotent inside stopMediaCapture). Never let a stop
+  // failure block finalizing the DB row.
+  if (active.pipelineId) {
+    try { await stopMediaCapture(active.pipelineId); } catch (e) {
+      console.error("_finalizeRecording: stopMediaCapture failed", active.id, e);
+    }
+  }
+
+  // Actual recording duration (M6): from when the pipeline row was created to
+  // now. Clamped to >= 0.
+  const durationSec = Math.max(0, Math.round((Date.now() - active.createdAt.getTime()) / 1000));
+
+  const updated = await prisma.liveRecording.update({
+    where: { id: active.id },
+    data: { status: outcome, duration: durationSec },
+  });
+
+  // On success, point the class at its latest recording key (signed on read).
+  if (outcome === "ready") {
+    try {
+      await prisma.liveClass.update({
+        where: { id: liveClassId },
+        data: { recordingUrl: updated.s3Key },
+      });
+    } catch (e) {
+      console.error("_finalizeRecording: set recordingUrl failed", liveClassId, e);
+    }
+  }
+
+  return updated;
 }
 
 /**
@@ -951,27 +1329,10 @@ export async function stopRecording(opts: {
     return fail(403, "Only the instructor can stop recording.");
   }
 
-  const active = await prisma.liveRecording.findFirst({
-    where: { liveClassId: liveClass.id, status: "processing" },
-    orderBy: { createdAt: "desc" },
-  });
-  if (!active) return fail(409, "No active recording to stop.");
-
-  // Tear down the pipeline (idempotent inside stopMediaCapture).
-  if (active.pipelineId) {
-    await stopMediaCapture(active.pipelineId);
-  }
-
-  const updated = await prisma.liveRecording.update({
-    where: { id: active.id },
-    data: { status: "ready" },
-  });
-
-  // Point the class at its latest recording key (signed on read).
-  await prisma.liveClass.update({
-    where: { id: liveClass.id },
-    data: { recordingUrl: updated.s3Key },
-  });
+  // Finalize via the shared core (stop pipeline + status 'ready' + duration +
+  // recordingUrl). No active recording → idempotent success (nothing to stop).
+  const updated = await _finalizeRecording(liveClass.id, "ready");
+  if (!updated) return fail(409, "No active recording to stop.");
 
   const url = await safeSignRecording(updated.s3Key);
   return ok(toRecordingDTO(updated, url));
@@ -1019,6 +1380,7 @@ type LiveRecordingRow = {
   status: string;
   duration: number | null;
   createdAt: Date;
+  s3Key: string; // needed to sign a playback URL after finalize (Phase 8)
 };
 
 function toRecordingDTO(r: LiveRecordingRow, url: string | null): RecordingDTO {

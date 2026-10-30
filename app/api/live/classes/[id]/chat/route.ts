@@ -4,6 +4,7 @@ import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { isLiveClassConfigured } from "@/app/lib/live/live-config";
 import { getChatMessages, postChatMessage } from "@/app/lib/live/live-chat";
+import { checkRateLimit } from "@/app/lib/live/rate-limit";
 
 /**
  * GET /api/live/classes/[id]/chat?after=<ISO?>&limit=<n?>
@@ -68,6 +69,13 @@ export async function POST(
 
     const { id } = await params;
     if (!id?.trim()) return apiError(400, "Class id is required.");
+
+    // Abuse protection (L10): cap chat sends per user. Generous enough for
+    // normal conversation; blocks spam/flood. Keyed per user + action.
+    const rl = checkRateLimit(`${user!.userId}:chat`, 10, 10_000);
+    if (!rl.allowed) {
+      return apiError(429, "You're sending messages too fast. Please slow down.");
+    }
 
     const body = await req.json().catch(() => ({}));
     const { message, messageType, replyToMessageId } = body as {
