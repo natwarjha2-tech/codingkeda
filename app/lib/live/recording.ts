@@ -24,7 +24,7 @@ import {
 } from "@aws-sdk/client-chime-sdk-media-pipelines";
 import {
   CHIME_PIPELINE_REGION,
-  CHIME_MEDIA_REGION,
+  CHIME_CONTROL_REGION,
   AWS_ACCOUNT_ID,
   LIVE_RECORDING_BUCKET,
   LIVE_RECORDING_PREFIX,
@@ -51,13 +51,18 @@ function getPipelinesClient(): ChimeSDKMediaPipelinesClient {
 }
 
 /**
- * ARN of a Chime meeting (used as the capture SourceArn). The region in the ARN
- * is the meeting's ACTUAL media region (e.g. ap-south-1) — this is how a
- * us-east-1 pipeline is linked to a meeting hosted in another region. Falls
- * back to the configured media region when the caller doesn't know it.
+ * ARN of a Chime meeting (used as the capture SourceArn).
+ *
+ * CRITICAL (verified against AWS docs + official examples): a Chime SDK meeting
+ * ARN uses the CONTROL-plane region (where the meeting was created — us-east-1
+ * by default), NOT the media region. Media Capture Pipelines reference the
+ * meeting through this control-region ARN; using the media region (ap-south-1)
+ * here makes AWS fail to find the meeting → ForbiddenException.
+ *
+ * Example (AWS docs): arn:aws:chime:us-east-1:<account>:meeting/<id>
  */
-function meetingArn(chimeMeetingId: string, meetingRegion: string): string {
-  return `arn:aws:chime:${meetingRegion}:${AWS_ACCOUNT_ID}:meeting/${chimeMeetingId}`;
+function meetingArn(chimeMeetingId: string): string {
+  return `arn:aws:chime:${CHIME_CONTROL_REGION}:${AWS_ACCOUNT_ID}:meeting/${chimeMeetingId}`;
 }
 
 /** ARN of the S3 destination folder for a given live class's recording. */
@@ -82,20 +87,16 @@ export interface StartCaptureResult {
 export async function startMediaCapture(opts: {
   chimeMeetingId: string;
   liveClassId: string;
-  /** The meeting's actual media region (from the stored LiveClass row). Used
-   *  ONLY in the SourceArn so the us-east-1 pipeline can locate the meeting.
-   *  Falls back to the configured media region when unknown. */
-  mediaRegion?: string;
 }): Promise<StartCaptureResult> {
-  const meetingRegion = (opts.mediaRegion || "").trim() || CHIME_MEDIA_REGION;
   const { arn: sinkArn, key } = s3SinkArn(opts.liveClassId);
 
-  // Pipeline runs in the (universal) pipeline region; the SourceArn references
-  // the meeting in its OWN region — this is the combination AWS supports.
+  // Pipeline runs in the (universal) us-east-1 pipeline region; the SourceArn
+  // references the meeting via its CONTROL-region ARN (us-east-1) — the exact
+  // combination AWS supports.
   const res = await getPipelinesClient().send(
     new CreateMediaCapturePipelineCommand({
       SourceType: "ChimeSdkMeeting",
-      SourceArn: meetingArn(opts.chimeMeetingId, meetingRegion),
+      SourceArn: meetingArn(opts.chimeMeetingId),
       SinkType: "S3Bucket",
       SinkArn: sinkArn,
       ClientRequestToken: opts.liveClassId.slice(0, 64),

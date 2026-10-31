@@ -1221,7 +1221,6 @@ export async function startRecording(opts: {
     capture = await startMediaCapture({
       chimeMeetingId: liveClass.chimeMeetingId,
       liveClassId: liveClass.id,
-      mediaRegion: liveClass.mediaRegion || undefined,
     });
   } catch (err) {
     const awsName = (err as { name?: string })?.name || "";
