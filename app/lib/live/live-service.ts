@@ -1211,17 +1211,27 @@ export async function startRecording(opts: {
     return ok(toRecordingDTO(active, null));
   }
 
-  // Start the capture pipeline. If AWS rejects it (IAM / config / quota), record
-  // a `failed` row so the UI can show the failure (J7/J9) and return a clean
-  // error instead of letting the exception become a generic 500.
+  // Start the capture pipeline. The pipeline + meeting SourceArn use the
+  // meeting's ACTUAL media region (stored on the row) so AWS can find the
+  // meeting. If AWS rejects it (region/IAM/bucket/quota), record a `failed` row
+  // (J7/J9) and surface the REAL AWS reason so misconfig is diagnosable (no more
+  // guessing) instead of a generic 500.
   let capture;
   try {
     capture = await startMediaCapture({
       chimeMeetingId: liveClass.chimeMeetingId,
       liveClassId: liveClass.id,
+      mediaRegion: liveClass.mediaRegion || undefined,
     });
   } catch (err) {
-    console.error("startRecording: pipeline creation failed", liveClass.id, err);
+    const awsName = (err as { name?: string })?.name || "";
+    const awsMsg = (err as { message?: string })?.message || "";
+    console.error("startRecording: pipeline creation failed", {
+      classId: liveClass.id,
+      mediaRegion: liveClass.mediaRegion,
+      awsName,
+      awsMsg,
+    });
     try {
       await prisma.liveRecording.create({
         data: {
@@ -1232,11 +1242,15 @@ export async function startRecording(opts: {
           status: "failed",
         },
       });
-    } catch (e) {
-      // Non-fatal: even if we can't persist the failed row, still return a clean
+    } catch {
+      // Non-fatal: even if we can't persist the failed row, still return a clear
       // error to the caller.
     }
-    return fail(502, "Could not start recording. Please try again.");
+    // Surface a concise real reason (AWS error name) so the host/mentor can see
+    // WHY it failed (e.g. a region/permission/bucket problem), not a vague
+    // "please try again".
+    const reason = awsName ? ` (${awsName})` : "";
+    return fail(502, `Could not start recording${reason}. Please check the recording setup and try again.`);
   }
 
   const created = await prisma.liveRecording.create({
@@ -1277,10 +1291,19 @@ async function _finalizeRecording(
   });
   if (!active) return null;
 
-  // Stop the pipeline (idempotent inside stopMediaCapture). Never let a stop
-  // failure block finalizing the DB row.
+  // Stop the pipeline (idempotent inside stopMediaCapture). The pipeline lives
+  // in the meeting's media region, so stop must target that same region — look
+  // it up from the class row. Never let a stop failure block finalizing the row.
   if (active.pipelineId) {
-    try { await stopMediaCapture(active.pipelineId); } catch (e) {
+    let region: string | undefined;
+    try {
+      const cls = await prisma.liveClass.findUnique({
+        where: { id: liveClassId },
+        select: { mediaRegion: true },
+      });
+      region = cls?.mediaRegion || undefined;
+    } catch { /* fall back to the configured region inside stopMediaCapture */ }
+    try { await stopMediaCapture(active.pipelineId, region); } catch (e) {
       console.error("_finalizeRecording: stopMediaCapture failed", active.id, e);
     }
   }

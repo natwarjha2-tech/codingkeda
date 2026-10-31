@@ -48,12 +48,24 @@ export const LIVE_RECORDING_BUCKET = process.env.AWS_S3_BUCKET_NAME ?? "";
 export const LIVE_RECORDING_PREFIX = process.env.LIVE_RECORDING_PREFIX ?? "live-recordings";
 
 /**
- * Chime SDK Media Pipelines (recording) control region. Media capture pipelines
- * run in us-east-1 regardless of the meeting's media region, so this is pinned
- * to the control region. Reuses CHIME_CONTROL_REGION's default.
+ * Chime SDK Media Pipelines (recording) region.
+ *
+ * CRITICAL (verified against AWS docs): a media-capture pipeline must run in the
+ * SAME region as the meeting it captures, and the meeting SourceArn must carry
+ * that same region. Media Capture Pipelines are only available in a subset of
+ * regions (e.g. us-east-1, us-west-2, ap-southeast-1, eu-central-1); `us-east-1`
+ * is the universal one that works with meetings from any endpoint.
+ *
+ * So the correct region for BOTH the pipeline client AND the meeting SourceArn
+ * is the meeting's actual media region — NOT the control region. We therefore
+ * derive the recording region per-call from the meeting's stored mediaRegion
+ * (passed into startMediaCapture), falling back to this constant only when the
+ * meeting's region is unknown. Default = CHIME_MEDIA_REGION (where our meetings
+ * are actually created), overridable via env if recording must be pinned to a
+ * specific pipeline-supported region.
  */
-export const CHIME_MEDIA_PIPELINES_REGION =
-  process.env.CHIME_MEDIA_PIPELINES_REGION ?? CHIME_CONTROL_REGION;
+export const CHIME_RECORDING_REGION =
+  process.env.CHIME_RECORDING_REGION ?? CHIME_MEDIA_REGION;
 
 /**
  * AWS account id — needed to build the Chime meeting ARN (SourceArn) and the S3

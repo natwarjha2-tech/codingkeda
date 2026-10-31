@@ -23,33 +23,40 @@ import {
   DeleteMediaCapturePipelineCommand,
 } from "@aws-sdk/client-chime-sdk-media-pipelines";
 import {
-  CHIME_MEDIA_PIPELINES_REGION,
-  CHIME_CONTROL_REGION,
+  CHIME_RECORDING_REGION,
   AWS_ACCOUNT_ID,
   LIVE_RECORDING_BUCKET,
   LIVE_RECORDING_PREFIX,
 } from "@/app/lib/live/live-config";
 
-/** Lazily-created singleton Media Pipelines client (see chime.ts rationale). */
-let _client: ChimeSDKMediaPipelinesClient | null = null;
+/**
+ * Media Pipelines clients cached PER REGION. A media-capture pipeline must run
+ * in the same region as the meeting it captures, so we create (and reuse) one
+ * client per region rather than a single fixed-region singleton.
+ */
+const _clients = new Map<string, ChimeSDKMediaPipelinesClient>();
 
-function getPipelinesClient(): ChimeSDKMediaPipelinesClient {
-  if (_client) return _client;
-  _client = new ChimeSDKMediaPipelinesClient({
-    region: CHIME_MEDIA_PIPELINES_REGION,
+function getPipelinesClient(region: string): ChimeSDKMediaPipelinesClient {
+  const existing = _clients.get(region);
+  if (existing) return existing;
+  const client = new ChimeSDKMediaPipelinesClient({
+    region,
     credentials: {
       accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
       secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
     },
   });
-  return _client;
+  _clients.set(region, client);
+  return client;
 }
 
-/** ARN of a Chime meeting (used as the capture SourceArn). */
-function meetingArn(chimeMeetingId: string): string {
-  // Chime meeting ARNs use the control region (chime is a global-ish service;
-  // the meetings control plane lives in the control region).
-  return `arn:aws:chime:${CHIME_CONTROL_REGION}:${AWS_ACCOUNT_ID}:meeting/${chimeMeetingId}`;
+/**
+ * ARN of a Chime meeting (used as the capture SourceArn). The region in the ARN
+ * MUST be the meeting's actual media region — otherwise AWS can't find the
+ * meeting and CreateMediaCapturePipeline fails.
+ */
+function meetingArn(chimeMeetingId: string, region: string): string {
+  return `arn:aws:chime:${region}:${AWS_ACCOUNT_ID}:meeting/${chimeMeetingId}`;
 }
 
 /** ARN of the S3 destination folder for a given live class's recording. */
@@ -63,6 +70,8 @@ export interface StartCaptureResult {
   s3Bucket: string;
   s3Key: string;
   status: string;
+  /** Region the pipeline runs in — stop must target the same region. */
+  region: string;
 }
 
 /**
@@ -74,13 +83,18 @@ export interface StartCaptureResult {
 export async function startMediaCapture(opts: {
   chimeMeetingId: string;
   liveClassId: string;
+  /** The meeting's actual media region (from the stored LiveClass row). The
+   *  pipeline + SourceArn use this region so AWS can find the meeting. Falls
+   *  back to the configured recording region if unknown. */
+  mediaRegion?: string;
 }): Promise<StartCaptureResult> {
+  const region = (opts.mediaRegion || "").trim() || CHIME_RECORDING_REGION;
   const { arn: sinkArn, key } = s3SinkArn(opts.liveClassId);
 
-  const res = await getPipelinesClient().send(
+  const res = await getPipelinesClient(region).send(
     new CreateMediaCapturePipelineCommand({
       SourceType: "ChimeSdkMeeting",
-      SourceArn: meetingArn(opts.chimeMeetingId),
+      SourceArn: meetingArn(opts.chimeMeetingId, region),
       SinkType: "S3Bucket",
       SinkArn: sinkArn,
       ClientRequestToken: opts.liveClassId.slice(0, 64),
@@ -114,6 +128,7 @@ export async function startMediaCapture(opts: {
     s3Bucket: LIVE_RECORDING_BUCKET,
     s3Key: key,
     status: pipeline.Status || "Initializing",
+    region,
   };
 }
 
@@ -122,10 +137,11 @@ export async function startMediaCapture(opts: {
  * NotFound means it's already stopped/gone, which we treat as success so a
  * double "Stop" (or stop-after-class-end) never throws.
  */
-export async function stopMediaCapture(pipelineId: string): Promise<void> {
+export async function stopMediaCapture(pipelineId: string, region?: string): Promise<void> {
   if (!pipelineId) return;
+  const r = (region || "").trim() || CHIME_RECORDING_REGION;
   try {
-    await getPipelinesClient().send(
+    await getPipelinesClient(r).send(
       new DeleteMediaCapturePipelineCommand({ MediaPipelineId: pipelineId })
     );
   } catch (err) {
