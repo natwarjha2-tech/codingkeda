@@ -23,40 +23,41 @@ import {
   DeleteMediaCapturePipelineCommand,
 } from "@aws-sdk/client-chime-sdk-media-pipelines";
 import {
-  CHIME_RECORDING_REGION,
+  CHIME_PIPELINE_REGION,
+  CHIME_MEDIA_REGION,
   AWS_ACCOUNT_ID,
   LIVE_RECORDING_BUCKET,
   LIVE_RECORDING_PREFIX,
 } from "@/app/lib/live/live-config";
 
 /**
- * Media Pipelines clients cached PER REGION. A media-capture pipeline must run
- * in the same region as the meeting it captures, so we create (and reuse) one
- * client per region rather than a single fixed-region singleton.
+ * Lazily-created singleton Media Pipelines client, pinned to the pipeline
+ * region (us-east-1 by default — the only universally-supported region). The
+ * pipeline region is fixed; the meeting it captures can live in another region
+ * (referenced via the SourceArn), so a single client is correct here.
  */
-const _clients = new Map<string, ChimeSDKMediaPipelinesClient>();
+let _client: ChimeSDKMediaPipelinesClient | null = null;
 
-function getPipelinesClient(region: string): ChimeSDKMediaPipelinesClient {
-  const existing = _clients.get(region);
-  if (existing) return existing;
-  const client = new ChimeSDKMediaPipelinesClient({
-    region,
+function getPipelinesClient(): ChimeSDKMediaPipelinesClient {
+  if (_client) return _client;
+  _client = new ChimeSDKMediaPipelinesClient({
+    region: CHIME_PIPELINE_REGION,
     credentials: {
       accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
       secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
     },
   });
-  _clients.set(region, client);
-  return client;
+  return _client;
 }
 
 /**
  * ARN of a Chime meeting (used as the capture SourceArn). The region in the ARN
- * MUST be the meeting's actual media region — otherwise AWS can't find the
- * meeting and CreateMediaCapturePipeline fails.
+ * is the meeting's ACTUAL media region (e.g. ap-south-1) — this is how a
+ * us-east-1 pipeline is linked to a meeting hosted in another region. Falls
+ * back to the configured media region when the caller doesn't know it.
  */
-function meetingArn(chimeMeetingId: string, region: string): string {
-  return `arn:aws:chime:${region}:${AWS_ACCOUNT_ID}:meeting/${chimeMeetingId}`;
+function meetingArn(chimeMeetingId: string, meetingRegion: string): string {
+  return `arn:aws:chime:${meetingRegion}:${AWS_ACCOUNT_ID}:meeting/${chimeMeetingId}`;
 }
 
 /** ARN of the S3 destination folder for a given live class's recording. */
@@ -70,8 +71,6 @@ export interface StartCaptureResult {
   s3Bucket: string;
   s3Key: string;
   status: string;
-  /** Region the pipeline runs in — stop must target the same region. */
-  region: string;
 }
 
 /**
@@ -83,18 +82,20 @@ export interface StartCaptureResult {
 export async function startMediaCapture(opts: {
   chimeMeetingId: string;
   liveClassId: string;
-  /** The meeting's actual media region (from the stored LiveClass row). The
-   *  pipeline + SourceArn use this region so AWS can find the meeting. Falls
-   *  back to the configured recording region if unknown. */
+  /** The meeting's actual media region (from the stored LiveClass row). Used
+   *  ONLY in the SourceArn so the us-east-1 pipeline can locate the meeting.
+   *  Falls back to the configured media region when unknown. */
   mediaRegion?: string;
 }): Promise<StartCaptureResult> {
-  const region = (opts.mediaRegion || "").trim() || CHIME_RECORDING_REGION;
+  const meetingRegion = (opts.mediaRegion || "").trim() || CHIME_MEDIA_REGION;
   const { arn: sinkArn, key } = s3SinkArn(opts.liveClassId);
 
-  const res = await getPipelinesClient(region).send(
+  // Pipeline runs in the (universal) pipeline region; the SourceArn references
+  // the meeting in its OWN region — this is the combination AWS supports.
+  const res = await getPipelinesClient().send(
     new CreateMediaCapturePipelineCommand({
       SourceType: "ChimeSdkMeeting",
-      SourceArn: meetingArn(opts.chimeMeetingId, region),
+      SourceArn: meetingArn(opts.chimeMeetingId, meetingRegion),
       SinkType: "S3Bucket",
       SinkArn: sinkArn,
       ClientRequestToken: opts.liveClassId.slice(0, 64),
@@ -128,7 +129,6 @@ export async function startMediaCapture(opts: {
     s3Bucket: LIVE_RECORDING_BUCKET,
     s3Key: key,
     status: pipeline.Status || "Initializing",
-    region,
   };
 }
 
@@ -137,11 +137,12 @@ export async function startMediaCapture(opts: {
  * NotFound means it's already stopped/gone, which we treat as success so a
  * double "Stop" (or stop-after-class-end) never throws.
  */
-export async function stopMediaCapture(pipelineId: string, region?: string): Promise<void> {
+export async function stopMediaCapture(pipelineId: string): Promise<void> {
   if (!pipelineId) return;
-  const r = (region || "").trim() || CHIME_RECORDING_REGION;
+  // The pipeline id is global to the pipeline region; delete via the same
+  // (pipeline-region) client it was created with.
   try {
-    await getPipelinesClient(r).send(
+    await getPipelinesClient().send(
       new DeleteMediaCapturePipelineCommand({ MediaPipelineId: pipelineId })
     );
   } catch (err) {

@@ -1291,19 +1291,11 @@ async function _finalizeRecording(
   });
   if (!active) return null;
 
-  // Stop the pipeline (idempotent inside stopMediaCapture). The pipeline lives
-  // in the meeting's media region, so stop must target that same region — look
-  // it up from the class row. Never let a stop failure block finalizing the row.
+  // Stop the pipeline (idempotent inside stopMediaCapture). The pipeline runs in
+  // the fixed pipeline region, so stop needs no per-call region. Never let a
+  // stop failure block finalizing the row.
   if (active.pipelineId) {
-    let region: string | undefined;
-    try {
-      const cls = await prisma.liveClass.findUnique({
-        where: { id: liveClassId },
-        select: { mediaRegion: true },
-      });
-      region = cls?.mediaRegion || undefined;
-    } catch { /* fall back to the configured region inside stopMediaCapture */ }
-    try { await stopMediaCapture(active.pipelineId, region); } catch (e) {
+    try { await stopMediaCapture(active.pipelineId); } catch (e) {
       console.error("_finalizeRecording: stopMediaCapture failed", active.id, e);
     }
   }
