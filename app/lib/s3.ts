@@ -190,6 +190,70 @@ export async function getSignedHlsUrl(s3Key: string, expiresIn = 3600): Promise<
   return getSignedFileUrl(s3Key, expiresIn);
 }
 
+/**
+ * CloudFront SIGNED COOKIES for an entire path prefix (HLS delivery).
+ *
+ * Unlike signCloudFrontUrl (canned policy, ONE object), HLS needs ONE auth that
+ * covers a master playlist + variant playlists + hundreds of .ts segments. We
+ * use a CUSTOM policy whose Resource is a wildcard over the prefix
+ * (https://<domain>/hls/<mediaId>/*), so the client fetches every segment with
+ * STABLE (unsigned-query) URLs that CloudFront caches at the edge and shares
+ * across users — the cookies (sent on each request) carry the authorization.
+ *
+ * Returns the three cookies CloudFront expects. The caller sets them on the
+ * client (web: Set-Cookie; mobile: pass as a Cookie header to the player).
+ *
+ * Mirrors what @aws-sdk/cloudfront-signer's getSignedCookies does, hand-rolled
+ * with Node crypto to avoid a new dependency (same approach as signCloudFrontUrl).
+ */
+export interface CloudFrontCookies {
+  "CloudFront-Policy": string;
+  "CloudFront-Signature": string;
+  "CloudFront-Key-Pair-Id": string;
+}
+
+export function getCloudFrontSignedCookies(
+  resourcePrefix: string,
+  expiresIn = 3600
+): CloudFrontCookies | null {
+  if (!isCloudFrontConfigured()) return null;
+
+  // Normalise: strip any scheme/domain the caller passed, keep just the key
+  // path, then build the wildcard resource over that prefix.
+  const prefix = resourcePrefix.replace(/^https?:\/\/[^/]+\//, "").replace(/^\/+/, "");
+  const resource = `https://${CF_DOMAIN}/${prefix.replace(/\/+$/, "")}/*`;
+  const expires = Math.floor(Date.now() / 1000) + expiresIn;
+
+  // CUSTOM policy (required for cookies / wildcard resource).
+  const policy = JSON.stringify({
+    Statement: [
+      {
+        Resource: resource,
+        Condition: { DateLessThan: { "AWS:EpochTime": expires } },
+      },
+    ],
+  });
+
+  const signer = crypto.createSign("RSA-SHA1");
+  signer.update(policy);
+  const signature = cfSafeBase64(signer.sign(CF_PRIVATE_KEY));
+
+  return {
+    "CloudFront-Policy": cfSafeBase64(policy),
+    "CloudFront-Signature": signature,
+    "CloudFront-Key-Pair-Id": CF_KEY_PAIR_ID,
+  };
+}
+
+// Unsigned CloudFront URL for the HLS master playlist of a media item. The
+// bytes are authorized by the signed cookies above, so this URL stays stable
+// (cacheable). Falls back to the S3 public URL when CF isn't configured.
+export function getHlsMasterUrl(hlsPrefix: string): string {
+  const prefix = hlsPrefix.replace(/\/+$/, "");
+  if (CF_DOMAIN) return `https://${CF_DOMAIN}/${prefix}/master.m3u8`;
+  return getPublicUrl(`${prefix}/master.m3u8`);
+}
+
 
 /**
  * Delete a single object from S3 by key.

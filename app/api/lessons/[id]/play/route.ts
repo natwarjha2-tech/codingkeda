@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { extractUser } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
-import { getSignedFileUrlFromUrl, getS3KeyFromUrl } from "@/app/lib/s3";
+import { getSignedFileUrlFromUrl, getS3KeyFromUrl, isCloudFrontConfigured, getHlsMasterUrl } from "@/app/lib/s3";
 
 /**
  * GET /api/lessons/[id]/play
@@ -64,7 +64,7 @@ export async function GET(
       s3KeyRaw
         ? prisma.media.findFirst({
             where: { s3Key: s3KeyRaw, isActive: true },
-            select: { id: true, hlsStatus: true, hlsQualities: true, hlsS3Prefix: true },
+            select: { id: true, hlsStatus: true, hlsQualities: true, hlsS3Prefix: true, hlsMasterUrl: true },
           })
         : Promise.resolve(null),
     ]);
@@ -94,6 +94,7 @@ export async function GET(
     let mediaId: string | null = null;
     let hlsStatus = "none";
     let hlsQualities: string[] = [];
+    let hlsMasterUrl: string | null = null;
     const qualityUrls: Record<string, string> = {};
 
     // Sign the original video URL (skip if already signed). Presigning is a
@@ -112,6 +113,15 @@ export async function GET(
       mediaId = media.id;
       hlsStatus = media.hlsStatus || "none";
       hlsQualities = media.hlsQualities || [];
+      // HLS master URL: only advertise HLS when it's actually ready AND
+      // CloudFront is configured (segments are gated by CloudFront signed
+      // cookies the client fetches separately from /hls-auth). When CF isn't
+      // configured (e.g. local dev), we leave hlsMasterUrl null so the client
+      // falls back to the S3-presigned MP4 qualityUrls below. Prefer the
+      // producer-stored URL; derive from the hls/<mediaId> prefix otherwise.
+      if (isCloudFrontConfigured() && media.hlsStatus === "ready") {
+        hlsMasterUrl = media.hlsMasterUrl || getHlsMasterUrl(`hls/${media.id}`);
+      }
       if (media.hlsStatus === "ready" && media.hlsS3Prefix && hlsQualities.length > 0) {
         for (const q of hlsQualities) {
           const qKey = `${media.hlsS3Prefix}/${q}.mp4`;
@@ -134,7 +144,7 @@ export async function GET(
         notes: lesson.notes,
         videoUrl: signedVideoUrl,
         mediaId,
-        hlsMasterUrl: null,
+        hlsMasterUrl,
         hlsStatus,
         hlsQualities,
         qualityUrls,

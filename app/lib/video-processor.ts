@@ -27,6 +27,7 @@ import { pipeline } from "stream/promises";
 import { logger } from "@/app/lib/logger";
 import { createNotification } from "@/app/lib/notification";
 import { NOTIF_TYPES, NOTIF_CATEGORIES, NOTIF_PRIORITIES } from "@/app/lib/notification-types";
+import { getHlsMasterUrl } from "@/app/lib/s3";
 
 const execAsync = promisify(execFile);
 const BUCKET = process.env.AWS_S3_BUCKET_NAME!;
@@ -176,6 +177,113 @@ async function downloadFromS3(key: string, destPath: string) {
   throw new Error(`S3 download failed: ${(lastErr as Error)?.message || "unknown error"}`);
 }
 
+// Upload one HLS file (playlist or segment) with the right content-type +
+// cache header. .m3u8 playlists are small + change rarely (short cache);
+// segments are immutable (long cache).
+async function uploadHlsObject(buffer: Buffer, key: string) {
+  const isPlaylist = key.endsWith(".m3u8");
+  await s3.send(new PutObjectCommand({
+    Bucket: BUCKET,
+    Key: key,
+    Body: buffer,
+    ContentType: isPlaylist ? "application/vnd.apple.mpegurl" : "video/mp2t",
+    CacheControl: isPlaylist
+      ? "public, max-age=60"                       // playlist: refresh-able
+      : "public, max-age=31536000, immutable",     // segment: forever
+  }));
+}
+
+/**
+ * Generate a multi-variant HLS rendition (master.m3u8 + per-quality variant
+ * playlists + .ts segments) from the source and upload everything under
+ * hls/<mediaId>/. Returns the STABLE CloudFront master URL (served with signed
+ * cookies) or null on failure.
+ *
+ * ADDITIVE + NON-FATAL: this runs AFTER the MP4 qualities are produced. If it
+ * throws, the caller ignores it — the MP4 qualities remain the playable
+ * fallback, so a student is never left without video.
+ *
+ * Audio is re-encoded to AAC consistently across all segments (NOT stream-copy)
+ * — mismatched/stream-copied audio across HLS segments was the source of the
+ * old "audio noise" problem; AAC-LC at a fixed bitrate avoids it.
+ */
+async function generateAndUploadHls(
+  srcFile: string,
+  variants: typeof QUALITY_VARIANTS,
+  tmpDir: string,
+  mediaId: string,
+  aborted: () => Promise<"deleted" | "cancelled" | null>,
+): Promise<string | null> {
+  const hlsDir = path.join(tmpDir, "hls");
+  fs.mkdirSync(hlsDir, { recursive: true });
+  const hlsPrefix = `hls/${mediaId}`;
+
+  // Build one ffmpeg invocation that outputs ALL variants + a master playlist.
+  // -var_stream_map ties each output rendition to a variant; %v expands to the
+  // variant index in the segment/playlist filenames.
+  const args: string[] = ["-y", "-i", srcFile];
+  const varStreamParts: string[] = [];
+  const filterParts: string[] = [];
+
+  variants.forEach((v, i) => {
+    // Scale+pad each rendition to its target box, keeping aspect ratio.
+    filterParts.push(
+      `[0:v]scale=${v.width}:${v.height}:force_original_aspect_ratio=decrease,` +
+      `pad=${v.width}:${v.height}:(ow-iw)/2:(oh-ih)/2,setsar=1[v${i}]`
+    );
+  });
+
+  // Map each scaled video + the (optional) source audio into numbered outputs.
+  variants.forEach((_, i) => {
+    args.push("-map", `[v${i}]`);
+    args.push("-map", "0:a:0?");
+  });
+
+  // Per-variant encode settings.
+  variants.forEach((v, i) => {
+    args.push(
+      `-c:v:${i}`, "libx264", `-preset:v:${i}`, "fast", `-profile:v:${i}`, "main",
+      `-crf:v:${i}`, "22",
+      `-b:v:${i}`, v.videoBitrate, `-maxrate:v:${i}`, v.videoBitrate,
+      `-bufsize:v:${i}`, `${parseInt(v.videoBitrate) * 2}k`,
+    );
+  });
+  // Consistent AAC audio for every rendition (fixes HLS audio-noise).
+  args.push("-c:a", "aac", "-b:a", "128k", "-ac", "2", "-ar", "48000");
+  args.push("-filter_complex", filterParts.join(";"));
+  args.push("-pix_fmt", "yuv420p");
+
+  variants.forEach((_, i) => { varStreamParts.push(`v:${i},a:${i}`); });
+
+  args.push(
+    "-f", "hls",
+    "-hls_time", "6",                       // ~6s segments (good cache granularity)
+    "-hls_playlist_type", "vod",
+    "-hls_flags", "independent_segments",
+    "-hls_segment_type", "mpegts",
+    "-master_pl_name", "master.m3u8",
+    "-hls_segment_filename", path.join(hlsDir, "v%v_seg%d.ts"),
+    "-var_stream_map", varStreamParts.join(" "),
+    path.join(hlsDir, "v%v.m3u8"),
+  );
+
+  await execAsync("ffmpeg", args, { maxBuffer: 100 * 1024 * 1024 });
+
+  // Bail cleanly if the encode was superseded/deleted while we worked.
+  if (await aborted()) return null;
+
+  // Upload every generated file (master.m3u8, v0.m3u8…, v*_seg*.ts) to S3.
+  const files = fs.readdirSync(hlsDir).filter((f) => f.endsWith(".m3u8") || f.endsWith(".ts"));
+  if (!files.some((f) => f === "master.m3u8")) {
+    throw new Error("HLS master playlist was not produced");
+  }
+  for (const f of files) {
+    await uploadHlsObject(fs.readFileSync(path.join(hlsDir, f)), `${hlsPrefix}/${f}`);
+  }
+
+  return getHlsMasterUrl(hlsPrefix);
+}
+
 async function encodeOne(mediaId: string, notify = true, force = false): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
   // A fresh (re)start for this media clears any prior cancellation flag — this
   // IS the new encode the admin asked for.
@@ -302,8 +410,28 @@ async function encodeOne(mediaId: string, notify = true, force = false): Promise
       logger.info("video-processor", abFinal === "cancelled" ? "aborted_superseded" : "aborted_media_deleted", { mediaId: media.id });
       return { ok: true, skipped: true };
     }
-    await prisma.media.update({ where: { id: media.id }, data: { hlsStatus: "ready", hlsQualities: qualities, hlsS3Prefix: prefix, hlsMasterUrl: null } });
-    logger.success("video-processor", "ready", { mediaId: media.id, qualities });
+
+    // ── HLS pass (ADDITIVE, NON-FATAL) ──────────────────────────────────────
+    // Produce an adaptive HLS rendition (master.m3u8 + segments) under
+    // hls/<mediaId>/ for mobile adaptive streaming via CloudFront signed
+    // cookies. If this fails, we still have the MP4 qualities above as the
+    // fallback — so HLS failure must NEVER fail the whole encode. On a FORCE
+    // re-encode, wipe any stale HLS first.
+    let hlsMasterUrl: string | null = null;
+    try {
+      if (force) {
+        try { await wipeQualityPrefix(`hls/${media.id}`); } catch { /* non-fatal */ }
+      }
+      hlsMasterUrl = await generateAndUploadHls(srcFile, applicable, tmpDir, media.id, aborted);
+      if (hlsMasterUrl) logger.success("video-processor", "hls_ready", { mediaId: media.id });
+    } catch (hlsErr) {
+      // Keep going with MP4-only; log and move on.
+      logger.warn("video-processor", "hls_failed_fallback_mp4", { mediaId: media.id, error: (hlsErr as Error)?.message || "unknown" });
+      hlsMasterUrl = null;
+    }
+
+    await prisma.media.update({ where: { id: media.id }, data: { hlsStatus: "ready", hlsQualities: qualities, hlsS3Prefix: prefix, hlsMasterUrl } });
+    logger.success("video-processor", "ready", { mediaId: media.id, qualities, hls: !!hlsMasterUrl });
     await notifyAdmin(true);
     return { ok: true };
   } catch (err) {
