@@ -984,6 +984,8 @@ async function _endClassRow(row: { id: string; chimeMeetingId: string }): Promis
 /** Participant (attendance) view for the host dashboard. */
 export interface ParticipantDTO {
   userId: string;
+  name: string;
+  email: string;
   role: string;
   clientType: string;
   joinedAt: string;
@@ -1022,14 +1024,32 @@ export async function listParticipants(opts: {
     },
   });
 
-  const participants: ParticipantDTO[] = rows.map((p) => ({
-    userId: p.userId,
-    role: p.role,
-    clientType: p.clientType,
-    joinedAt: p.joinedAt.toISOString(),
-    leftAt: p.leftAt ? p.leftAt.toISOString() : null,
-    present: !p.leftAt,
-  }));
+  // Batch-resolve name + email for the attendance record (one read, no N+1).
+  // Host-only data (access checked above) — gives the instructor a proper
+  // "who attended" record (M10 / P10). Email is PII, so this path is gated to
+  // host/instructor only (never exposed to students).
+  const userIds = [...new Set(rows.map((r) => r.userId))];
+  const users = userIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: { id: true, name: true, email: true },
+      })
+    : [];
+  const userMap = new Map(users.map((u) => [u.id, u]));
+
+  const participants: ParticipantDTO[] = rows.map((p) => {
+    const u = userMap.get(p.userId);
+    return {
+      userId: p.userId,
+      name: u?.name || "Participant",
+      email: u?.email || "",
+      role: p.role,
+      clientType: p.clientType,
+      joinedAt: p.joinedAt.toISOString(),
+      leftAt: p.leftAt ? p.leftAt.toISOString() : null,
+      present: !p.leftAt,
+    };
+  });
 
   return ok({ participants });
 }
@@ -1386,6 +1406,112 @@ export async function listRecordings(opts: {
   );
 
   return ok({ recordings });
+}
+
+/** One class's recordings within the grouped "my recordings" tree (P11). */
+export interface MyRecordingClassDTO {
+  classId: string;
+  title: string;
+  endedAt: string | null;
+  recordings: RecordingDTO[];
+}
+
+/** One course bucket in the grouped "my recordings" tree (P11). */
+export interface MyRecordingCourseDTO {
+  courseId: string;
+  courseTitle: string;
+  classes: MyRecordingClassDTO[];
+}
+
+/**
+ * Aggregate every recording the requesting user may watch, grouped as
+ * Course → Class → Recording (P11 — desktop "Recordings" library).
+ *
+ * Scope (role-aware, derived server-side — never trusted from the client):
+ *   • STUDENT: recordings from the classes of their ENROLLED courses.
+ *   • HOST/instructor: recordings from the classes they HOST (their courses).
+ *   • A user who is both simply sees the union (de-duplicated by class).
+ *
+ * Only ENDED classes with a READY recording are returned (processing/failed
+ * ones are skipped — nothing unplayable is ever listed). URLs are time-limited
+ * signed S3 links, reusing the exact same signer as the per-class endpoint
+ * (safeSignRecording) — no new S3 logic, no duplication. Read-only; touches
+ * only the live-* tables + Course titles (isolation preserved).
+ */
+export async function listMyRecordings(opts: {
+  requesterId: string;
+}): Promise<ServiceResult<{ courses: MyRecordingCourseDTO[] }>> {
+  // Resolve the set of classes this user can see recordings for:
+  //   enrolled courses' classes  ∪  classes they host.
+  const enrolledCourseIds = await getEnrolledCourseIds(opts.requesterId);
+
+  const classRows = await prisma.liveClass.findMany({
+    where: {
+      status: "ended",
+      OR: [
+        enrolledCourseIds.length ? { courseId: { in: enrolledCourseIds } } : undefined,
+        { hostUserId: opts.requesterId },
+      ].filter(Boolean) as object[],
+    },
+    select: { id: true, courseId: true, title: true, endedAt: true },
+    orderBy: { endedAt: "desc" },
+  });
+  if (classRows.length === 0) return ok({ courses: [] });
+
+  // Fetch READY recordings for those classes in ONE query (no N+1).
+  const classIds = classRows.map((c) => c.id);
+  const recRows = await prisma.liveRecording.findMany({
+    where: { liveClassId: { in: classIds }, status: "ready" },
+    orderBy: { createdAt: "asc" },
+  });
+  if (recRows.length === 0) return ok({ courses: [] });
+
+  // Sign playback URLs (best-effort per row — one bad key never breaks the list).
+  const recByClass = new Map<string, RecordingDTO[]>();
+  await Promise.all(
+    recRows.map(async (r) => {
+      const url = await safeSignRecording(r.s3Key);
+      if (!url) return; // skip rows we couldn't sign (keeps the tree playable-only)
+      const dto = toRecordingDTO(r, url);
+      const arr = recByClass.get(r.liveClassId) || [];
+      arr.push(dto);
+      recByClass.set(r.liveClassId, arr);
+    })
+  );
+
+  // Resolve course titles once (read-only; no relation = isolation preserved).
+  const uniqueCourseIds = [...new Set(classRows.map((c) => c.courseId))];
+  const courses = await prisma.course.findMany({
+    where: { id: { in: uniqueCourseIds } },
+    select: { id: true, title: true },
+  });
+  const titleMap = new Map(courses.map((c) => [c.id, c.title]));
+
+  // Build the Course → Class → Recording tree, keeping only classes that
+  // actually have a signed recording. Course order follows most-recent class.
+  const courseMap = new Map<string, MyRecordingCourseDTO>();
+  for (const c of classRows) {
+    const recs = recByClass.get(c.id);
+    if (!recs || recs.length === 0) continue; // no playable recording → skip class
+
+    let bucket = courseMap.get(c.courseId);
+    if (!bucket) {
+      bucket = {
+        courseId: c.courseId,
+        courseTitle: titleMap.get(c.courseId) || "Course",
+        classes: [],
+      };
+      courseMap.set(c.courseId, bucket);
+    }
+    bucket.classes.push({
+      classId: c.id,
+      title: c.title || "Live Class",
+      endedAt: c.endedAt ? c.endedAt.toISOString() : null,
+      recordings: recs,
+    });
+  }
+
+  return ok({ courses: [...courseMap.values()] });
 }
 
 type LiveRecordingRow = {

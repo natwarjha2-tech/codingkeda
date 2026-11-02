@@ -35,6 +35,17 @@ interface Recording {
   createdAt: string;
 }
 
+// P10 — one attendee row in the post-class attendance record (host + students).
+interface AttendanceRow {
+  userId: string;
+  name: string;
+  email: string;
+  role: string; // teacher | student
+  joinedAt: string;
+  leftAt: string | null;
+  present: boolean;
+}
+
 const STATUS_STYLE: Record<string, { label: string; cls: string }> = {
   scheduled: { label: "Scheduled", cls: "bg-blue-500/15 text-blue-300 border-blue-500/30" },
   live: { label: "● Live", cls: "bg-red-500/15 text-red-300 border-red-500/30" },
@@ -50,10 +61,16 @@ export default function LiveClassesSection({ courseId, token }: { courseId: stri
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [editing, setEditing] = useState<LiveClass | null>(null); // A10: class being edited
 
-  // M9 — post-class summary (attendance) loaded on demand per ended class.
+  // M9/P10 — post-class summary (attendance) loaded on demand per ended class.
+  // We now load the FULL attendance record (everyone who ever joined, host
+  // included) from the dedicated /attendance endpoint — the old /participants
+  // call only returned the live (not-yet-left) roster, which is empty after a
+  // class ends, hence the "0 joined" bug.
   const [summaryFor, setSummaryFor] = useState<string | null>(null);
-  const [summary, setSummary] = useState<{ present: number; total: number } | null>(null);
+  const [attendance, setAttendance] = useState<AttendanceRow[] | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
+  // P10 — the attendee-detail modal (name/email) opened by clicking the count.
+  const [rosterOpen, setRosterOpen] = useState(false);
 
   // Recordings preview modal
   const [recordingsFor, setRecordingsFor] = useState<string | null>(null);
@@ -126,27 +143,27 @@ export default function LiveClassesSection({ courseId, token }: { courseId: stri
     }
   };
 
-  // M9: load a class's attendance summary (present / total) on demand. Reuses
-  // the existing participants endpoint — no new backend.
+  // P10: load a class's FULL attendance record (everyone who joined, host
+  // included) on demand from the dedicated /attendance endpoint. Host-only
+  // (enforced server-side). The count is then clickable to reveal name/email.
   const toggleSummary = async (id: string) => {
-    if (summaryFor === id) { setSummaryFor(null); setSummary(null); return; }
+    if (summaryFor === id) { setSummaryFor(null); setAttendance(null); setRosterOpen(false); return; }
     setSummaryFor(id);
-    setSummary(null);
+    setAttendance(null);
+    setRosterOpen(false);
     setSummaryLoading(true);
     try {
-      const res = await fetch(`/api/live/classes/${id}/participants`, {
+      const res = await fetch(`/api/live/classes/${id}/attendance`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
       if (data.success && Array.isArray(data.participants)) {
-        const total = data.participants.length;
-        const present = data.participants.filter((p: { present?: boolean }) => p.present).length;
-        setSummary({ present, total });
+        setAttendance(data.participants as AttendanceRow[]);
       } else {
-        setSummary({ present: 0, total: 0 });
+        setAttendance([]);
       }
     } catch {
-      setSummary({ present: 0, total: 0 });
+      setAttendance([]);
     } finally {
       setSummaryLoading(false);
     }
@@ -273,10 +290,21 @@ export default function LiveClassesSection({ courseId, token }: { courseId: stri
                      Attendance:{" "}
                      {summaryLoading ? (
                        <Loader2 size={11} className="animate-spin" />
+                     ) : attendance ? (
+                       attendance.length > 0 ? (
+                         <button
+                           type="button"
+                           onClick={() => setRosterOpen(true)}
+                           className="font-bold text-purple-300 underline decoration-dotted underline-offset-2 hover:text-purple-200 transition-colors"
+                           title="View who joined"
+                         >
+                           {attendance.length} joined
+                         </button>
+                       ) : (
+                         <strong className="text-white">0 joined</strong>
+                       )
                      ) : (
-                       <strong className="text-white">
-                         {summary ? `${summary.total} joined` : "—"}
-                       </strong>
+                       <strong className="text-white">—</strong>
                      )}
                    </span>
                  </div>
@@ -305,6 +333,52 @@ export default function LiveClassesSection({ courseId, token }: { courseId: stri
           onClose={() => setEditing(null)}
           onSaved={fetchClasses}
         />
+      )}
+
+      {/* P10 — attendance roster modal (name + email). Opened by clicking the
+          "X joined" count. Host-only data (server-enforced). */}
+      {rosterOpen && attendance && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6 overflow-y-auto"
+          style={{ background: "rgba(0,0,0,0.8)", backdropFilter: "blur(10px)" }}
+          onClick={(e) => { if (e.target === e.currentTarget) setRosterOpen(false); }}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl p-7 relative my-auto"
+            style={{ background: "linear-gradient(145deg,#0f0a1e,#16213e)", border: "1px solid rgba(124,58,237,0.3)", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" }}
+          >
+            <button
+              onClick={() => setRosterOpen(false)}
+              className="absolute top-4 right-4 w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10"
+            >
+              <X size={14} />
+            </button>
+            <h3 className="text-lg font-bold text-white mb-1 flex items-center gap-2">
+              <Users size={16} className="text-purple-400" /> Attendance
+            </h3>
+            <p className="text-xs text-slate-400 mb-4">{attendance.length} joined this class</p>
+
+            {attendance.length === 0 ? (
+              <p className="text-sm text-slate-400 py-6 text-center">No one joined this class.</p>
+            ) : (
+              <div className="flex flex-col gap-2 max-h-[55vh] overflow-y-auto">
+                {attendance.map((p) => (
+                  <div key={p.userId} className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/5 px-4 py-2.5">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-white truncate">
+                        {p.name}
+                        {p.role === "teacher" && (
+                          <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full border bg-purple-500/15 text-purple-300 border-purple-500/30">Host</span>
+                        )}
+                      </p>
+                      <p className="text-xs text-slate-400 truncate">{p.email || "—"}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Recordings modal */}

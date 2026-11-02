@@ -11,7 +11,7 @@ jest.mock("@/app/lib/prisma", () => ({
     liveClass: { findUnique: jest.fn() },
     liveParticipant: { findUnique: jest.fn() },
     liveChatMessage: { create: jest.fn(), findUnique: jest.fn(), findMany: jest.fn() },
-    liveChatReaction: { findFirst: jest.fn(), create: jest.fn(), delete: jest.fn() },
+    liveChatReaction: { findFirst: jest.fn(), create: jest.fn(), delete: jest.fn(), findMany: jest.fn() },
     user: { findMany: jest.fn() },
   },
 }));
@@ -32,6 +32,7 @@ const mFindManyMsg = prisma.liveChatMessage.findMany as jest.MockedFunction<type
 const mFindReaction = prisma.liveChatReaction.findFirst as jest.MockedFunction<typeof prisma.liveChatReaction.findFirst>;
 const mCreateReaction = prisma.liveChatReaction.create as jest.MockedFunction<typeof prisma.liveChatReaction.create>;
 const mDeleteReaction = prisma.liveChatReaction.delete as jest.MockedFunction<typeof prisma.liveChatReaction.delete>;
+const mFindManyReaction = prisma.liveChatReaction.findMany as jest.MockedFunction<typeof prisma.liveChatReaction.findMany>;
 const mUsers = prisma.user.findMany as jest.MockedFunction<typeof prisma.user.findMany>;
 const mResolveJoin = resolveJoinAccess as jest.MockedFunction<typeof resolveJoinAccess>;
 
@@ -41,6 +42,9 @@ beforeEach(() => {
   jest.clearAllMocks();
   mFindClass.mockResolvedValue(CLASS as never);
   mUsers.mockResolvedValue([] as never);
+  // Per-message reaction aggregate (P6): default to "no reactions" so existing
+  // history tests are unaffected; reaction-specific tests override this.
+  mFindManyReaction.mockResolvedValue([] as never);
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -148,6 +152,30 @@ describe("getChatMessages()", () => {
     mResolveJoin.mockResolvedValue({ allowed: false, role: "student" });
     const r = await getChatMessages({ requesterId: "out", liveClassId: "class-1" });
     expect(r.status).toBe(403);
+  });
+
+  it("aggregates per-message reactions (counts + mine) (P6)", async () => {
+    mResolveJoin.mockResolvedValue({ allowed: true, role: "student" });
+    mFindManyMsg.mockResolvedValue([
+      { id: "m1", liveClassId: "class-1", senderId: "host-1", senderRole: "teacher", message: "hi", messageType: "TEXT", replyToMessageId: null, createdAt: new Date() },
+      { id: "m2", liveClassId: "class-1", senderId: "host-1", senderRole: "teacher", message: "yo", messageType: "TEXT", replyToMessageId: null, createdAt: new Date() },
+    ] as never);
+    mUsers.mockResolvedValue([{ id: "host-1", name: "Teacher" }] as never);
+    // m1: 👍 by stu-1 (me) + 👍 by stu-2 → count 2, mine; 🎉 by stu-2 → count 1.
+    // m2: no reactions.
+    mFindManyReaction.mockResolvedValue([
+      { messageId: "m1", userId: "stu-1", reaction: "👍" },
+      { messageId: "m1", userId: "stu-2", reaction: "👍" },
+      { messageId: "m1", userId: "stu-2", reaction: "🎉" },
+    ] as never);
+
+    const r = await getChatMessages({ requesterId: "stu-1", liveClassId: "class-1" });
+    expect(r.ok).toBe(true);
+    const [m1, m2] = r.data!.messages;
+    expect(m1.reactions!.counts).toEqual({ "👍": 2, "🎉": 1 });
+    expect(m1.reactions!.mine).toEqual(["👍"]);
+    expect(m2.reactions!.counts).toEqual({});
+    expect(m2.reactions!.mine).toEqual([]);
   });
 });
 

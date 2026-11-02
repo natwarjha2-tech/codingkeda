@@ -43,6 +43,18 @@ function ok<T>(data: T, status = 200): ChatServiceResult<T> {
   return { ok: true, status, data };
 }
 
+/**
+ * Per-message reaction aggregate (P6 — WhatsApp-style per-message reactions).
+ * `counts` is emoji → total count across all users; `mine` is the set of emojis
+ * the requesting user has reacted with (so the client can highlight them). This
+ * is a READ-side aggregate only — no schema change, computed from the existing
+ * LiveChatReaction rows.
+ */
+export interface LiveChatReactionAggregate {
+  counts: Record<string, number>;
+  mine: string[];
+}
+
 export interface LiveChatMessageDTO {
   id: string;
   liveClassId: string;
@@ -54,6 +66,7 @@ export interface LiveChatMessageDTO {
   replyToMessageId: string | null;
   createdAt: string;
   isMine?: boolean;
+  reactions?: LiveChatReactionAggregate;
 }
 
 /**
@@ -215,6 +228,30 @@ export async function getChatMessages(opts: {
     : [];
   const nameMap = new Map(users.map((u) => [u.id, u.name || "User"]));
 
+  // Resolve per-message reaction aggregates (P6) for THIS page of messages in a
+  // single query (no N+1). We fetch the raw reaction rows for the fetched
+  // message ids, then fold them into { messageId → { counts, mine } }. Read-only
+  // aggregation off the existing LiveChatReaction rows — no schema change.
+  const messageIds = rows.map((m) => m.id);
+  const reactionRows = messageIds.length
+    ? await prisma.liveChatReaction.findMany({
+        where: { messageId: { in: messageIds } },
+        select: { messageId: true, userId: true, reaction: true },
+      })
+    : [];
+  const reactionMap = new Map<string, LiveChatReactionAggregate>();
+  for (const r of reactionRows) {
+    let agg = reactionMap.get(r.messageId);
+    if (!agg) {
+      agg = { counts: {}, mine: [] };
+      reactionMap.set(r.messageId, agg);
+    }
+    agg.counts[r.reaction] = (agg.counts[r.reaction] || 0) + 1;
+    if (r.userId === opts.requesterId && !agg.mine.includes(r.reaction)) {
+      agg.mine.push(r.reaction);
+    }
+  }
+
   const messages: LiveChatMessageDTO[] = rows.map((m) => ({
     id: m.id,
     liveClassId: m.liveClassId,
@@ -226,6 +263,7 @@ export async function getChatMessages(opts: {
     replyToMessageId: m.replyToMessageId,
     createdAt: m.createdAt.toISOString(),
     isMine: m.senderId === opts.requesterId,
+    reactions: reactionMap.get(m.id) || { counts: {}, mine: [] },
   }));
 
   return ok({ messages });
