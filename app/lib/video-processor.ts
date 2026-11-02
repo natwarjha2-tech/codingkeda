@@ -245,42 +245,120 @@ async function generateAndUploadHls(
   fs.mkdirSync(hlsDir, { recursive: true });
   const hlsPrefix = `hls/${mediaId}`;
 
+  // Does the source actually have an audio track? A graph that references [0:a]
+  // (asplit) hard-fails on a silent source, unlike the MP4 pass's optional
+  // `0:a:0?`. Probe once so we only build the audio half of the graph when there
+  // IS audio — otherwise produce video-only HLS (no noise, no crash).
+  let hasAudio = false;
+  try {
+    const { stdout } = await execAsync("ffprobe", [
+      "-v", "error", "-select_streams", "a:0",
+      "-show_entries", "stream=index", "-of", "csv=p=0", srcFile,
+    ]);
+    hasAudio = stdout.trim().length > 0;
+  } catch { hasAudio = false; }
+
+  // Detect the source frame rate so we can set an exact GOP (keyframe interval).
+  // ABR streaming REQUIRES every rendition to place keyframes at the SAME
+  // timestamps — otherwise the player stalls/glitches when it switches bitrate
+  // mid-playback (Apple HLS authoring spec: keyframe every ~2s, identical across
+  // renditions). We compute fps and use GOP = round(fps * 2) → one keyframe
+  // every ~2 seconds, with scene-cut keyframes disabled so nothing drifts.
+  let fps = 30;
+  try {
+    const { stdout } = await execAsync("ffprobe", [
+      "-v", "error", "-select_streams", "v:0",
+      "-show_entries", "stream=r_frame_rate", "-of", "csv=p=0", srcFile,
+    ]);
+    const raw = stdout.trim(); // e.g. "30000/1001" or "25/1"
+    const m = raw.match(/^(\d+)\s*\/\s*(\d+)$/);
+    const val = m ? parseInt(m[1]) / parseInt(m[2]) : parseFloat(raw);
+    if (Number.isFinite(val) && val > 0 && val <= 120) fps = val;
+  } catch { /* keep default 30 */ }
+  const gop = Math.max(1, Math.round(fps * 2)); // keyframe every ~2s
+  const KEYINT_SECONDS = 2;
+
   // Build one ffmpeg invocation that outputs ALL variants + a master playlist.
   // -var_stream_map ties each output rendition to a variant; %v expands to the
   // variant index in the segment/playlist filenames.
   const args: string[] = ["-y", "-i", srcFile];
   const varStreamParts: string[] = [];
+  const n = variants.length;
+
+  // A filter-graph input pad ([0:v]) can only be consumed ONCE. Referencing
+  // [0:v] directly in several scale chains makes ffmpeg SPLIT the frames across
+  // those chains instead of duplicating them — which showed up as each variant
+  // getting only part of the picture (half-frame video) and garbled audio.
+  // Fix: explicitly fan the source video out into N copies with `split` (and the
+  // audio into N copies with `asplit`), then scale/encode each copy independently.
   const filterParts: string[] = [];
 
+  // 1) Split the source video into N labelled copies: [vin0][vin1]...
+  const vSplitOut = variants.map((_, i) => `[vin${i}]`).join("");
+  filterParts.push(`[0:v]split=${n}${vSplitOut}`);
+
+  // 2) Scale+pad each copy to its target box (keeps aspect ratio, pads to fill).
   variants.forEach((v, i) => {
-    // Scale+pad each rendition to its target box, keeping aspect ratio.
     filterParts.push(
-      `[0:v]scale=${v.width}:${v.height}:force_original_aspect_ratio=decrease,` +
+      `[vin${i}]scale=${v.width}:${v.height}:force_original_aspect_ratio=decrease,` +
       `pad=${v.width}:${v.height}:(ow-iw)/2:(oh-ih)/2,setsar=1[v${i}]`
     );
   });
 
-  // Map each scaled video + the (optional) source audio into numbered outputs.
+  // 3) Split the source audio into N labelled copies: [ain0][ain1]... so each
+  //    variant gets its OWN full audio stream (not a divided one → no noise).
+  //    Only when the source has audio (else video-only HLS).
+  if (hasAudio) {
+    const aSplitOut = variants.map((_, i) => `[ain${i}]`).join("");
+    filterParts.push(`[0:a]asplit=${n}${aSplitOut}`);
+  }
+
+  // Map each scaled video + (when present) its dedicated audio copy.
   variants.forEach((_, i) => {
     args.push("-map", `[v${i}]`);
-    args.push("-map", "0:a:0?");
+    if (hasAudio) args.push("-map", `[ain${i}]`);
   });
 
-  // Per-variant encode settings.
+  // Per-variant VIDEO encode settings.
+  //
+  // H.264 High profile (broad device + ExoPlayer/AVPlayer support). Every
+  // rendition uses the SAME GOP structure so keyframes land at identical
+  // timestamps across qualities — the prerequisite for seamless ABR switching:
+  //   -g gop            fixed keyframe interval (~2s)
+  //   -keyint_min gop   forbid shorter GOPs (no early keyframes)
+  //   -sc_threshold 0   disable scene-cut keyframes (which would misalign)
+  //   -force_key_frames every 2s (belt-and-suspenders alignment, independent of
+  //                     per-rendition encoder decisions)
+  // CBR-ish caps (-maxrate/-bufsize) keep each rung within its bandwidth budget
+  // so the master playlist's BANDWIDTH values are honest for the player.
   variants.forEach((v, i) => {
     args.push(
-      `-c:v:${i}`, "libx264", `-preset:v:${i}`, "fast", `-profile:v:${i}`, "main",
-      `-crf:v:${i}`, "22",
-      `-b:v:${i}`, v.videoBitrate, `-maxrate:v:${i}`, v.videoBitrate,
+      `-c:v:${i}`, "libx264",
+      `-preset:v:${i}`, "veryfast",
+      `-profile:v:${i}`, "high",
+      `-crf:v:${i}`, "21",
+      `-b:v:${i}`, v.videoBitrate,
+      `-maxrate:v:${i}`, v.videoBitrate,
       `-bufsize:v:${i}`, `${parseInt(v.videoBitrate) * 2}k`,
+      `-g:v:${i}`, String(gop),
+      `-keyint_min:v:${i}`, String(gop),
+      `-sc_threshold:v:${i}`, "0",
+      `-force_key_frames:v:${i}`, `expr:gte(t,n_forced*${KEYINT_SECONDS})`,
     );
   });
-  // Consistent AAC audio for every rendition (fixes HLS audio-noise).
-  args.push("-c:a", "aac", "-b:a", "128k", "-ac", "2", "-ar", "48000");
+  // Consistent AAC audio for every rendition (fixes HLS audio-noise). Only when
+  // the source has audio.
+  if (hasAudio) {
+    args.push("-c:a", "aac", "-b:a", "128k", "-ac", "2", "-ar", "48000");
+  }
   args.push("-filter_complex", filterParts.join(";"));
   args.push("-pix_fmt", "yuv420p");
 
-  variants.forEach((_, i) => { varStreamParts.push(`v:${i},a:${i}`); });
+  // var_stream_map: each variant is "v:<i>" plus "a:<i>" only when we mapped
+  // audio for it (an a:<i> with no corresponding audio output errors out).
+  variants.forEach((_, i) => {
+    varStreamParts.push(hasAudio ? `v:${i},a:${i}` : `v:${i}`);
+  });
 
   args.push(
     "-f", "hls",
