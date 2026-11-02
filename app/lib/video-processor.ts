@@ -32,6 +32,33 @@ import { getHlsMasterUrl } from "@/app/lib/s3";
 const execAsync = promisify(execFile);
 const BUCKET = process.env.AWS_S3_BUCKET_NAME!;
 
+/**
+ * Base directory for encode scratch files (source download + quality MP4s + HLS
+ * segments). This must live on a REAL disk with room for several GB, NOT the
+ * default `/tmp` — on the EC2 host `/tmp` is a ~1GB RAM-backed tmpfs, so writing
+ * a source video + its renditions there overflows it and the download/encode
+ * fails with "errno -122 ... write". `/` has tens of GB free, so we use a dir
+ * there instead. Resolution order:
+ *   1. VIDEO_TMP_DIR env (explicit override), else
+ *   2. TMPDIR env (if the operator pointed it at real disk), else
+ *   3. <process cwd>/.video-tmp  — the app runs from /home/ubuntu/codingkeda,
+ *      which is on the 48G root volume.
+ * The dir is created on first use; if that somehow fails we fall back to
+ * os.tmpdir() so processing still attempts rather than hard-failing.
+ */
+function encodeTmpBase(): string {
+  const candidate =
+    process.env.VIDEO_TMP_DIR ||
+    process.env.TMPDIR ||
+    path.join(process.cwd(), ".video-tmp");
+  try {
+    fs.mkdirSync(candidate, { recursive: true });
+    return candidate;
+  } catch {
+    return os.tmpdir();
+  }
+}
+
 const QUALITY_VARIANTS = [
   { quality: "720p", width: 1280, height: 720, videoBitrate: "2800k" },
   { quality: "480p", width: 854, height: 480, videoBitrate: "1400k" },
@@ -323,7 +350,7 @@ async function encodeOne(mediaId: string, notify = true, force = false): Promise
     } catch { /* notification failure must never break processing */ }
   };
 
-  const tmpDir = path.join(os.tmpdir(), `ck_proc_${Date.now()}`);
+  const tmpDir = path.join(encodeTmpBase(), `ck_proc_${Date.now()}`);
   fs.mkdirSync(tmpDir, { recursive: true });
   const srcFile = path.join(tmpDir, "source.mp4");
 
