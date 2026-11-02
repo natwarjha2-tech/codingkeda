@@ -65,6 +65,17 @@ const QUALITY_VARIANTS = [
   { quality: "360p", width: 640, height: 360, videoBitrate: "800k" },
 ];
 
+// Feature flag: generate the standalone MP4 qualities (720/480/360) on the
+// server after upload. Those MP4s are the FALLBACK the player uses when HLS
+// isn't available. Set GENERATE_MP4_QUALITIES=false (default here) to SKIP the
+// MP4 pass so the encode goes straight to HLS — much faster iteration, and the
+// MP4 qualities can be produced separately via the local script when needed.
+// Flip to "true" (or set the env) to restore the MP4 fallback pass.
+// NOTE: with this OFF, newly processed videos have HLS only — ensure the client
+// has a working HLS path (it does) since there's no MP4 fallback for them.
+const GENERATE_MP4_QUALITIES =
+  (process.env.GENERATE_MP4_QUALITIES ?? "false").toLowerCase() === "true";
+
 // Guard so a single server process doesn't run two CPU-heavy encodes at once.
 // Videos triggered while one is running are queued (processed sequentially).
 let encoding = false;
@@ -209,11 +220,17 @@ async function downloadFromS3(key: string, destPath: string) {
 // segments are immutable (long cache).
 async function uploadHlsObject(buffer: Buffer, key: string) {
   const isPlaylist = key.endsWith(".m3u8");
+  // Content-type by extension: playlists = HLS manifest; fMP4 fragments (.m4s)
+  // and init segments (.mp4) = video/mp4; legacy TS (.ts) = video/mp2t.
+  let contentType: string;
+  if (isPlaylist) contentType = "application/vnd.apple.mpegurl";
+  else if (key.endsWith(".m4s") || key.endsWith(".mp4")) contentType = "video/mp4";
+  else contentType = "video/mp2t";
   await s3.send(new PutObjectCommand({
     Bucket: BUCKET,
     Key: key,
     Body: buffer,
-    ContentType: isPlaylist ? "application/vnd.apple.mpegurl" : "video/mp2t",
+    ContentType: contentType,
     CacheControl: isPlaylist
       ? "public, max-age=60"                       // playlist: refresh-able
       : "public, max-age=31536000, immutable",     // segment: forever
@@ -298,19 +315,35 @@ async function generateAndUploadHls(
   filterParts.push(`[0:v]split=${n}${vSplitOut}`);
 
   // 2) Scale+pad each copy to its target box (keeps aspect ratio, pads to fill).
+  //    `fps=${fps}` forces CONSTANT frame rate. Uploaded MP4s are often variable
+  //    frame rate (VFR — common in screen/phone recordings); with VFR the
+  //    keyframe-by-time placement and the audio clock drift apart, which shows
+  //    up as A/V desync and boundary clicks on seek. Normalising to CFR makes
+  //    frame timestamps regular so keyframes land predictably and stay aligned
+  //    with the (now gapless) audio timeline.
   variants.forEach((v, i) => {
     filterParts.push(
-      `[vin${i}]scale=${v.width}:${v.height}:force_original_aspect_ratio=decrease,` +
+      `[vin${i}]fps=${fps},scale=${v.width}:${v.height}:force_original_aspect_ratio=decrease,` +
       `pad=${v.width}:${v.height}:(ow-iw)/2:(oh-ih)/2,setsar=1[v${i}]`
     );
   });
 
-  // 3) Split the source audio into N labelled copies: [ain0][ain1]... so each
-  //    variant gets its OWN full audio stream (not a divided one → no noise).
-  //    Only when the source has audio (else video-only HLS).
+  // 3) AUDIO: first REBUILD a clean, gapless, continuous audio timeline, THEN
+  //    split it into N copies (one per rendition).
+  //
+  //    aresample=async=1:first_pts=0 is the critical bit for "no noise in any
+  //    scenario". Uploaded MP4s frequently have: timestamp gaps/jumps, variable
+  //    audio frame spacing, a non-48k sample rate, or audio that starts slightly
+  //    after video. Feeding that straight into the AAC encoder + segmenter is
+  //    what produces clicks/pops — worst at segment boundaries (i.e. on SEEK).
+  //    aresample with async=1 stretches/squeezes + fills gaps so the output is a
+  //    continuous 48k stereo PCM stream with no holes; first_pts=0 anchors it to
+  //    the start so audio and video share one clock. This is the standard
+  //    "make audio gapless before segmenting" step.
   if (hasAudio) {
+    filterParts.push(`[0:a]aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo[aclean]`);
     const aSplitOut = variants.map((_, i) => `[ain${i}]`).join("");
-    filterParts.push(`[0:a]asplit=${n}${aSplitOut}`);
+    filterParts.push(`[aclean]asplit=${n}${aSplitOut}`);
   }
 
   // Map each scaled video + (when present) its dedicated audio copy.
@@ -344,12 +377,15 @@ async function generateAndUploadHls(
       `-keyint_min:v:${i}`, String(gop),
       `-sc_threshold:v:${i}`, "0",
       `-force_key_frames:v:${i}`, `expr:gte(t,n_forced*${KEYINT_SECONDS})`,
+      `-fps_mode:v:${i}`, "cfr",   // constant frame rate (muxer-level guard vs VFR)
     );
   });
-  // Consistent AAC audio for every rendition (fixes HLS audio-noise). Only when
-  // the source has audio.
+  // Consistent AAC-LC audio for every rendition. The filter already produced a
+  // clean 48k stereo stream; encode it to AAC Low-Complexity (the universally
+  // supported AAC profile — ExoPlayer/AVPlayer/all browsers). -ac/-ar restated
+  // for explicitness; they match the aformat output so no extra resample.
   if (hasAudio) {
-    args.push("-c:a", "aac", "-b:a", "128k", "-ac", "2", "-ar", "48000");
+    args.push("-c:a", "aac", "-profile:a", "aac_low", "-b:a", "128k", "-ac", "2", "-ar", "48000");
   }
   args.push("-filter_complex", filterParts.join(";"));
   args.push("-pix_fmt", "yuv420p");
@@ -365,9 +401,17 @@ async function generateAndUploadHls(
     "-hls_time", "6",                       // ~6s segments (good cache granularity)
     "-hls_playlist_type", "vod",
     "-hls_flags", "independent_segments",
-    "-hls_segment_type", "mpegts",
+    // fMP4 / CMAF segments (.m4s + per-variant init.mp4) instead of MPEG-TS.
+    // WHY: MPEG-TS cannot carry the AAC encoder-delay (priming) metadata, so a
+    // decoder that lands on a segment boundary (exactly what SEEKING does)
+    // mishandles the priming samples → the clicks/noise heard when jumping
+    // around the timeline. fMP4 carries the edit-list/priming info properly, so
+    // seeks decode cleanly. This is the CMAF format modern platforms + players
+    // (ExoPlayer, AVPlayer, hls.js) prefer.
+    "-hls_segment_type", "fmp4",
     "-master_pl_name", "master.m3u8",
-    "-hls_segment_filename", path.join(hlsDir, "v%v_seg%d.ts"),
+    "-hls_fmp4_init_filename", "init_%v.mp4",
+    "-hls_segment_filename", path.join(hlsDir, "v%v_seg%d.m4s"),
     "-var_stream_map", varStreamParts.join(" "),
     path.join(hlsDir, "v%v.m3u8"),
   );
@@ -377,8 +421,13 @@ async function generateAndUploadHls(
   // Bail cleanly if the encode was superseded/deleted while we worked.
   if (await aborted()) return null;
 
-  // Upload every generated file (master.m3u8, v0.m3u8…, v*_seg*.ts) to S3.
-  const files = fs.readdirSync(hlsDir).filter((f) => f.endsWith(".m3u8") || f.endsWith(".ts"));
+  // Upload every generated file to S3. With fMP4/CMAF output that's:
+  //   master.m3u8, v0.m3u8…           (playlists)
+  //   init_0.mp4, init_1.mp4…         (per-variant init segments — REQUIRED)
+  //   v0_seg0.m4s, v0_seg1.m4s…       (fragment segments)
+  const files = fs.readdirSync(hlsDir).filter(
+    (f) => f.endsWith(".m3u8") || f.endsWith(".m4s") || f.endsWith(".mp4")
+  );
   if (!files.some((f) => f === "master.m3u8")) {
     throw new Error("HLS master playlist was not produced");
   }
@@ -479,34 +528,41 @@ async function encodeOne(mediaId: string, notify = true, force = false): Promise
     if (applicable.length === 0) applicable.push(QUALITY_VARIANTS[QUALITY_VARIANTS.length - 1]);
     const qualities: string[] = [];
 
-    for (const variant of applicable) {
-      // Stop between variants if the video was replaced (cancelled) or deleted.
-      const abv = await aborted();
-      if (abv) {
-        logger.info("video-processor", abv === "cancelled" ? "aborted_superseded" : "aborted_media_deleted", { mediaId: media.id, afterQualities: qualities });
-        return { ok: true, skipped: true };
+    // MP4 quality pass (the HLS-fallback renditions). Gated by the feature flag
+    // so we can skip it for fast HLS-only iteration (generate MP4s later via the
+    // local script). When skipped, we go straight to the HLS pass below.
+    if (GENERATE_MP4_QUALITIES) {
+      for (const variant of applicable) {
+        // Stop between variants if the video was replaced (cancelled) or deleted.
+        const abv = await aborted();
+        if (abv) {
+          logger.info("video-processor", abv === "cancelled" ? "aborted_superseded" : "aborted_media_deleted", { mediaId: media.id, afterQualities: qualities });
+          return { ok: true, skipped: true };
+        }
+        const outputFile = path.join(tmpDir, `${variant.quality}.mp4`);
+        const s3DestKey = `${prefix}/${variant.quality}.mp4`;
+        // When NOT forced, reuse an existing quality object (idempotent resume).
+        // When forced we already wiped the prefix, so always re-encode.
+        if (!force && await s3ObjectExists(s3DestKey)) { qualities.push(variant.quality); continue; }
+        const vf = `scale=${variant.width}:${variant.height}:force_original_aspect_ratio=decrease,pad=${variant.width}:${variant.height}:(ow-iw)/2:(oh-ih)/2`;
+        await execAsync("ffmpeg", [
+          "-y", "-i", srcFile, "-map", "0:v:0", "-map", "0:a:0?", "-vf", vf,
+          "-c:v", "libx264", "-preset", "fast", "-profile:v", "main", "-pix_fmt", "yuv420p", "-crf", "22",
+          "-b:v", variant.videoBitrate, "-maxrate", variant.videoBitrate, "-bufsize", `${parseInt(variant.videoBitrate) * 2}k`,
+          "-c:a", "copy", "-movflags", "+faststart", outputFile,
+        ], { maxBuffer: 100 * 1024 * 1024 });
+        // The ffmpeg run for this variant may have taken a while — if we were
+        // superseded/deleted meanwhile, discard this output instead of uploading.
+        const abAfter = await aborted();
+        if (abAfter) {
+          logger.info("video-processor", abAfter === "cancelled" ? "aborted_superseded" : "aborted_media_deleted", { mediaId: media.id });
+          return { ok: true, skipped: true };
+        }
+        await uploadToS3(fs.readFileSync(outputFile), s3DestKey, "video/mp4");
+        qualities.push(variant.quality);
       }
-      const outputFile = path.join(tmpDir, `${variant.quality}.mp4`);
-      const s3DestKey = `${prefix}/${variant.quality}.mp4`;
-      // When NOT forced, reuse an existing quality object (idempotent resume).
-      // When forced we already wiped the prefix, so always re-encode.
-      if (!force && await s3ObjectExists(s3DestKey)) { qualities.push(variant.quality); continue; }
-      const vf = `scale=${variant.width}:${variant.height}:force_original_aspect_ratio=decrease,pad=${variant.width}:${variant.height}:(ow-iw)/2:(oh-ih)/2`;
-      await execAsync("ffmpeg", [
-        "-y", "-i", srcFile, "-map", "0:v:0", "-map", "0:a:0?", "-vf", vf,
-        "-c:v", "libx264", "-preset", "fast", "-profile:v", "main", "-pix_fmt", "yuv420p", "-crf", "22",
-        "-b:v", variant.videoBitrate, "-maxrate", variant.videoBitrate, "-bufsize", `${parseInt(variant.videoBitrate) * 2}k`,
-        "-c:a", "copy", "-movflags", "+faststart", outputFile,
-      ], { maxBuffer: 100 * 1024 * 1024 });
-      // The ffmpeg run for this variant may have taken a while — if we were
-      // superseded/deleted meanwhile, discard this output instead of uploading.
-      const abAfter = await aborted();
-      if (abAfter) {
-        logger.info("video-processor", abAfter === "cancelled" ? "aborted_superseded" : "aborted_media_deleted", { mediaId: media.id });
-        return { ok: true, skipped: true };
-      }
-      await uploadToS3(fs.readFileSync(outputFile), s3DestKey, "video/mp4");
-      qualities.push(variant.quality);
+    } else {
+      logger.info("video-processor", "mp4_qualities_skipped", { mediaId: media.id, reason: "GENERATE_MP4_QUALITIES=false" });
     }
 
     // Final checkpoint before marking ready.
