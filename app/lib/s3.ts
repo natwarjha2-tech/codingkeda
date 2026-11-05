@@ -302,6 +302,58 @@ export async function deleteS3Prefix(prefix: string): Promise<boolean> {
 }
 
 /**
+ * Resolve the actual playable recording object key under a Chime media-pipeline
+ * output prefix (e.g. "live-recordings/<classId>"). Chime NEVER writes a single
+ * file at the prefix itself — a capture pipeline chunks media into subfolders
+ * (audio/, video/) and a concatenation pipeline writes one combined file under
+ * composited-video/. So signing the bare prefix always 404s. This lists the
+ * prefix and picks the best playable MP4, preferring, in order:
+ *   1) a composited-video/*.mp4  (the single combined file — best to play)
+ *   2) the LARGEST video/*.mp4   (longest single capture chunk)
+ *   3) the LARGEST *.mp4 anywhere under the prefix.
+ * Returns the object key, or null if nothing playable exists yet (still
+ * processing). Read-only + best-effort — never throws.
+ */
+export async function resolveRecordingObjectKey(prefix: string): Promise<string | null> {
+  if (!prefix) return null;
+  const base = prefix.endsWith("/") ? prefix : prefix + "/";
+  try {
+    const mp4s: { key: string; size: number }[] = [];
+    let token: string | undefined;
+    do {
+      const res = await s3.send(
+        new ListObjectsV2Command({ Bucket: BUCKET, Prefix: base, ContinuationToken: token })
+      );
+      for (const o of res.Contents || []) {
+        if (o.Key && o.Key.toLowerCase().endsWith(".mp4")) {
+          mp4s.push({ key: o.Key, size: o.Size || 0 });
+        }
+      }
+      token = res.IsTruncated ? res.NextContinuationToken : undefined;
+    } while (token);
+
+    if (mp4s.length === 0) return null;
+
+    // 1) composited-video (single combined file) wins outright.
+    const composited = mp4s
+      .filter((m) => m.key.indexOf("/composited-video/") !== -1)
+      .sort((a, b) => b.size - a.size);
+    if (composited.length) return composited[0].key;
+
+    // 2) largest video/ chunk, else 3) largest mp4 anywhere.
+    const videoFolder = mp4s
+      .filter((m) => m.key.indexOf("/video/") !== -1)
+      .sort((a, b) => b.size - a.size);
+    if (videoFolder.length) return videoFolder[0].key;
+
+    return mp4s.sort((a, b) => b.size - a.size)[0].key;
+  } catch (err) {
+    console.error("resolveRecordingObjectKey failed for prefix:", prefix, err);
+    return null;
+  }
+}
+
+/**
  * Delete the S3 objects for a single VIDEO media: the original file + its
  * processed quality folder. The quality prefix comes from the stored
  * `hlsS3Prefix` (the reliable source) — NOT parsed from the key — so it works

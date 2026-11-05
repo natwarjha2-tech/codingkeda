@@ -35,6 +35,8 @@ import {
   getSignedFileUrl,
   getSignedFileUrlFromUrl,
   getS3KeyFromUrl,
+  getPublicUrl,
+  resolveRecordingObjectKey,
 } from "@/app/lib/s3";
 import {
   getEnrolledCourseIds,
@@ -1535,14 +1537,37 @@ function toRecordingDTO(r: LiveRecordingRow, url: string | null): RecordingDTO {
 }
 
 /**
- * Sign a recording's S3 key for playback. Chime writes composited output under
- * the key prefix; we sign the prefix-based key best-effort and never throw (a
- * signing failure just yields a null URL so the API stays resilient).
+ * Sign a recording for playback — the SAME delivery route as course videos
+ * (S3 → CloudFront → client).
+ *
+ * Two fixes over the old version, which caused the "spinner then nothing / 404"
+ * bug:
+ *  1) REAL object, not the prefix. The stored `s3Key` is the Chime pipeline
+ *     OUTPUT PREFIX (e.g. "live-recordings/<classId>") — Chime never writes a
+ *     single file there (media is chunked into audio/ + video/, or combined
+ *     under composited-video/). Signing the bare prefix always 404s. So if the
+ *     key isn't already an .mp4, we resolve the actual playable .mp4 object
+ *     under it (resolveRecordingObjectKey).
+ *  2) CloudFront-aware. We route the resolved key through getSignedFileUrlFromUrl
+ *     — the SAME choke point course videos use — so when CloudFront is
+ *     configured the recording is served from the CDN edge (signed CF URL);
+ *     otherwise it cleanly falls back to an S3 presigned URL.
+ *
+ * Best-effort: any failure yields null (API stays resilient; the client shows
+ * "processing" instead of a broken player).
  */
 async function safeSignRecording(s3Key: string): Promise<string | null> {
   if (!s3Key) return null;
   try {
-    return await getSignedFileUrl(s3Key);
+    // Resolve the real playable object if we were handed a prefix/folder.
+    let objectKey: string | null = s3Key;
+    if (!s3Key.toLowerCase().endsWith(".mp4")) {
+      objectKey = await resolveRecordingObjectKey(s3Key);
+    }
+    if (!objectKey) return null; // nothing playable yet (still processing)
+
+    // Deliver via the shared S3→CloudFront signer (same as course videos).
+    return await getSignedFileUrlFromUrl(getPublicUrl(objectKey));
   } catch {
     return null;
   }
