@@ -20,6 +20,7 @@
 import {
   ChimeSDKMediaPipelinesClient,
   CreateMediaCapturePipelineCommand,
+  CreateMediaConcatenationPipelineCommand,
   DeleteMediaCapturePipelineCommand,
 } from "@aws-sdk/client-chime-sdk-media-pipelines";
 import {
@@ -65,10 +66,26 @@ function meetingArn(chimeMeetingId: string): string {
   return `arn:aws:chime:${CHIME_CONTROL_REGION}:${AWS_ACCOUNT_ID}:meeting/${chimeMeetingId}`;
 }
 
-/** ARN of the S3 destination folder for a given live class's recording. */
-function s3SinkArn(liveClassId: string): { arn: string; key: string } {
-  const key = `${LIVE_RECORDING_PREFIX}/${liveClassId}`;
-  return { arn: `arn:aws:s3:::${LIVE_RECORDING_BUCKET}/${key}`, key };
+/**
+ * ARN of a media capture pipeline (the concatenation source). Format per AWS:
+ * arn:aws:chime:<region>:<account>:media-pipeline/<pipelineId>. The pipeline
+ * lives in the pipeline region (NOT the meeting's control/media region).
+ */
+function capturePipelineArn(pipelineId: string): string {
+  return `arn:aws:chime:${CHIME_PIPELINE_REGION}:${AWS_ACCOUNT_ID}:media-pipeline/${pipelineId}`;
+}
+
+/**
+ * Per-RECORDING S3 layout. Every recording gets its own folder so two
+ * recordings of the same class can never mix their files:
+ *
+ *   live-recordings/<classId>/<recordingId>/capture/…   raw chunks (capture pipeline)
+ *   live-recordings/<classId>/<recordingId>/final/…     ONE combined mp4 (concatenation)
+ *
+ * The recording-root key (…/<recordingId>) is what we persist as `s3Key`.
+ */
+function recordingRootKey(liveClassId: string, recordingId: string): string {
+  return `${LIVE_RECORDING_PREFIX}/${liveClassId}/${recordingId}`;
 }
 
 export interface StartCaptureResult {
@@ -80,15 +97,24 @@ export interface StartCaptureResult {
 
 /**
  * Start a media capture pipeline for a live meeting. Captures audio + a single
- * composited video (grid of camera + screen-share) to S3 — the standard,
- * cost-sane "one playable file" layout. Idempotent via ClientRequestToken (the
- * liveClassId), so a double "Record" won't start two pipelines.
+ * composited video (grid of camera + screen-share) to S3.
+ *
+ * IMPORTANT — uniqueness: `ClientRequestToken` makes the AWS call idempotent, so
+ * it MUST be unique per recording. It used to be the liveClassId, which meant a
+ * second recording in the same class re-sent an already-used token and AWS
+ * rejected it (the "can't record again" bug). It is now the per-recording id.
+ * The S3 sink is likewise per-recording so recordings never overwrite/mix.
+ *
+ * Capture writes CHUNKS; the single playable file is produced afterwards by
+ * `startMediaConcatenation` (called when the recording is stopped).
  */
 export async function startMediaCapture(opts: {
   chimeMeetingId: string;
   liveClassId: string;
+  recordingId: string;
 }): Promise<StartCaptureResult> {
-  const { arn: sinkArn, key } = s3SinkArn(opts.liveClassId);
+  const key = recordingRootKey(opts.liveClassId, opts.recordingId);
+  const sinkArn = `arn:aws:s3:::${LIVE_RECORDING_BUCKET}/${key}/capture`;
 
   // Pipeline runs in the (universal) us-east-1 pipeline region; the SourceArn
   // references the meeting via its CONTROL-region ARN (us-east-1) — the exact
@@ -99,7 +125,7 @@ export async function startMediaCapture(opts: {
       SourceArn: meetingArn(opts.chimeMeetingId),
       SinkType: "S3Bucket",
       SinkArn: sinkArn,
-      ClientRequestToken: opts.liveClassId.slice(0, 64),
+      ClientRequestToken: opts.recordingId.slice(0, 64),
       ChimeSdkMeetingConfiguration: {
         ArtifactsConfiguration: {
           // Composited audio+video gives one ready-to-play MP4 instead of raw
@@ -131,6 +157,63 @@ export async function startMediaCapture(opts: {
     s3Key: key,
     status: pipeline.Status || "Initializing",
   };
+}
+
+/**
+ * Queue the media CONCATENATION pipeline that stitches a capture pipeline's
+ * many small chunks into ONE playable mp4 (fixes "recording plays only ~5s").
+ *
+ * Per AWS: a concatenation pipeline can be created while capture is still
+ * running — it simply WAITS and only starts concatenating when the capture
+ * pipeline stops. So callers create it BEFORE stopping the capture pipeline.
+ * Output: <recordingRoot>/final/composited-video/<concatPipelineId>.mp4
+ *
+ * Returns the concatenation pipeline id. Throws on AWS errors (the caller
+ * treats it as best-effort and never lets it block stopping the recording).
+ */
+export async function startMediaConcatenation(opts: {
+  pipelineId: string;
+  s3Key: string; // recording root key persisted at start (…/<recordingId>)
+  recordingId: string;
+}): Promise<string> {
+  const res = await getPipelinesClient().send(
+    new CreateMediaConcatenationPipelineCommand({
+      Sources: [
+        {
+          Type: "MediaCapturePipeline",
+          MediaCapturePipelineSourceConfiguration: {
+            MediaPipelineArn: capturePipelineArn(opts.pipelineId),
+            ChimeSdkMeetingConfiguration: {
+              ArtifactsConfiguration: {
+                // Mirrors what the capture pipeline produces (audio muxed into
+                // the composited video). Everything else is off.
+                Audio: { State: "Enabled" },
+                Video: { State: "Disabled" },
+                Content: { State: "Disabled" },
+                DataChannel: { State: "Disabled" },
+                TranscriptionMessages: { State: "Disabled" },
+                MeetingEvents: { State: "Disabled" },
+                CompositedVideo: { State: "Enabled" },
+              },
+            },
+          },
+        },
+      ],
+      Sinks: [
+        {
+          Type: "S3Bucket",
+          S3BucketSinkConfiguration: {
+            Destination: `arn:aws:s3:::${LIVE_RECORDING_BUCKET}/${opts.s3Key}/final`,
+          },
+        },
+      ],
+      ClientRequestToken: `concat-${opts.recordingId}`.slice(0, 64),
+    })
+  );
+
+  const id = res.MediaConcatenationPipeline?.MediaPipelineId;
+  if (!id) throw new Error("Chime did not return a media concatenation pipeline.");
+  return id;
 }
 
 /**

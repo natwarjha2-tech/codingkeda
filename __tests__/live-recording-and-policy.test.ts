@@ -21,6 +21,7 @@ jest.mock("@/app/lib/live/chime", () => ({
 
 jest.mock("@/app/lib/live/recording", () => ({
   startMediaCapture: jest.fn(),
+  startMediaConcatenation: jest.fn(),
   stopMediaCapture: jest.fn(),
 }));
 
@@ -33,10 +34,12 @@ jest.mock("@/app/lib/s3", () => ({
   getSignedFileUrl: jest.fn().mockResolvedValue("https://signed/url"),
   getSignedFileUrlFromUrl: jest.fn(),
   getS3KeyFromUrl: jest.fn(),
+  getPublicUrl: jest.fn((k: string) => `https://bucket/${k}`),
+  resolveRecordingObjectKey: jest.fn(),
 }));
 
 import { prisma } from "@/app/lib/prisma";
-import { startMediaCapture, stopMediaCapture } from "@/app/lib/live/recording";
+import { startMediaCapture, startMediaConcatenation, stopMediaCapture } from "@/app/lib/live/recording";
 import { deleteChimeMeeting } from "@/app/lib/live/chime";
 import { startRecording, stopRecording, autoEndStaleClasses } from "@/app/lib/live/live-service";
 import { checkRateLimit } from "@/app/lib/live/rate-limit";
@@ -51,6 +54,7 @@ const mFindManyRec = prisma.liveRecording.findMany as jest.MockedFunction<typeof
 const mUpdateManyPart = prisma.liveParticipant.updateMany as jest.MockedFunction<typeof prisma.liveParticipant.updateMany>;
 const mStartCapture = startMediaCapture as jest.MockedFunction<typeof startMediaCapture>;
 const mStopCapture = stopMediaCapture as jest.MockedFunction<typeof stopMediaCapture>;
+const mConcat = startMediaConcatenation as jest.MockedFunction<typeof startMediaConcatenation>;
 const mDeleteMeeting = deleteChimeMeeting as jest.MockedFunction<typeof deleteChimeMeeting>;
 
 const HOST = "host-1";
@@ -94,6 +98,25 @@ describe("startRecording()", () => {
     expect(r.ok).toBe(true);
     expect(r.data!.status).toBe("processing");
   });
+
+  it("gives EVERY recording a fresh id (idempotency token + folder + row id) so a class can be re-recorded", async () => {
+    mFindClass.mockResolvedValue(liveClass() as never);
+    mFindRec.mockResolvedValue(null as never);
+    mStartCapture.mockResolvedValue({ pipelineId: "pl", s3Bucket: "b", s3Key: "k", status: "Initializing" } as never);
+    mCreateRec.mockResolvedValue({ id: "x", liveClassId: "class-1", status: "processing", duration: null, createdAt: new Date(), s3Key: "k" } as never);
+
+    await startRecording({ requesterId: HOST, liveClassId: "class-1" });
+    await startRecording({ requesterId: HOST, liveClassId: "class-1" });
+
+    const id1 = mStartCapture.mock.calls[0][0].recordingId;
+    const id2 = mStartCapture.mock.calls[1][0].recordingId;
+    expect(id1).toBeTruthy();
+    expect(id2).toBeTruthy();
+    expect(id1).not.toBe(id2); // second recording never reuses the first one's token
+    // …and the DB row is created with that SAME id (so s3 folder ↔ row ↔ token line up).
+    expect(mCreateRec.mock.calls[0][0].data).toEqual(expect.objectContaining({ id: id1 }));
+    expect(mCreateRec.mock.calls[1][0].data).toEqual(expect.objectContaining({ id: id2 }));
+  });
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -115,6 +138,35 @@ describe("stopRecording()", () => {
       expect.objectContaining({ data: expect.objectContaining({ status: "ready", duration: expect.any(Number) }) })
     );
     expect(mUpdateClass).toHaveBeenCalledWith(expect.objectContaining({ data: { recordingUrl: "k" } }));
+  });
+
+  it("queues the concatenation (full-length mp4) BEFORE stopping the capture pipeline", async () => {
+    mFindClass.mockResolvedValue({ id: "class-1", courseId: "course-1", hostUserId: HOST } as never);
+    const createdAt = new Date(Date.now() - 65_000);
+    mFindRec.mockResolvedValue({ id: "r-1", liveClassId: "class-1", status: "processing", pipelineId: "pl-1", s3Key: "live-recordings/class-1/r-1", createdAt } as never);
+    mUpdateRec.mockResolvedValue({ id: "r-1", liveClassId: "class-1", status: "ready", duration: 65, createdAt, s3Key: "live-recordings/class-1/r-1" } as never);
+    mUpdateClass.mockResolvedValue({ id: "class-1" } as never);
+
+    await stopRecording({ requesterId: HOST, liveClassId: "class-1" });
+
+    expect(mConcat).toHaveBeenCalledWith({ pipelineId: "pl-1", s3Key: "live-recordings/class-1/r-1", recordingId: "r-1" });
+    // Order matters: AWS wants the concat created while capture is still alive.
+    expect(mConcat.mock.invocationCallOrder[0]).toBeLessThan(mStopCapture.mock.invocationCallOrder[0]);
+  });
+
+  it("still stops + finalizes the recording even if queuing the concatenation fails", async () => {
+    mFindClass.mockResolvedValue({ id: "class-1", courseId: "course-1", hostUserId: HOST } as never);
+    const createdAt = new Date(Date.now() - 10_000);
+    mFindRec.mockResolvedValue({ id: "r-1", liveClassId: "class-1", status: "processing", pipelineId: "pl-1", s3Key: "k", createdAt } as never);
+    mUpdateRec.mockResolvedValue({ id: "r-1", liveClassId: "class-1", status: "ready", duration: 10, createdAt, s3Key: "k" } as never);
+    mUpdateClass.mockResolvedValue({ id: "class-1" } as never);
+    mConcat.mockRejectedValueOnce(new Error("AccessDenied"));
+
+    const r = await stopRecording({ requesterId: HOST, liveClassId: "class-1" });
+
+    expect(r.ok).toBe(true);
+    expect(mStopCapture).toHaveBeenCalledWith("pl-1");
+    expect(mUpdateRec).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "ready" }) }));
   });
 
   it("409 when there is no active recording", async () => {

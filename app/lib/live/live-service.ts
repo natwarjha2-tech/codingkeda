@@ -30,7 +30,12 @@ import {
   LIVE_HOST_GRACE_MS,
   LIVE_SWEEP_THROTTLE_MS,
 } from "@/app/lib/live/live-config";
-import { startMediaCapture, stopMediaCapture } from "@/app/lib/live/recording";
+import { randomUUID } from "crypto";
+import {
+  startMediaCapture,
+  startMediaConcatenation,
+  stopMediaCapture,
+} from "@/app/lib/live/recording";
 import {
   getSignedFileUrl,
   getSignedFileUrlFromUrl,
@@ -1238,11 +1243,16 @@ export async function startRecording(opts: {
   // meeting. If AWS rejects it (region/IAM/bucket/quota), record a `failed` row
   // (J7/J9) and surface the REAL AWS reason so misconfig is diagnosable (no more
   // guessing) instead of a generic 500.
+  // One id per recording: it is the AWS idempotency token AND the S3 folder name
+  // AND the DB row id, so a class can be recorded any number of times (record →
+  // stop → record again) without token clashes or files mixing.
+  const recordingId = randomUUID();
   let capture;
   try {
     capture = await startMediaCapture({
       chimeMeetingId: liveClass.chimeMeetingId,
       liveClassId: liveClass.id,
+      recordingId,
     });
   } catch (err) {
     const awsName = (err as { name?: string })?.name || "";
@@ -1276,6 +1286,7 @@ export async function startRecording(opts: {
 
   const created = await prisma.liveRecording.create({
     data: {
+      id: recordingId,
       liveClassId: liveClass.id,
       pipelineId: capture.pipelineId,
       s3Bucket: capture.s3Bucket,
@@ -1311,6 +1322,23 @@ async function _finalizeRecording(
     orderBy: { createdAt: "desc" },
   });
   if (!active) return null;
+
+  // Queue the concatenation BEFORE stopping capture. The capture pipeline only
+  // writes small chunks (a recording would play just ~5s); the concatenation
+  // pipeline waits for capture to stop and then stitches them into ONE playable
+  // mp4 under <s3Key>/final. Best-effort: a failure must never block stopping
+  // the recording (playback falls back to the chunks, see resolveRecordingObjectKey).
+  if (active.pipelineId && active.s3Key && outcome === "ready") {
+    try {
+      await startMediaConcatenation({
+        pipelineId: active.pipelineId,
+        s3Key: active.s3Key,
+        recordingId: active.id,
+      });
+    } catch (e) {
+      console.error("_finalizeRecording: startMediaConcatenation failed", active.id, e);
+    }
+  }
 
   // Stop the pipeline (idempotent inside stopMediaCapture). The pipeline runs in
   // the fixed pipeline region, so stop needs no per-call region. Never let a

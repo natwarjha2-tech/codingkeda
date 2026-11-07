@@ -301,52 +301,78 @@ export async function deleteS3Prefix(prefix: string): Promise<boolean> {
   }
 }
 
+/** List every object under a prefix (paginated). Read-only helper. */
+async function listAllObjects(prefix: string): Promise<{ key: string; size: number; modified: number }[]> {
+  const out: { key: string; size: number; modified: number }[] = [];
+  let token: string | undefined;
+  do {
+    const res = await s3.send(
+      new ListObjectsV2Command({ Bucket: BUCKET, Prefix: prefix, ContinuationToken: token })
+    );
+    for (const o of res.Contents || []) {
+      if (o.Key) out.push({ key: o.Key, size: o.Size || 0, modified: o.LastModified ? o.LastModified.getTime() : 0 });
+    }
+    token = res.IsTruncated ? res.NextContinuationToken : undefined;
+  } while (token);
+  return out;
+}
+
+const isMp4 = (k: string) => k.toLowerCase().endsWith(".mp4");
+const largest = <T extends { size: number }>(items: T[]): T | undefined =>
+  items.length ? items.reduce((a, b) => (b.size > a.size ? b : a)) : undefined;
+
 /**
- * Resolve the actual playable recording object key under a Chime media-pipeline
- * output prefix (e.g. "live-recordings/<classId>"). Chime NEVER writes a single
- * file at the prefix itself — a capture pipeline chunks media into subfolders
- * (audio/, video/) and a concatenation pipeline writes one combined file under
- * composited-video/. So signing the bare prefix always 404s. This lists the
- * prefix and picks the best playable MP4, preferring, in order:
- *   1) a composited-video/*.mp4  (the single combined file — best to play)
- *   2) the LARGEST video/*.mp4   (longest single capture chunk)
- *   3) the LARGEST *.mp4 anywhere under the prefix.
- * Returns the object key, or null if nothing playable exists yet (still
- * processing). Read-only + best-effort — never throws.
+ * How long we wait for the concatenation pipeline to produce the combined mp4
+ * after a recording stops, before falling back to a raw chunk so the recording
+ * never stays invisible forever (e.g. if concatenation ever failed).
+ */
+const CONCAT_PENDING_MS = 30 * 60 * 1000;
+
+/**
+ * Resolve the actual playable recording object under a recording's S3 root
+ * (e.g. "live-recordings/<classId>/<recordingId>"). Chime NEVER writes one file
+ * at the root: a capture pipeline writes many small CHUNKS under capture/ (each
+ * only a few seconds — playing one is the "recording is only 5s" bug), and the
+ * concatenation pipeline writes ONE combined mp4 under final/. Order:
+ *   1) final/ mp4 (the full-length recording) — preferred, found with a cheap
+ *      listing of just final/;
+ *   2) NEW layout (capture/ exists) but no final yet → null: the concatenation is
+ *      still running, so report "processing" instead of playing a 5s chunk —
+ *      unless it has been over CONCAT_PENDING_MS since the last write, in which
+ *      case fall through so the recording isn't stuck invisible;
+ *   3) legacy recordings (no capture/ folder): best-effort chunk — composited-
+ *      video/, else the largest video/, else the largest mp4.
+ * Returns the object key, or null if nothing playable exists (yet). Read-only
+ * and best-effort — never throws.
  */
 export async function resolveRecordingObjectKey(prefix: string): Promise<string | null> {
   if (!prefix) return null;
   const base = prefix.endsWith("/") ? prefix : prefix + "/";
   try {
-    const mp4s: { key: string; size: number }[] = [];
-    let token: string | undefined;
-    do {
-      const res = await s3.send(
-        new ListObjectsV2Command({ Bucket: BUCKET, Prefix: base, ContinuationToken: token })
-      );
-      for (const o of res.Contents || []) {
-        if (o.Key && o.Key.toLowerCase().endsWith(".mp4")) {
-          mp4s.push({ key: o.Key, size: o.Size || 0 });
-        }
-      }
-      token = res.IsTruncated ? res.NextContinuationToken : undefined;
-    } while (token);
+    // 1) The combined, full-length file.
+    const finals = (await listAllObjects(base + "final/")).filter((o) => isMp4(o.key));
+    if (finals.length) {
+      const composited = finals.filter((o) => o.key.indexOf("/composited-video/") !== -1);
+      return (largest(composited) || largest(finals))!.key;
+    }
 
+    const all = await listAllObjects(base);
+    if (all.length === 0) return null;
+
+    // 2) New layout, concatenation not finished yet → still processing.
+    const isNewLayout = all.some((o) => o.key.indexOf("/capture/") !== -1);
+    if (isNewLayout) {
+      const newest = all.reduce((m, o) => (o.modified > m ? o.modified : m), 0);
+      if (Date.now() - newest < CONCAT_PENDING_MS) return null;
+      console.warn("resolveRecordingObjectKey: no concatenated file after grace; falling back to a chunk:", prefix);
+    }
+
+    // 3) Fallback chunk (legacy recordings, or concatenation never completed).
+    const mp4s = all.filter((o) => isMp4(o.key));
     if (mp4s.length === 0) return null;
-
-    // 1) composited-video (single combined file) wins outright.
-    const composited = mp4s
-      .filter((m) => m.key.indexOf("/composited-video/") !== -1)
-      .sort((a, b) => b.size - a.size);
-    if (composited.length) return composited[0].key;
-
-    // 2) largest video/ chunk, else 3) largest mp4 anywhere.
-    const videoFolder = mp4s
-      .filter((m) => m.key.indexOf("/video/") !== -1)
-      .sort((a, b) => b.size - a.size);
-    if (videoFolder.length) return videoFolder[0].key;
-
-    return mp4s.sort((a, b) => b.size - a.size)[0].key;
+    const composited = mp4s.filter((o) => o.key.indexOf("/composited-video/") !== -1);
+    const video = mp4s.filter((o) => o.key.indexOf("/video/") !== -1);
+    return (largest(composited) || largest(video) || largest(mp4s))!.key;
   } catch (err) {
     console.error("resolveRecordingObjectKey failed for prefix:", prefix, err);
     return null;
