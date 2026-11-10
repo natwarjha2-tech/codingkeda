@@ -591,7 +591,15 @@ async function encodeOne(mediaId: string, notify = true, force = false): Promise
       hlsMasterUrl = null;
     }
 
-    await prisma.media.update({ where: { id: media.id }, data: { hlsStatus: "ready", hlsQualities: qualities, hlsS3Prefix: prefix, hlsMasterUrl } });
+    await prisma.media.update({ where: { id: media.id }, data: {
+      hlsStatus: "ready",
+      // When MP4 qualities were skipped (GENERATE_MP4_QUALITIES=false), the
+      // `qualities` array is empty — but the HLS ladder has the same renditions.
+      // Store the HLS variant names so clients can show the quality selector.
+      hlsQualities: qualities.length > 0 ? qualities : applicable.map((v) => v.quality),
+      hlsS3Prefix: prefix,
+      hlsMasterUrl,
+    } });
     logger.success("video-processor", "ready", { mediaId: media.id, qualities, hls: !!hlsMasterUrl });
     await notifyAdmin(true);
     return { ok: true };
@@ -662,4 +670,123 @@ export function triggerVideoProcessing(mediaId: string): void {
   if (!queue.includes(mediaId)) queue.push(mediaId);
   // Start draining on the next tick; never await (fire-and-forget).
   void drain();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LIVE-CLASS RECORDINGS → HLS
+// ─────────────────────────────────────────────────────────────────────────────
+// A Chime media-capture pipeline writes a recording as MANY ~5s mp4 chunks
+// (playing one = the "recording only plays 5 seconds" bug). This stitches the
+// chunks (or takes the single concatenated file when AWS produced one) and runs
+// the SAME HLS encoder lessons use, writing to hls/live-<recordingId>/ — so a
+// recording streams exactly like a course video: CloudFront signed cookies,
+// adaptive 720/480/360, segment-by-segment loading.
+//
+// Shares the single-encode lock with lesson processing (never two heavy encodes
+// at once). Never throws.
+
+/** S3 folder for a recording's HLS output (also the CloudFront cookie scope). */
+export function recordingHlsPrefix(recordingId: string): string {
+  return `hls/live-${recordingId}`;
+}
+
+/** Marker written LAST, after every playlist/segment is uploaded. Its presence = playable. */
+export function recordingHlsMarkerKey(recordingId: string): string {
+  return `${recordingHlsPrefix(recordingId)}/ready.json`;
+}
+
+export async function encodeRecordingToHls(opts: {
+  recordingId: string;
+  sourceKeys: string[]; // S3 keys in playback order (1 = already-concatenated file)
+}): Promise<{ ok: boolean; masterUrl?: string | null; error?: string }> {
+  const { recordingId, sourceKeys } = opts;
+  if (!recordingId || sourceKeys.length === 0) return { ok: false, error: "no sources" };
+
+  while (encoding) await new Promise((r) => setTimeout(r, 500));
+  encoding = true;
+
+  const tmpDir = path.join(encodeTmpBase(), `ck_rec_${recordingId}_${Date.now()}`);
+  try {
+    fs.mkdirSync(tmpDir, { recursive: true });
+    logger.info("video-processor", "recording_hls_start", { recordingId, sources: sourceKeys.length });
+
+    // 1) Download the source(s), in order.
+    const localParts: string[] = [];
+    for (let i = 0; i < sourceKeys.length; i++) {
+      const p = path.join(tmpDir, `part_${String(i).padStart(6, "0")}.mp4`);
+      await downloadFromS3(sourceKeys[i], p);
+      if (fs.existsSync(p) && fs.statSync(p).size > 0) localParts.push(p);
+    }
+    if (localParts.length === 0) throw new Error("recording sources empty");
+
+    // 2) One continuous file. Chunks come from the same pipeline (same codecs),
+    //    so a stream-copy concat is fast and lossless; if a chunk boundary
+    //    trips the copy (timestamp oddities), fall back to a re-encoded concat.
+    let srcFile = localParts[0];
+    if (localParts.length > 1) {
+      const listFile = path.join(tmpDir, "parts.txt");
+      fs.writeFileSync(
+        listFile,
+        localParts.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join("\n")
+      );
+      const joined = path.join(tmpDir, "joined.mp4");
+      try {
+        await execAsync("ffmpeg", [
+          "-y", "-fflags", "+genpts", "-f", "concat", "-safe", "0", "-i", listFile,
+          "-c", "copy", "-movflags", "+faststart", joined,
+        ], { maxBuffer: 100 * 1024 * 1024 });
+      } catch (copyErr) {
+        logger.warn("video-processor", "recording_concat_copy_failed_reencoding", {
+          recordingId, error: (copyErr as Error)?.message?.slice(0, 300),
+        });
+        await execAsync("ffmpeg", [
+          "-y", "-fflags", "+genpts", "-f", "concat", "-safe", "0", "-i", listFile,
+          "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+          "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", joined,
+        ], { maxBuffer: 100 * 1024 * 1024 });
+      }
+      // Free disk early: the chunks are no longer needed.
+      for (const p of localParts) { try { fs.unlinkSync(p); } catch { /* ignore */ } }
+      srcFile = joined;
+    }
+
+    // 3) Same quality ladder rule as lessons (never upscale).
+    let sourceHeight = 720;
+    try {
+      const { stdout } = await execAsync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=height", "-of", "csv=p=0", srcFile]);
+      sourceHeight = parseInt(stdout.trim()) || 720;
+    } catch { /* keep default */ }
+    const applicable = QUALITY_VARIANTS.filter((v) => v.height <= sourceHeight + 100);
+    if (applicable.length === 0) applicable.push(QUALITY_VARIANTS[QUALITY_VARIANTS.length - 1]);
+
+    // 4) HLS encode + upload to hls/live-<recordingId>/ (same encoder as lessons).
+    const masterUrl = await generateAndUploadHls(
+      srcFile, applicable, tmpDir, `live-${recordingId}`, async () => null
+    );
+    if (!masterUrl) throw new Error("HLS was not produced");
+
+    // 5) Readiness marker LAST — only now is every segment in S3.
+    await s3.send(new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: recordingHlsMarkerKey(recordingId),
+      Body: JSON.stringify({
+        recordingId,
+        qualities: applicable.map((v) => v.quality),
+        createdAt: new Date().toISOString(),
+      }),
+      ContentType: "application/json",
+      CacheControl: "no-cache",
+    }));
+
+    logger.success("video-processor", "recording_hls_ready", { recordingId, qualities: applicable.map((v) => v.quality) });
+    return { ok: true, masterUrl };
+  } catch (err) {
+    const msg = (err as Error)?.message || "unknown error";
+    logger.warn("video-processor", "recording_hls_failed", { recordingId, error: msg.slice(0, 500) });
+    return { ok: false, error: msg };
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    encoding = false;
+    void drain(); // let any lesson encodes that queued meanwhile run
+  }
 }

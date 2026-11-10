@@ -47,6 +47,19 @@ import {
   getEnrolledCourseIds,
   getUsersEnrolledInCourse,
 } from "@/app/repositories/enrollment.repository";
+import {
+  getCloudFrontSignedCookies,
+  getHlsMasterUrl,
+  isCloudFrontConfigured,
+  type CloudFrontCookies,
+} from "@/app/lib/s3";
+import {
+  getRecordingHlsStatus,
+  isRecordingHlsReady,
+  queueRecordingHls,
+  recordingHlsPrefix,
+  type RecordingHlsStatus,
+} from "@/app/lib/live/recording-hls";
 import { notifyLiveClassScheduled } from "@/app/lib/notification";
 
 /** Result wrapper so routes can map {ok,status,message} → apiSuccess/apiError. */
@@ -1202,7 +1215,9 @@ export interface RecordingDTO {
   status: string;
   duration: number | null;
   createdAt: string;
-  url: string | null; // time-limited signed URL (null while not yet ready)
+  url: string | null; // signed full-length MP4 (only when AWS concatenation produced one), else null
+  // HLS streaming state (play via GET .../recordings/<id>/hls-auth when "ready").
+  hlsStatus: RecordingHlsStatus;
 }
 
 /**
@@ -1368,6 +1383,11 @@ async function _finalizeRecording(
     } catch (e) {
       console.error("_finalizeRecording: set recordingUrl failed", liveClassId, e);
     }
+    // Convert to HLS in the background. Wait ~2 min so the capture pipeline
+    // has flushed its last chunks (the job re-checks that writes have settled).
+    if (updated.s3Key) {
+      try { queueRecordingHls({ id: updated.id, s3Key: updated.s3Key }, 2 * 60 * 1000); } catch { /* best-effort */ }
+    }
   }
 
   return updated;
@@ -1399,7 +1419,7 @@ export async function stopRecording(opts: {
   if (!updated) return fail(409, "No active recording to stop.");
 
   const url = await safeSignRecording(updated.s3Key);
-  return ok(toRecordingDTO(updated, url));
+  return ok(toRecordingDTO(updated, url, getRecordingHlsStatus(updated.id)));
 }
 
 /**
@@ -1429,9 +1449,11 @@ export async function listRecordings(opts: {
 
   const recordings = await Promise.all(
     rows.map(async (r) => {
-      // Only sign a URL for finished recordings (processing ones aren't playable).
-      const url = r.status === "ready" ? await safeSignRecording(r.s3Key) : null;
-      return toRecordingDTO(r, url);
+      // Only finished recordings are playable (HLS stream, or the full MP4 if AWS made one).
+      const [url, hlsStatus] = r.status === "ready"
+        ? await Promise.all([safeSignRecording(r.s3Key), recordingHlsState(r)])
+        : [null, "pending" as RecordingHlsStatus];
+      return toRecordingDTO(r, url, hlsStatus);
     })
   );
 
@@ -1500,9 +1522,12 @@ export async function listMyRecordings(opts: {
   const recByClass = new Map<string, RecordingDTO[]>();
   await Promise.all(
     recRows.map(async (r) => {
-      const url = await safeSignRecording(r.s3Key);
-      if (!url) return; // skip rows we couldn't sign (keeps the tree playable-only)
-      const dto = toRecordingDTO(r, url);
+      const [url, hlsStatus] = await Promise.all([safeSignRecording(r.s3Key), recordingHlsState(r)]);
+      // List it when it can play (HLS ready / full MP4) OR is being prepared
+      // (shown as "Processing…"). Only recordings that failed with no playable
+      // file are hidden.
+      if (!url && hlsStatus === "failed") return;
+      const dto = toRecordingDTO(r, url, hlsStatus);
       const arr = recByClass.get(r.liveClassId) || [];
       arr.push(dto);
       recByClass.set(r.liveClassId, arr);
@@ -1553,7 +1578,11 @@ type LiveRecordingRow = {
   s3Key: string; // needed to sign a playback URL after finalize (Phase 8)
 };
 
-function toRecordingDTO(r: LiveRecordingRow, url: string | null): RecordingDTO {
+function toRecordingDTO(
+  r: LiveRecordingRow,
+  url: string | null,
+  hlsStatus: RecordingHlsStatus = "pending"
+): RecordingDTO {
   return {
     id: r.id,
     liveClassId: r.liveClassId,
@@ -1561,7 +1590,83 @@ function toRecordingDTO(r: LiveRecordingRow, url: string | null): RecordingDTO {
     duration: r.duration,
     createdAt: r.createdAt.toISOString(),
     url,
+    hlsStatus,
   };
+}
+
+/**
+ * HLS state for a READY recording; kicks off the conversion if it hasn't
+ * happened yet (deduped — safe to call on every list). Never throws.
+ */
+async function recordingHlsState(r: { id: string; s3Key: string; status: string }): Promise<RecordingHlsStatus> {
+  if (r.status !== "ready") return "pending";
+  try {
+    if (await isRecordingHlsReady(r.id)) return "ready";
+    queueRecordingHls({ id: r.id, s3Key: r.s3Key });
+    return getRecordingHlsStatus(r.id);
+  } catch {
+    return "pending";
+  }
+}
+
+/** HLS playback auth for a recording (same CloudFront-cookie model as lessons). */
+export interface RecordingHlsAuthDTO {
+  hlsReady: boolean;
+  hlsStatus: RecordingHlsStatus;
+  masterUrl: string | null;
+  cookies: CloudFrontCookies | null;
+  expiresIn: number;
+}
+
+const RECORDING_COOKIE_TTL_SECONDS = 4 * 60 * 60; // 4h — same as lessons
+
+/**
+ * Return the HLS master URL + CloudFront signed cookies (scoped to ONLY this
+ * recording's hls/live-<id>/ folder) so the client can stream it chunk by chunk.
+ * Access: host, instructor, or enrolled student of the class's course.
+ */
+export async function getRecordingHlsAuth(opts: {
+  requesterId: string;
+  liveClassId: string;
+  recordingId: string;
+}): Promise<ServiceResult<RecordingHlsAuthDTO>> {
+  const liveClass = await prisma.liveClass.findUnique({
+    where: { id: opts.liveClassId },
+    select: { id: true, courseId: true, hostUserId: true },
+  });
+  if (!liveClass) return fail(404, "Live class not found.");
+
+  const access = await resolveJoinAccess(opts.requesterId, {
+    courseId: liveClass.courseId,
+    hostUserId: liveClass.hostUserId,
+  });
+  if (!access.allowed) return fail(403, "You don't have access to this recording.");
+
+  const rec = await prisma.liveRecording.findFirst({
+    where: { id: opts.recordingId, liveClassId: liveClass.id },
+    select: { id: true, s3Key: true, status: true },
+  });
+  if (!rec || rec.status !== "ready") return fail(404, "Recording not found.");
+
+  const notReady = (s: RecordingHlsStatus): ServiceResult<RecordingHlsAuthDTO> =>
+    ok({ hlsReady: false, hlsStatus: s, masterUrl: null, cookies: null, expiresIn: 0 });
+
+  if (!isCloudFrontConfigured()) return notReady("pending");
+
+  const status = await recordingHlsState(rec);
+  if (status !== "ready") return notReady(status);
+
+  const prefix = recordingHlsPrefix(rec.id);
+  const cookies = getCloudFrontSignedCookies(prefix, RECORDING_COOKIE_TTL_SECONDS);
+  if (!cookies) return notReady("pending");
+
+  return ok({
+    hlsReady: true,
+    hlsStatus: "ready",
+    masterUrl: getHlsMasterUrl(prefix),
+    cookies,
+    expiresIn: RECORDING_COOKIE_TTL_SECONDS,
+  });
 }
 
 /**
@@ -1593,6 +1698,10 @@ async function safeSignRecording(s3Key: string): Promise<string | null> {
       objectKey = await resolveRecordingObjectKey(s3Key);
     }
     if (!objectKey) return null; // nothing playable yet (still processing)
+    // Only ever hand out the FULL-length file (AWS concatenation output under
+    // final/). A raw capture chunk is ~5s long — that was the "recording plays
+    // only 5 seconds" bug. Without a full file, clients stream the HLS version.
+    if (!objectKey.includes("/final/")) return null;
 
     // Deliver via the shared S3→CloudFront signer (same as course videos).
     return await getSignedFileUrlFromUrl(getPublicUrl(objectKey));

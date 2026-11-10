@@ -302,7 +302,7 @@ export async function deleteS3Prefix(prefix: string): Promise<boolean> {
 }
 
 /** List every object under a prefix (paginated). Read-only helper. */
-async function listAllObjects(prefix: string): Promise<{ key: string; size: number; modified: number }[]> {
+export async function listAllObjects(prefix: string): Promise<{ key: string; size: number; modified: number }[]> {
   const out: { key: string; size: number; modified: number }[] = [];
   let token: string | undefined;
   do {
