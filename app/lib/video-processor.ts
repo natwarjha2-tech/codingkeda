@@ -257,6 +257,7 @@ async function generateAndUploadHls(
   tmpDir: string,
   mediaId: string,
   aborted: () => Promise<"deleted" | "cancelled" | null>,
+  signal?: AbortSignal, // optional: kills the running ffmpeg (used by recording delete)
 ): Promise<string | null> {
   const hlsDir = path.join(tmpDir, "hls");
   fs.mkdirSync(hlsDir, { recursive: true });
@@ -416,10 +417,11 @@ async function generateAndUploadHls(
     path.join(hlsDir, "v%v.m3u8"),
   );
 
-  await execAsync("ffmpeg", args, { maxBuffer: 100 * 1024 * 1024 });
+  await execAsync("ffmpeg", args, { maxBuffer: 100 * 1024 * 1024, ...(signal ? { signal } : {}) });
 
   // Bail cleanly if the encode was superseded/deleted while we worked.
   if (await aborted()) return null;
+  if (signal?.aborted) return null;
 
   // Upload every generated file to S3. With fMP4/CMAF output that's:
   //   master.m3u8, v0.m3u8…           (playlists)
@@ -698,12 +700,20 @@ export function recordingHlsMarkerKey(recordingId: string): string {
 export async function encodeRecordingToHls(opts: {
   recordingId: string;
   sourceKeys: string[]; // S3 keys in playback order (1 = already-concatenated file)
+  signal?: AbortSignal; // aborted when the host deletes the recording → stop immediately
 }): Promise<{ ok: boolean; masterUrl?: string | null; error?: string }> {
-  const { recordingId, sourceKeys } = opts;
+  const { recordingId, sourceKeys, signal } = opts;
   if (!recordingId || sourceKeys.length === 0) return { ok: false, error: "no sources" };
 
-  while (encoding) await new Promise((r) => setTimeout(r, 500));
+  // Wait for the encode lock — but give up at once if deleted while waiting.
+  while (encoding) {
+    if (signal?.aborted) return { ok: false, error: "cancelled" };
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  if (signal?.aborted) return { ok: false, error: "cancelled" };
   encoding = true;
+  const ffOpts = { maxBuffer: 100 * 1024 * 1024, ...(signal ? { signal } : {}) };
+  const checkAbort = () => { if (signal?.aborted) throw new Error("cancelled"); };
 
   const tmpDir = path.join(encodeTmpBase(), `ck_rec_${recordingId}_${Date.now()}`);
   try {
@@ -713,6 +723,7 @@ export async function encodeRecordingToHls(opts: {
     // 1) Download the source(s), in order.
     const localParts: string[] = [];
     for (let i = 0; i < sourceKeys.length; i++) {
+      checkAbort();
       const p = path.join(tmpDir, `part_${String(i).padStart(6, "0")}.mp4`);
       await downloadFromS3(sourceKeys[i], p);
       if (fs.existsSync(p) && fs.statSync(p).size > 0) localParts.push(p);
@@ -734,8 +745,9 @@ export async function encodeRecordingToHls(opts: {
         await execAsync("ffmpeg", [
           "-y", "-fflags", "+genpts", "-f", "concat", "-safe", "0", "-i", listFile,
           "-c", "copy", "-movflags", "+faststart", joined,
-        ], { maxBuffer: 100 * 1024 * 1024 });
+        ], ffOpts);
       } catch (copyErr) {
+        checkAbort(); // killed by a delete → don't retry with a re-encode
         logger.warn("video-processor", "recording_concat_copy_failed_reencoding", {
           recordingId, error: (copyErr as Error)?.message?.slice(0, 300),
         });
@@ -743,7 +755,7 @@ export async function encodeRecordingToHls(opts: {
           "-y", "-fflags", "+genpts", "-f", "concat", "-safe", "0", "-i", listFile,
           "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
           "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", joined,
-        ], { maxBuffer: 100 * 1024 * 1024 });
+        ], ffOpts);
       }
       // Free disk early: the chunks are no longer needed.
       for (const p of localParts) { try { fs.unlinkSync(p); } catch { /* ignore */ } }
@@ -760,9 +772,11 @@ export async function encodeRecordingToHls(opts: {
     if (applicable.length === 0) applicable.push(QUALITY_VARIANTS[QUALITY_VARIANTS.length - 1]);
 
     // 4) HLS encode + upload to hls/live-<recordingId>/ (same encoder as lessons).
+    checkAbort();
     const masterUrl = await generateAndUploadHls(
-      srcFile, applicable, tmpDir, `live-${recordingId}`, async () => null
+      srcFile, applicable, tmpDir, `live-${recordingId}`, async () => null, signal
     );
+    checkAbort();
     if (!masterUrl) throw new Error("HLS was not produced");
 
     // 5) Readiness marker LAST — only now is every segment in S3.
@@ -781,6 +795,10 @@ export async function encodeRecordingToHls(opts: {
     logger.success("video-processor", "recording_hls_ready", { recordingId, qualities: applicable.map((v) => v.quality) });
     return { ok: true, masterUrl };
   } catch (err) {
+    if (signal?.aborted) {
+      logger.info("video-processor", "recording_hls_cancelled", { recordingId });
+      return { ok: false, error: "cancelled" };
+    }
     const msg = (err as Error)?.message || "unknown error";
     logger.warn("video-processor", "recording_hls_failed", { recordingId, error: msg.slice(0, 500) });
     return { ok: false, error: msg };

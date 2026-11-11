@@ -13,7 +13,7 @@
  * After a server restart, anything unfinished is simply re-queued lazily the
  * next time someone opens the recordings list — self-healing.
  */
-import { HeadObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { HeadObjectCommand, GetObjectCommand, DeleteObjectsCommand } from "@aws-sdk/client-s3";
 import { s3, listAllObjects } from "@/app/lib/s3";
 import {
   encodeRecordingToHls,
@@ -38,6 +38,10 @@ const ready = new Set<string>();
 const notReadyAt = new Map<string, number>();
 const jobs = new Map<string, { status: "queued" | "processing" | "failed"; at: number }>();
 const waitTries = new Map<string, number>();
+// Recordings deleted by the host in this process (never re-queue / re-upload).
+const deletedIds = new Set<string>();
+// Abort handle per active conversion — delete() kills its ffmpeg immediately.
+const controllers = new Map<string, AbortController>();
 
 export { recordingHlsPrefix };
 
@@ -98,7 +102,7 @@ async function findSources(s3Key: string): Promise<{ keys: string[]; settled: bo
  * repeatedly — on every list/play request — it only does work once.
  */
 export function queueRecordingHls(rec: { id: string; s3Key: string }, delayMs = 0): void {
-  if (!rec?.id || !rec.s3Key || ready.has(rec.id)) return;
+  if (!rec?.id || !rec.s3Key || ready.has(rec.id) || deletedIds.has(rec.id)) return;
   const j = jobs.get(rec.id);
   if (j && (j.status === "queued" || j.status === "processing")) return;
   if (j && j.status === "failed" && Date.now() - j.at < RETRY_AFTER_MS) return;
@@ -143,8 +147,22 @@ async function runJob(rec: { id: string; s3Key: string }): Promise<void> {
     }
 
     waitTries.delete(rec.id);
+    if (deletedIds.has(rec.id)) { jobs.delete(rec.id); return; }
     jobs.set(rec.id, { status: "processing", at: Date.now() });
-    const result = await encodeRecordingToHls({ recordingId: rec.id, sourceKeys: keys });
+    const ctrl = new AbortController();
+    controllers.set(rec.id, ctrl);
+    let result: { ok: boolean };
+    try {
+      result = await encodeRecordingToHls({ recordingId: rec.id, sourceKeys: keys, signal: ctrl.signal });
+    } finally {
+      controllers.delete(rec.id);
+    }
+    if (deletedIds.has(rec.id)) {
+      // Host deleted it while it was converting → remove what was just uploaded.
+      await deletePrefixAll(`${recordingHlsPrefix(rec.id)}/`);
+      jobs.delete(rec.id);
+      return;
+    }
     if (result.ok) {
       ready.add(rec.id);
       jobs.delete(rec.id);
@@ -290,4 +308,58 @@ export async function getRecordingTimeline(rec: { id: string; s3Key: string }): 
 
   timelineCache.set(rec.id, { at: Date.now(), data });
   return data;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DELETE (host action)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Delete EVERY object under a prefix (paginated, batches of 1000). */
+async function deletePrefixAll(prefix: string): Promise<number> {
+  const objs = await listAllObjects(prefix);
+  let deleted = 0;
+  for (let i = 0; i < objs.length; i += 1000) {
+    const batch = objs.slice(i, i + 1000).map((o) => ({ Key: o.key }));
+    await s3.send(new DeleteObjectsCommand({ Bucket: BUCKET, Delete: { Objects: batch, Quiet: true } }));
+    deleted += batch.length;
+  }
+  return deleted;
+}
+
+/**
+ * Delete a recording's media from S3: the raw Chime capture + AWS final files
+ * (live-recordings/<classId>/<recordingId>/…) and its HLS stream
+ * (hls/live-<recordingId>/…). Strictly scoped — refuses any key that is not
+ * exactly this recording's own folder, so a bad value can never delete other
+ * files. Also stops any pending/ongoing conversion and clears caches.
+ */
+export async function deleteRecordingMedia(rec: { id: string; s3Key: string }): Promise<{ ok: boolean; deleted: number }> {
+  if (!rec?.id) return { ok: false, deleted: 0 };
+  deletedIds.add(rec.id);
+  // Stop an in-progress conversion right now (kills ffmpeg / leaves the queue).
+  try { controllers.get(rec.id)?.abort(); } catch { /* ignore */ }
+  ready.delete(rec.id);
+  jobs.delete(rec.id);
+  waitTries.delete(rec.id);
+  notReadyAt.delete(rec.id);
+  timelineCache.delete(rec.id);
+
+  let deleted = 0;
+  try {
+    // HLS output (always safe: the folder name is derived from the id).
+    deleted += await deletePrefixAll(`${recordingHlsPrefix(rec.id)}/`);
+
+    // Raw recording folder — only if it is exactly ".../<classId>/<recordingId>".
+    const key = (rec.s3Key || "").replace(/\/+$/, "");
+    const parts = key.split("/");
+    if (parts.length === 3 && parts.every(Boolean) && parts[2] === rec.id) {
+      deleted += await deletePrefixAll(`${key}/`);
+    } else if (key) {
+      console.warn("recording-hls: skipped raw delete, unexpected key", rec.id, key);
+    }
+    return { ok: true, deleted };
+  } catch (err) {
+    console.error("recording-hls: delete failed", rec.id, err);
+    return { ok: false, deleted };
+  }
 }

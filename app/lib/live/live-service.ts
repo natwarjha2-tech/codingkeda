@@ -54,6 +54,7 @@ import {
   type CloudFrontCookies,
 } from "@/app/lib/s3";
 import {
+  deleteRecordingMedia,
   getRecordingHlsStatus,
   getRecordingTimeline,
   isRecordingHlsReady,
@@ -1444,7 +1445,7 @@ export async function listRecordings(opts: {
   if (!access.allowed) return fail(403, "You don't have access to these recordings.");
 
   const rows = await prisma.liveRecording.findMany({
-    where: { liveClassId: liveClass.id },
+    where: { liveClassId: liveClass.id, status: { not: "deleted" } },
     orderBy: { createdAt: "asc" },
   });
 
@@ -1467,6 +1468,7 @@ export interface MyRecordingClassDTO {
   title: string;
   endedAt: string | null;
   recordings: RecordingDTO[];
+  canDelete: boolean; // true only for the class host
 }
 
 /** One course bucket in the grouped "my recordings" tree (P11). */
@@ -1506,7 +1508,7 @@ export async function listMyRecordings(opts: {
         { hostUserId: opts.requesterId },
       ].filter(Boolean) as object[],
     },
-    select: { id: true, courseId: true, title: true, endedAt: true },
+    select: { id: true, courseId: true, title: true, endedAt: true, hostUserId: true },
     orderBy: { endedAt: "desc" },
   });
   if (classRows.length === 0) return ok({ courses: [] });
@@ -1564,6 +1566,7 @@ export async function listMyRecordings(opts: {
       title: c.title || "Live Class",
       endedAt: c.endedAt ? c.endedAt.toISOString() : null,
       recordings: recs,
+      canDelete: c.hostUserId === opts.requesterId,
     });
   }
 
@@ -1608,6 +1611,69 @@ async function recordingHlsState(r: { id: string; s3Key: string; status: string 
   } catch {
     return "pending";
   }
+}
+
+/**
+ * Delete a recording (HOST ONLY — the account that hosts the class).
+ *  • S3: removes the recording's video files (raw capture + HLS stream).
+ *  • DB: the row is NOT removed — it is marked status "deleted", so it vanishes
+ *    from every list/player (they only show "ready") while keeping an audit
+ *    trail. If the class pointed at this recording, it is re-pointed to the
+ *    latest remaining one (or cleared).
+ * Only finished ("ready") recordings can be deleted (not one still recording).
+ */
+export async function deleteRecording(opts: {
+  requesterId: string;
+  liveClassId: string;
+  recordingId: string;
+}): Promise<ServiceResult<{ deleted: true }>> {
+  const liveClass = await prisma.liveClass.findUnique({
+    where: { id: opts.liveClassId },
+    select: { id: true, hostUserId: true, recordingUrl: true },
+  });
+  if (!liveClass) return fail(404, "Live class not found.");
+  if (liveClass.hostUserId !== opts.requesterId) {
+    return fail(403, "Only the host of this class can delete its recordings.");
+  }
+
+  const rec = await prisma.liveRecording.findFirst({
+    where: { id: opts.recordingId, liveClassId: liveClass.id },
+    select: { id: true, s3Key: true, status: true, pipelineId: true },
+  });
+  if (!rec || rec.status === "deleted") return fail(404, "Recording not found.");
+
+  // Still capturing (DB "processing", e.g. stuck after a crash): stop the Chime
+  // capture pipeline first so it stops writing new files (idempotent — an
+  // already-gone pipeline counts as stopped).
+  if (rec.status === "processing" && rec.pipelineId) {
+    try { await stopMediaCapture(rec.pipelineId); } catch (e) {
+      console.error("deleteRecording: stopMediaCapture failed", rec.id, e);
+    }
+  }
+
+  // Removes S3 files AND cancels any HLS conversion in progress (kills ffmpeg).
+  const media = await deleteRecordingMedia({ id: rec.id, s3Key: rec.s3Key });
+  if (!media.ok) return fail(502, "Could not delete the recording files. Please try again.");
+
+  await prisma.liveRecording.update({ where: { id: rec.id }, data: { status: "deleted" } });
+
+  if (liveClass.recordingUrl && liveClass.recordingUrl === rec.s3Key) {
+    const latest = await prisma.liveRecording.findFirst({
+      where: { liveClassId: liveClass.id, status: "ready" },
+      orderBy: { createdAt: "desc" },
+      select: { s3Key: true },
+    });
+    try {
+      await prisma.liveClass.update({
+        where: { id: liveClass.id },
+        data: { recordingUrl: latest?.s3Key ?? null },
+      });
+    } catch (e) {
+      console.error("deleteRecording: re-point recordingUrl failed", liveClass.id, e);
+    }
+  }
+
+  return ok({ deleted: true });
 }
 
 /** Chat + reactions of a recording, positioned on the video timeline. */
