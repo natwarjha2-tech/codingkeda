@@ -13,7 +13,7 @@
  * After a server restart, anything unfinished is simply re-queued lazily the
  * next time someone opens the recordings list — self-healing.
  */
-import { HeadObjectCommand } from "@aws-sdk/client-s3";
+import { HeadObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { s3, listAllObjects } from "@/app/lib/s3";
 import {
   encodeRecordingToHls,
@@ -155,4 +155,139 @@ async function runJob(rec: { id: string; s3Key: string }): Promise<void> {
     console.error("recording-hls: job failed", rec.id, err);
     jobs.set(rec.id, { status: "failed", at: Date.now() });
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REPLAY TIMELINE (chat + reactions synced to the recording)
+// ─────────────────────────────────────────────────────────────────────────────
+// Chat/reactions are not part of the Chime video, so the player shows them in a
+// side panel synced to the playback time (like YouTube live-chat replay). This
+// resolves the two things that needs from S3:
+//   • startMs   — wall-clock time of the FIRST video chunk = video time 0
+//                 (chunk names are UTC timestamps yyyy-mm-dd-hh-mm-ss-mmm)
+//   • reactions — floating class reactions (topic "ck-live-react") from Chime's
+//                 data-channel capture: .txt files of JSON objects
+//                 { Timestamp, Topic, Data, SenderAttendeeId }
+// Read-only, cached per recording, never throws.
+
+export interface RecordingTimeline {
+  startMs: number | null;
+  reactions: { emoji: string; atMs: number }[];
+}
+
+const timelineCache = new Map<string, { at: number; data: RecordingTimeline }>();
+const TIMELINE_TTL_MS = 10 * 60 * 1000;
+const REACT_TOPIC = "ck-live-react";
+
+/** "…/2026-11-11-16-17-05-123.mp4" (UTC) → epoch ms; null if not a timestamp name. */
+function chunkNameToMs(key: string): number | null {
+  const name = key.slice(key.lastIndexOf("/") + 1);
+  const m = name.match(/^(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{1,3})/);
+  if (!m) return null;
+  const ms = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6], +m[7].padEnd(3, "0"));
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function parseTimestamp(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v < 1e12 ? v * 1000 : v;
+  if (typeof v === "string" && v) {
+    if (/^\d+$/.test(v)) { const n = Number(v); return n < 1e12 ? n * 1000 : n; }
+    const t = Date.parse(v);
+    if (Number.isFinite(t)) return t;
+  }
+  return null;
+}
+
+/** Data may be plain JSON text or base64 of it — accept both. */
+function parseReactionData(data: unknown): string | null {
+  if (typeof data !== "string" || !data) return null;
+  const tryJson = (s: string): string | null => {
+    try {
+      const p = JSON.parse(s);
+      return p && typeof p.reaction === "string" ? p.reaction : null;
+    } catch { return null; }
+  };
+  return tryJson(data) ?? tryJson(Buffer.from(data, "base64").toString("utf8"));
+}
+
+/** Every JSON object in a data-channel .txt (one per line, an array, or concatenated). */
+function extractJsonObjects(text: string): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  const t = text.trim();
+  if (!t) return out;
+  try {
+    const whole = JSON.parse(t);
+    if (Array.isArray(whole)) return whole.filter((o) => o && typeof o === "object");
+    if (whole && typeof whole === "object") return [whole];
+  } catch { /* fall through to line/brace scanning */ }
+  // Scan balanced {...} blocks (handles newline-delimited or back-to-back objects).
+  let depth = 0, start = -1, inStr = false, esc = false;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === "{") { if (depth === 0) start = i; depth++; }
+    else if (c === "}" && depth > 0) {
+      depth--;
+      if (depth === 0 && start >= 0) {
+        try { out.push(JSON.parse(t.slice(start, i + 1))); } catch { /* skip */ }
+        start = -1;
+      }
+    }
+  }
+  return out;
+}
+
+async function readText(key: string): Promise<string> {
+  try {
+    const res = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+    return (await res.Body?.transformToString("utf-8")) || "";
+  } catch {
+    return "";
+  }
+}
+
+export async function getRecordingTimeline(rec: { id: string; s3Key: string }): Promise<RecordingTimeline> {
+  const hit = timelineCache.get(rec.id);
+  if (hit && Date.now() - hit.at < TIMELINE_TTL_MS) return hit.data;
+
+  const data: RecordingTimeline = { startMs: null, reactions: [] };
+  if (!rec.s3Key) return data;
+  const base = (rec.s3Key.endsWith("/") ? rec.s3Key : rec.s3Key + "/") + "capture/";
+
+  try {
+    const all = await listAllObjects(base);
+
+    // Video time 0 = earliest composited-video chunk.
+    let start: number | null = null;
+    for (const o of all) {
+      if (!o.key.includes("/composited-video/") || !o.key.toLowerCase().endsWith(".mp4")) continue;
+      const ms = chunkNameToMs(o.key);
+      if (ms != null && (start == null || ms < start)) start = ms;
+    }
+    data.startMs = start;
+
+    // Floating reactions from the data-channel capture (small text files).
+    const dc = all.filter((o) => o.key.includes("/data-channel/")).slice(0, 2000);
+    for (const o of dc) {
+      const fileMs = chunkNameToMs(o.key);
+      for (const msg of extractJsonObjects(await readText(o.key))) {
+        if (msg.Topic !== REACT_TOPIC && msg.topic !== REACT_TOPIC) continue;
+        const emoji = parseReactionData(msg.Data ?? msg.data);
+        const atMs = parseTimestamp(msg.Timestamp ?? msg.timestamp) ?? fileMs;
+        if (emoji && atMs != null) data.reactions.push({ emoji: emoji.slice(0, 16), atMs });
+      }
+    }
+    data.reactions.sort((a, b) => a.atMs - b.atMs);
+  } catch (err) {
+    console.error("recording-hls: timeline failed", rec.id, err);
+  }
+
+  timelineCache.set(rec.id, { at: Date.now(), data });
+  return data;
 }

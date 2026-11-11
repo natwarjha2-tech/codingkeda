@@ -55,6 +55,7 @@ import {
 } from "@/app/lib/s3";
 import {
   getRecordingHlsStatus,
+  getRecordingTimeline,
   isRecordingHlsReady,
   queueRecordingHls,
   recordingHlsPrefix,
@@ -1607,6 +1608,88 @@ async function recordingHlsState(r: { id: string; s3Key: string; status: string 
   } catch {
     return "pending";
   }
+}
+
+/** Chat + reactions of a recording, positioned on the video timeline. */
+export interface RecordingReplayDTO {
+  chat: {
+    id: string;
+    senderName: string;
+    senderRole: string;
+    message: string;
+    offsetSec: number; // seconds from the start of the recording video
+  }[];
+  reactions: { emoji: string; offsetSec: number }[];
+}
+
+/**
+ * Replay data for a recording: the class chat and floating reactions that
+ * happened while it was recording, each with its position (seconds) in the
+ * video — the player shows them in sync, like a live-chat replay. Read-only.
+ * Access: same as watching the recording (host, instructor, enrolled student).
+ */
+export async function getRecordingReplay(opts: {
+  requesterId: string;
+  liveClassId: string;
+  recordingId: string;
+}): Promise<ServiceResult<RecordingReplayDTO>> {
+  const liveClass = await prisma.liveClass.findUnique({
+    where: { id: opts.liveClassId },
+    select: { id: true, courseId: true, hostUserId: true },
+  });
+  if (!liveClass) return fail(404, "Live class not found.");
+
+  const access = await resolveJoinAccess(opts.requesterId, {
+    courseId: liveClass.courseId,
+    hostUserId: liveClass.hostUserId,
+  });
+  if (!access.allowed) return fail(403, "You don't have access to this recording.");
+
+  const rec = await prisma.liveRecording.findFirst({
+    where: { id: opts.recordingId, liveClassId: liveClass.id },
+    select: { id: true, s3Key: true, status: true, createdAt: true, duration: true },
+  });
+  if (!rec || rec.status !== "ready") return fail(404, "Recording not found.");
+
+  // Video time 0 = first captured chunk (falls back to when recording started).
+  const timeline = await getRecordingTimeline(rec);
+  const startMs = timeline.startMs ?? rec.createdAt.getTime();
+  const durMs = Math.max(0, (rec.duration ?? 0) * 1000);
+  // Recording window (+ small margins for clock skew between server and Chime).
+  const fromMs = Math.min(startMs, rec.createdAt.getTime()) - 5_000;
+  const toMs = (durMs > 0 ? rec.createdAt.getTime() + durMs : Date.now()) + 60_000;
+  const toOffset = (ms: number) => Math.max(0, Math.round(((ms - startMs) / 1000) * 10) / 10);
+
+  const rows = await prisma.liveChatMessage.findMany({
+    where: {
+      liveClassId: liveClass.id,
+      createdAt: { gte: new Date(fromMs), lte: new Date(toMs) },
+    },
+    orderBy: { createdAt: "asc" },
+    take: 2000,
+    select: { id: true, senderId: true, senderRole: true, message: true, messageType: true, createdAt: true },
+  });
+
+  const senderIds = [...new Set(rows.map((r) => r.senderId))];
+  const users = senderIds.length
+    ? await prisma.user.findMany({ where: { id: { in: senderIds } }, select: { id: true, name: true } })
+    : [];
+  const names = new Map(users.map((u) => [u.id, u.name || "User"]));
+
+  return ok({
+    chat: rows
+      .filter((r) => r.messageType !== "SYSTEM")
+      .map((r) => ({
+        id: r.id,
+        senderName: names.get(r.senderId) || "User",
+        senderRole: r.senderRole,
+        message: r.message,
+        offsetSec: toOffset(r.createdAt.getTime()),
+      })),
+    reactions: timeline.reactions
+      .filter((x) => x.atMs >= fromMs && x.atMs <= toMs)
+      .map((x) => ({ emoji: x.emoji, offsetSec: toOffset(x.atMs) })),
+  });
 }
 
 /** HLS playback auth for a recording (same CloudFront-cookie model as lessons). */

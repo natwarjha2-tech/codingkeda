@@ -137,8 +137,13 @@ export async function startMediaCapture(opts: {
             Layout: "GridView",
             Resolution: "HD",
             GridViewConfiguration: {
-              // Show the screen-share prominently with speakers alongside.
-              ContentShareLayout: "Horizontal",
+              // While a screen is shared: the shared screen fills the WHOLE frame
+              // and only the presenter's camera is overlaid as a small tile in a
+              // corner (was "Horizontal" = a big camera strip below the screen,
+              // which shrank the screen and duplicated the camera).
+              // Without a screen share it is still the normal camera grid.
+              ContentShareLayout: "PresenterOnly",
+              PresenterOnlyConfiguration: { PresenterPosition: "BottomRight" },
             },
           },
         },
