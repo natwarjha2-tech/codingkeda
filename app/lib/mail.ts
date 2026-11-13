@@ -17,13 +17,21 @@ function sanitize(val: string): string {
   return val.replace(/[\r\n]/g, " ").trim();
 }
 
-export async function sendEmail(to: string, subject: string, html: string) {
+export interface MailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType?: string;
+}
+
+/** `attachments` is optional — existing callers are unchanged. */
+export async function sendEmail(to: string, subject: string, html: string, attachments?: MailAttachment[]) {
   try {
     const info = await transporter.sendMail({
       from: `"CodingKida" <${process.env.SMTP_USER}>`,
       to,
       subject,
       html,
+      ...(attachments && attachments.length ? { attachments } : {}),
     });
     console.log("MAIL SENT:", sanitize(info.messageId));
   } catch (err) {

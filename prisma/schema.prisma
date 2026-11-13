@@ -785,3 +785,53 @@ model DailyActivity {
   @@unique([userId, date])
   @@index([userId])
 }
+
+// ── Final course test + certificate ─────────────────────────────────────────
+// Standalone tables (no FKs) → the migration only CREATEs new tables; no
+// existing table is touched.
+
+// The generated question set for a course (built by the final-test script or
+// the admin route from the course's existing lesson quizzes).
+model FinalTest {
+  id          String   @id @default(uuid())
+  courseId    String   @unique
+  quizIds     Json // ordered array of Quiz ids (balanced across lessons)
+  passPercent Int      @default(60)
+  timeLimitMin Int     @default(60)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// One row per student attempt. Questions are served WITHOUT answers and graded
+// on the server at submit time.
+model FinalTestAttempt {
+  id          String    @id @default(uuid())
+  userId      String
+  courseId    String
+  quizIds     Json // question ids in the order shown to the student
+  answers     Json? // { [quizId]: selectedOptionIndex }
+  score       Int? // correct count
+  total       Int
+  percent     Int?
+  passed      Boolean   @default(false)
+  startedAt   DateTime  @default(now())
+  submittedAt DateTime?
+
+  @@index([userId, courseId])
+}
+
+// Issued once per user per course when an attempt passes.
+model Certificate {
+  id          String   @id @default(uuid())
+  code        String   @unique // e.g. CK-2026-7F3A9C — printed on the PDF, used for verification
+  userId      String
+  courseId    String
+  attemptId   String
+  studentName String
+  courseTitle String
+  percent     Int
+  issuedAt    DateTime @default(now())
+
+  @@unique([userId, courseId])
+  @@index([userId])
+}

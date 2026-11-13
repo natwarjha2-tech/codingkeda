@@ -14,7 +14,8 @@
     "seed:problems": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/seed-problems.ts",
     "rag:index": "ts-node -r tsconfig-paths/register --compiler-options '{\"module\":\"CommonJS\"}' scripts/index-study-material.ts",
     "rag:cleanup": "ts-node -r tsconfig-paths/register --compiler-options '{\"module\":\"CommonJS\"}' scripts/rag-cleanup.ts",
-    "cache:clear": "ts-node -r tsconfig-paths/register --compiler-options '{\"module\":\"CommonJS\"}' scripts/clear-help-cache.ts"
+    "cache:clear": "ts-node -r tsconfig-paths/register --compiler-options '{\"module\":\"CommonJS\"}' scripts/clear-help-cache.ts",
+    "final-test:generate": "ts-node --compiler-options '{\"module\":\"CommonJS\",\"moduleResolution\":\"node\"}' scripts/generate-final-test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-chime-sdk-media-pipelines": "^3.1148.0",
@@ -31,6 +32,7 @@
     "lucide-react": "^1.8.0",
     "next": "16.2.4",
     "nodemailer": "^8.0.7",
+    "pdf-lib": "1.17.1",
     "pdf-parse": "^2.4.5",
     "pptx-parser": "^1.1.7-beta.9",
     "prisma": "^5.22.0",
