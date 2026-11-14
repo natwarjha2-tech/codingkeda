@@ -319,6 +319,30 @@ export async function notifyAchievement(opts: {
 }
 
 /**
+ * Notify: Course completed + certificate issued (final test passed).
+ * The app opens the certificate when this notification is tapped.
+ */
+export async function notifyCertificateEarned(opts: {
+  userId: string;
+  courseId: string;
+  courseTitle: string;
+  code: string;
+  percent: number;
+}) {
+  return createNotification({
+    userId: opts.userId,
+    type: "certificate_earned",
+    category: "achievement",
+    priority: "HIGH",
+    title: "Course Completed! 🎓",
+    body: `You successfully completed ${opts.courseTitle} with ${opts.percent}%. Your certificate is ready — tap to view, download or share it.`,
+    metadata: { courseId: opts.courseId, courseTitle: opts.courseTitle, certificateCode: opts.code, percent: opts.percent },
+    action: { type: "deeplink", target: `/certificate/${opts.code}` },
+    idempotencyKey: `certificate_earned:${opts.userId}:${opts.courseId}`,
+  });
+}
+
+/**
  * Notify: Weekly streak passed.
  */
 export async function notifyWeeklyStreak(opts: {

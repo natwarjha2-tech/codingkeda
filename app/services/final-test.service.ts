@@ -16,6 +16,7 @@
 import { prisma } from "@/app/lib/prisma";
 import { sendEmail } from "@/app/lib/mail";
 import { logger } from "@/app/lib/logger";
+import { notifyCertificateEarned } from "@/app/lib/notification";
 import { buildCertificatePdf } from "@/app/lib/certificate-pdf";
 import {
   FINAL_TEST_COOLDOWN_HOURS, FINAL_TEST_GRACE_SEC,
@@ -91,7 +92,7 @@ export async function getFinalTestStatus(userId: string, courseId: string) {
     prisma.finalTestAttempt.findMany({
       where: { userId, courseId },
       orderBy: { startedAt: "desc" },
-      select: { id: true, percent: true, passed: true, startedAt: true, submittedAt: true },
+      select: { id: true, score: true, total: true, percent: true, passed: true, startedAt: true, submittedAt: true },
     }),
     prisma.certificate.findUnique({ where: { userId_courseId: { userId, courseId } } }),
   ]);
@@ -117,6 +118,15 @@ export async function getFinalTestStatus(userId: string, courseId: string) {
     ...completion,
     unlocked: enrolled && completion.allCompleted,
     attemptsCount: submitted.length,
+    // Past attempts (newest first) — each can be opened for review.
+    attempts: submitted.map((a) => ({
+      attemptId: a.id,
+      score: a.score ?? 0,
+      total: a.total,
+      percent: a.percent ?? 0,
+      passed: a.passed,
+      submittedAt: a.submittedAt!.toISOString(),
+    })),
     bestPercent: submitted.length ? best : null,
     passed: everPassed,
     nextAttemptAt: coolingDown ? nextAttemptAt!.toISOString() : null,
@@ -260,6 +270,57 @@ export async function submitFinalTest(userId: string, attemptId: string, rawAnsw
   };
 }
 
+// ── Review a past attempt (any time, after the app is closed/reopened) ─────
+/**
+ * Correct answers + explanations are shown when the attempt itself passed, or
+ * once the student has passed the course test at least once (nothing left to
+ * protect). A student who has only failed so far still sees which of their own
+ * answers were right/wrong, but not the answer key (retake protection).
+ */
+export async function getAttemptReview(userId: string, attemptId: string) {
+  const attempt = await prisma.finalTestAttempt.findUnique({ where: { id: attemptId } });
+  if (!attempt || attempt.userId !== userId || !attempt.submittedAt) throw new FinalTestError(404, "Attempt not found.");
+
+  const passedBefore = attempt.passed || !!(await prisma.finalTestAttempt.findFirst({
+    where: { userId, courseId: attempt.courseId, passed: true, submittedAt: { not: null } },
+    select: { id: true },
+  }));
+
+  const ids = asIdArray(attempt.quizIds);
+  const given = asAnswers(attempt.answers);
+  const quizzes = await prisma.quiz.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, question: true, options: true, answer: true, explanation: true },
+  });
+  const byId = new Map(quizzes.map((q) => [q.id, q]));
+  const review = ids
+    .map((id) => byId.get(id))
+    .filter((q): q is NonNullable<typeof q> => !!q)
+    .map((q) => {
+      const selected = given[q.id] ?? null;
+      return {
+        quizId: q.id,
+        question: q.question,
+        options: toOptions(q.options),
+        selected,
+        correct: selected !== null && selected === q.answer,
+        answer: passedBefore ? q.answer : null,
+        explanation: passedBefore ? q.explanation ?? null : null,
+      };
+    });
+
+  return {
+    attemptId: attempt.id,
+    score: attempt.score ?? 0,
+    total: attempt.total,
+    percent: attempt.percent ?? 0,
+    passed: attempt.passed,
+    submittedAt: attempt.submittedAt.toISOString(),
+    answersRevealed: passedBefore,
+    review,
+  };
+}
+
 // ── Issue certificate (after the student confirms the name) ────────────────
 export async function issueCertificate(userId: string, attemptId: string, rawName: unknown) {
   const attempt = await prisma.finalTestAttempt.findUnique({ where: { id: attemptId } });
@@ -318,6 +379,16 @@ export async function issueCertificate(userId: string, attemptId: string, rawNam
     }
   } catch (err) {
     logger.error("final-test", "certificate_email_failed", { userId, error: err instanceof Error ? err.message : "unknown" });
+  }
+
+  // In-app + push notification (idempotent per certificate; never blocks issuing).
+  try {
+    await notifyCertificateEarned({
+      userId, courseId: attempt.courseId, courseTitle: certificate!.courseTitle,
+      code: certificate!.code, percent: certificate!.percent,
+    });
+  } catch (err) {
+    logger.error("final-test", "certificate_notify_failed", { userId, error: err instanceof Error ? err.message : "unknown" });
   }
 
   logger.success("final-test", "certificate_issued", { userId, courseId: attempt.courseId, code: certificate!.code });
