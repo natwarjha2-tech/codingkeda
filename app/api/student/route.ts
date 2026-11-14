@@ -4,6 +4,8 @@ import { requireAuth } from "@/app/lib/middleware";
 import { extractUser } from "@/app/lib/middleware";
 import { verifyToken } from "@/app/lib/auth";
 import { apiSuccess, apiError } from "@/app/lib/response";
+import { getParentReportConsent } from "@/app/services/weekly-report.service";
+import { getParentVerification } from "@/app/services/parent-verify.service";
 
 // ── GET /api/student — fetch logged-in user profile ──────────────────────────
 export async function GET(req: NextRequest) {
@@ -27,11 +29,14 @@ export async function GET(req: NextRequest) {
     });
 
     const enrollmentCount = await prisma.enrollment.count({ where: { userId: authUser!.userId } });
+    const parentReportConsent = await getParentReportConsent(authUser!.userId);
+    const parentVerification = await getParentVerification(authUser!.userId).catch(() => null);
 
     return apiSuccess({
       student: student
         ? {
             ...user, studentId: student.id, enrolledCourses: enrollmentCount, enrolledSince: student.createdAt,
+            parentReportConsent, parentVerification,
             studentName: student.studentName ?? null, studentDob: student.studentDob ?? null,
             studentGrade: student.studentGrade ?? null, studentGender: student.studentGender ?? null,
             studentSchool: student.studentSchool ?? null, parentName: student.parentName ?? null,

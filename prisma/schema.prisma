@@ -835,3 +835,60 @@ model Certificate {
   @@unique([userId, courseId])
   @@index([userId])
 }
+
+// ── Weekly parent report on WhatsApp ────────────────────────────────────────
+// Two standalone tables (no foreign keys) → the migration only CREATEs new
+// tables; no existing table, column or row is touched.
+
+// Parent consent to receive the weekly report on WhatsApp. One row per student.
+// Opt-in only: a student without a row (or consent=false) is never messaged.
+model ParentReportConsent {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  consent   Boolean  @default(false)
+  source    String   @default("app") // app | desktop | admin | whatsapp_stop
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// One row per (student, week) that was actually sent (or failed) — prevents a
+// parent from getting the same week's report twice. Dry runs write nothing.
+model WeeklyReportLog {
+  id          String   @id @default(uuid())
+  userId      String
+  weekStart   String // Monday of the reported week, "YYYY-MM-DD" (IST)
+  status      String // sent | failed
+  error       String? // short reason when failed
+  waMessageId String? // Meta's message id when sent
+  toLast4     String? // last 4 digits only — the full number is never stored here
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, weekStart])
+  @@index([createdAt])
+}
+
+// ── Parent WhatsApp number verification ─────────────────────────────────────
+// Standalone table (no foreign keys) → the migration only CREATEs a new table.
+// One row per student: the pending one-time code (stored only as a hash) and
+// the number that was verified. A parent number counts as verified only while
+// it equals the student's CURRENT parentContact, so changing the number
+// invalidates it automatically.
+model ParentPhoneVerification {
+  id            String    @id @default(uuid())
+  userId        String    @unique
+  phone         String // normalized number the latest code was sent to
+  codeHash      String? // HMAC of the code (never the code itself)
+  expiresAt     DateTime?
+  attempts      Int       @default(0) // wrong guesses for the current code
+  live          Boolean   @default(false) // true only if the code really went out on WhatsApp
+  verifiedPhone String? // normalized number that was successfully verified
+  verifiedAt    DateTime?
+  sendsDay      String? // "YYYY-MM-DD" (IST) the counter below belongs to
+  sendsToday    Int       @default(0) // codes requested today (abuse limit)
+  lastSentAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([phone])
+}

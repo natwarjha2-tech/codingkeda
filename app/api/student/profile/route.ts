@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
+import { setParentReportConsent } from "@/app/services/weekly-report.service";
+import { getParentVerification } from "@/app/services/parent-verify.service";
 
 /**
  * PATCH /api/student/profile
@@ -14,7 +16,7 @@ export async function PATCH(req: NextRequest) {
     if (error) return error;
 
     const body = await req.json();
-    const { name, studentName, studentDob, studentGrade, studentGender, studentSchool, parentName, parentEmail, parentContact } = body;
+    const { name, studentName, studentDob, studentGrade, studentGender, studentSchool, parentName, parentEmail, parentContact, parentReportConsent } = body;
 
     // Update User display name if provided
     if (name?.trim()) {
@@ -45,6 +47,15 @@ export async function PATCH(req: NextRequest) {
           data: { userId: user!.userId, email: dbUser!.email, name: studentData.name ?? dbUser!.name, enrolledCourses: 0, ...studentData },
         });
       }
+    }
+
+    // Parent consent for the weekly WhatsApp report (opt-in; only when sent).
+    if (typeof parentReportConsent === "boolean") {
+      // The report can only be switched ON for a number the parent has verified with a code.
+      if (parentReportConsent && !(await getParentVerification(user!.userId)).verified) {
+        return apiError(400, "Verify your parent's WhatsApp number first, then turn on the weekly report.");
+      }
+      await setParentReportConsent(user!.userId, parentReportConsent, "app");
     }
 
     return apiSuccess({});

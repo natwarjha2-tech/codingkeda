@@ -155,6 +155,18 @@ export default function AdminDashboard() {
           {/* Super Admin: Demo Video Upload */}
           {isSuperAdmin && <DemoVideoUpload token={token || ""} />}
 
+          {/* Super Admin: weekly parent reports on WhatsApp */}
+          {isSuperAdmin && (
+            <button onClick={() => router.push("/admin/weekly-reports")}
+              className="mb-8 w-full text-left p-5 bg-[#16213e] border border-green-500/20 hover:border-green-500/40 rounded-2xl transition-all flex items-center justify-between">
+              <span>
+                <span className="block text-white font-bold text-sm">📊 Weekly parent reports (WhatsApp)</span>
+                <span className="block text-slate-400 text-xs mt-1">Preview and send each parent a short summary of their child&apos;s week.</span>
+              </span>
+              <span className="text-green-400 text-xl">›</span>
+            </button>
+          )}
+
           {/* Super Admin Tabs */}
           {isSuperAdmin && (
             <div className="flex gap-2 mb-6">
