@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { signToken } from "@/app/lib/auth";
+import { claimDevice, claimErrorResponse, parseDevice } from "@/app/services/student-device.service";
+import { cancelDeletionOnSignIn } from "@/app/services/account-deletion.service";
 
 /**
  * POST /api/auth/verify-otp
@@ -10,7 +12,7 @@ import { signToken } from "@/app/lib/auth";
  */
 export async function POST(req: NextRequest) {
   try {
-    const { email, otp, name } = await req.json();
+    const { email, otp, name, device, replaceDevice } = await req.json();
 
     if (!email || !otp) {
       return NextResponse.json(
@@ -38,15 +40,27 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Find or create user
+    let user = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    // Device limit (students only). Checked BEFORE the code is used up, so the
+    // student can confirm "use this device instead" with the same code.
+    const deviceInfo = parseDevice(device);
+    let did: string | undefined;
+    if (user) {
+      // Signing in during the 30-day deletion grace period restores the account.
+      await cancelDeletionOnSignIn(user.id);
+      const claim = await claimDevice({ id: user.id, role: user.role }, deviceInfo, { replace: replaceDevice === true });
+      if (!claim.ok) return claimErrorResponse(claim);
+      did = claim.did;
+    }
+
     // Mark OTP as used
     await prisma.emailOtp.update({
       where: { id: otpRecord.id },
       data: { used: true },
-    });
-
-    // Find or create user
-    let user = await prisma.user.findUnique({
-      where: { email: normalizedEmail },
     });
 
     if (!user) {
@@ -69,11 +83,15 @@ export async function POST(req: NextRequest) {
           enrolledCourses: 0,
         },
       }).catch(() => {}); // ignore if exists
+
+      // A brand-new account has no devices yet, so this only registers the device.
+      const claim = await claimDevice({ id: user.id, role: user.role }, deviceInfo);
+      did = claim.ok ? claim.did : undefined;
     }
 
     // Generate JWT (365 days)
     const token = signToken(
-      { userId: user.id, email: user.email, role: user.role },
+      { userId: user.id, email: user.email, role: user.role, ...(did ? { did } : {}) },
       "365d"
     );
 

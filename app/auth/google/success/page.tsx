@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { getWebDevice } from "@/app/lib/web-device";
 
 function GoogleSuccessContent() {
   const router = useRouter();
@@ -15,18 +16,35 @@ function GoogleSuccessContent() {
       return;
     }
 
-    try {
-      const user = JSON.parse(decodeURIComponent(userRaw));
+    (async () => {
+      try {
+        const user = JSON.parse(decodeURIComponent(userRaw));
 
-      localStorage.setItem("token", token);
-      localStorage.setItem("ck_token", token);
-      localStorage.setItem("userEmail", user.email || "");
-      localStorage.setItem("user", JSON.stringify({ ...user, loginMethod: "google" }));
+        // Device limit: tie this Google sign-in to this browser (one device at a time).
+        let finalToken = token;
+        const res = await fetch("/api/auth/device", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ device: getWebDevice() }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          window.alert(data.message || "This account is already used on another device. Please sign in with your email to switch.");
+          router.replace("/login");
+          return;
+        }
+        if (data.token) finalToken = data.token;
 
-      window.location.href = "/dashboard";
-    } catch {
-      router.replace("/login?error=google_failed");
-    }
+        localStorage.setItem("token", finalToken);
+        localStorage.setItem("ck_token", finalToken);
+        localStorage.setItem("userEmail", user.email || "");
+        localStorage.setItem("user", JSON.stringify({ ...user, loginMethod: "google" }));
+
+        window.location.href = "/dashboard";
+      } catch {
+        router.replace("/login?error=google_failed");
+      }
+    })();
   }, [searchParams, router]);
 
   return (

@@ -8,6 +8,8 @@ import { createRateLimiter } from "@/app/lib/rate-limit";
 import { logger } from "@/app/lib/logger";
 import { parseBody, emailSchema } from "@/app/lib/validation";
 import { z } from "zod";
+import { claimDevice, claimErrorResponse, parseDevice } from "@/app/services/student-device.service";
+import { cancelDeletionOnSignIn } from "@/app/services/account-deletion.service";
 
 // Rate limiters: per-IP (burst protection) + per-email (brute-force protection)
 const ipLimiter = createRateLimiter({ windowMs: 15 * 60_000, max: 15 });
@@ -16,6 +18,9 @@ const emailLimiter = createRateLimiter({ windowMs: 15 * 60_000, max: 5 });
 const loginSchema = z.object({
   email: emailSchema,
   password: z.string().min(1, "Password is required."),
+  // Sent by the apps for the device limit (older apps don't send it).
+  device: z.unknown().optional(),
+  replaceDevice: z.boolean().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -30,7 +35,7 @@ export async function POST(req: NextRequest) {
 
     const result = await parseBody(req, loginSchema);
     if (result.error) return result.error;
-    const { email, password } = result.data;
+    const { email, password, device, replaceDevice } = result.data;
 
     // Rate limit by email (prevents brute-force on specific account)
     if (!emailLimiter.check(email.toLowerCase())) {
@@ -46,7 +51,14 @@ export async function POST(req: NextRequest) {
     // Reset email limiter on successful login (reward correct credentials)
     emailLimiter.reset(email.toLowerCase());
 
-    const token = signToken({ userId: user.id, email: user.email, role: user.role }, "365d");
+    // Signing in during the 30-day deletion grace period restores the account.
+    const deletionCancelled = await cancelDeletionOnSignIn(user.id);
+
+    // Device limit (students only).
+    const claim = await claimDevice({ id: user.id, role: user.role }, parseDevice(device), { replace: replaceDevice === true });
+    if (!claim.ok) return claimErrorResponse(claim);
+
+    const token = signToken({ userId: user.id, email: user.email, role: user.role, ...(claim.did ? { did: claim.did } : {}) }, "365d");
 
     // Generate fresh presigned URL if avatar exists (private S3 bucket)
     let avatarUrl: string | null = null;
@@ -62,6 +74,7 @@ export async function POST(req: NextRequest) {
       message: `Logged in as ${user.role}.`,
       token,
       user: { id: user.id, name: user.name, email: user.email, role: user.role, avatarUrl },
+      deletionCancelled,
     });
   } catch (err) {
     logger.error("auth-login", "unhandled_error", { error: err instanceof Error ? err.message : "Unknown" });

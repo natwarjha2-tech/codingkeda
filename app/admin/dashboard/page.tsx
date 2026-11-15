@@ -167,6 +167,18 @@ export default function AdminDashboard() {
             </button>
           )}
 
+          {/* Super Admin: student devices (device limit support) */}
+          {isSuperAdmin && (
+            <button onClick={() => router.push("/admin/student-devices")}
+              className="mb-8 w-full text-left p-5 bg-[#16213e] border border-purple-500/20 hover:border-purple-500/40 rounded-2xl transition-all flex items-center justify-between">
+              <span>
+                <span className="block text-white font-bold text-sm">📱 Student devices</span>
+                <span className="block text-slate-400 text-xs mt-1">See a student&apos;s phone and computer, and unlink a device when they are locked out.</span>
+              </span>
+              <span className="text-purple-400 text-xl">›</span>
+            </button>
+          )}
+
           {/* Super Admin Tabs */}
           {isSuperAdmin && (
             <div className="flex gap-2 mb-6">

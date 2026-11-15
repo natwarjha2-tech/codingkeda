@@ -319,6 +319,14 @@ export default function ProfilePage() {
                 <><Save size={15} /> Save Changes</>
               )}
             </motion.button>
+
+            {/* Delete account (Google Play / App Store requirement) */}
+            <button
+              onClick={() => router.push("/delete-account")}
+              className="w-full py-3 rounded-xl text-sm font-semibold text-red-400 border border-red-500/30 hover:bg-red-500/10 transition-all"
+            >
+              Delete account
+            </button>
           </motion.div>
         </div>
       </main>

@@ -8,6 +8,7 @@ import { logger } from "@/app/lib/logger";
 import { validatePassword, parseBody, emailSchema } from "@/app/lib/validation";
 import { notifyWelcome } from "@/app/lib/notification";
 import { z } from "zod";
+import { claimDevice, parseDevice } from "@/app/services/student-device.service";
 
 // Rate limiter: 3 signups per hour per IP (prevents mass account creation)
 const signupLimiter = createRateLimiter({ windowMs: 60 * 60_000, max: 3 });
@@ -16,6 +17,7 @@ const signupSchema = z.object({
   name: z.string().optional().default(""),
   email: emailSchema,
   password: z.string().min(1, "Password is required."),
+  device: z.unknown().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -29,7 +31,7 @@ export async function POST(req: NextRequest) {
 
     const result = await parseBody(req, signupSchema);
     if (result.error) return result.error;
-    const { name, email, password } = result.data;
+    const { name, email, password, device } = result.data;
 
     // Password strength validation (beyond Zod's basic min length)
     const passwordError = validatePassword(password);
@@ -44,7 +46,11 @@ export async function POST(req: NextRequest) {
       data: { name: name?.trim() || "", email, password: hashedPassword, role: "user" },
     });
 
-    const token = signToken({ userId: user.id, email: user.email, role: user.role }, "365d");
+    // New account: register this device as its first phone/computer.
+    const claim = await claimDevice({ id: user.id, role: user.role }, parseDevice(device));
+    const did = claim.ok ? claim.did : undefined;
+
+    const token = signToken({ userId: user.id, email: user.email, role: user.role, ...(did ? { did } : {}) }, "365d");
 
     // Welcome notification (non-blocking — never fail signup)
     try {

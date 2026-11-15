@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
+import { checkStudentDevice } from "@/app/services/student-device.service";
 
 /**
  * Server-side per-day learning activity, so the "My Report" calendar can show
@@ -67,6 +68,9 @@ export async function POST(req: NextRequest) {
   try {
     const { error, user } = requireAuth(req);
     if (error) return error;
+    // A replaced/unlinked device no longer adds learning time.
+    const deviceError = await checkStudentDevice(user);
+    if (deviceError) return deviceError;
 
     const body = await req.json().catch(() => ({}));
     const date: string = String(body?.date || "");
@@ -80,21 +84,23 @@ export async function POST(req: NextRequest) {
       return apiSuccess({ ok: true, skipped: true }); // nothing to record
     }
 
-    // Accumulate: add the incoming minutes/sessions onto the stored day, capped.
-    const existing = await prisma.dailyActivity.findUnique({
-      where: { userId_date: { userId: user!.userId, date } },
-      select: { minutes: true, sessions: true },
-    });
-
-    const newMinutes = Math.min(MAX_DAILY_MINUTES, (existing?.minutes || 0) + minutes);
-    const newSessions = (existing?.sessions || 0) + sessions;
-
-    const saved = await prisma.dailyActivity.upsert({
-      where: { userId_date: { userId: user!.userId, date } },
-      create: { userId: user!.userId, date, minutes: Math.min(MAX_DAILY_MINUTES, minutes), sessions },
-      update: { minutes: newMinutes, sessions: newSessions },
+    // Accumulate ATOMICALLY (the database adds the numbers), so two sends arriving
+    // at the same moment (e.g. phone + desktop) can't overwrite each other.
+    const where = { userId_date: { userId: user!.userId, date } };
+    const add = Math.min(MAX_DAILY_MINUTES, minutes);
+    let saved = await prisma.dailyActivity.upsert({
+      where,
+      create: { userId: user!.userId, date, minutes: add, sessions },
+      update: { minutes: { increment: add }, sessions: { increment: sessions } },
       select: { date: true, minutes: true, sessions: true },
     });
+    if (saved.minutes > MAX_DAILY_MINUTES) {
+      saved = await prisma.dailyActivity.update({
+        where,
+        data: { minutes: MAX_DAILY_MINUTES },
+        select: { date: true, minutes: true, sessions: true },
+      });
+    }
 
     return apiSuccess({ ok: true, day: saved });
   } catch {

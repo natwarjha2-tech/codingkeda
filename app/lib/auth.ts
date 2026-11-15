@@ -14,6 +14,8 @@ export type JwtPayload = {
   userId: string;
   email: string;
   role: string;
+  /** Student device this token belongs to (device limit). Absent on older tokens. */
+  did?: string;
 };
 
 export function signToken(payload: JwtPayload, expiresIn?: string | number): string {

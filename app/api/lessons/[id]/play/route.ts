@@ -3,6 +3,7 @@ import { prisma } from "@/app/lib/prisma";
 import { extractUser } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { getSignedFileUrlFromUrl, getS3KeyFromUrl, isCloudFrontConfigured, getHlsMasterUrl } from "@/app/lib/s3";
+import { checkStudentDevice } from "@/app/services/student-device.service";
 
 /**
  * GET /api/lessons/[id]/play
@@ -44,6 +45,9 @@ export async function GET(
 
     const courseId = lesson.module?.courseId;
     const authUser = extractUser(req);
+    // Device limit: a replaced/unlinked device can't play lessons.
+    const deviceError = await checkStudentDevice(authUser);
+    if (deviceError) return deviceError;
     const s3KeyRaw = lesson.videoUrl ? getS3KeyFromUrl(lesson.videoUrl) : null;
 
     // Fire the two INDEPENDENT follow-up queries in PARALLEL — both only depend

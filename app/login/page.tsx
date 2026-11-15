@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Loader2, CheckCircle, Mail, Eye, EyeOff, Code, Users, BookOpen, TrendingUp } from "lucide-react";
 import Navbar from "@/components/Navbar";
-import { loginUser, saveToken } from "@/services/auth";
+import { loginUser, saveToken, LoginError } from "@/services/auth";
+import { getWebDevice, confirmReplaceDevice } from "@/app/lib/web-device";
 
 /* ── Forgot Password Modal ── */
 function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
@@ -121,7 +122,15 @@ function LoginForm() {
     if (password.length < 8) return setError("Password must be at least 8 characters!");
     setLoading(true);
     try {
-      const data = await loginUser({ email, password });
+      let data;
+      try {
+        data = await loginUser({ email, password });
+      } catch (err) {
+        // Device limit: this account is used on another device. Ask to move it here.
+        if (err instanceof LoginError && err.code === "DEVICE_LIMIT" && confirmReplaceDevice(err.data)) {
+          data = await loginUser({ email, password }, true);
+        } else throw err;
+      }
       saveToken(data.token);
       localStorage.setItem("userEmail", email);
       localStorage.setItem("user", JSON.stringify({ email, role: "user" }));
@@ -152,7 +161,7 @@ function LoginForm() {
       const res = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: signupName, email: signupEmail, password: signupPassword }),
+        body: JSON.stringify({ name: signupName, email: signupEmail, password: signupPassword, device: getWebDevice() }),
       });
       const data = await res.json();
       if (!res.ok) return setSignupError(data.message || "Signup failed.");
@@ -317,8 +326,13 @@ function LoginForm() {
                               if (!otpCode.trim() || otpCode.length !== 6) { setOtpMsg('Enter the 6-digit code.'); setOtpMsgType('error'); return; }
                               setOtpLoading(true); setOtpMsg('');
                               try {
-                                const res = await fetch('/api/auth/verify-otp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: otpEmail.trim(), otp: otpCode.trim() }) });
-                                const data = await res.json();
+                                const verify = (replaceDevice: boolean) => fetch('/api/auth/verify-otp', {
+                                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ email: otpEmail.trim(), otp: otpCode.trim(), device: getWebDevice(), replaceDevice }),
+                                }).then((r) => r.json());
+                                let data = await verify(false);
+                                // Device limit: the code is still valid, so ask and retry with it.
+                                if (!data.success && data.code === 'DEVICE_LIMIT' && confirmReplaceDevice(data)) data = await verify(true);
                                 if (data.success && data.token) {
                                   localStorage.setItem('token', data.token);
                                   localStorage.setItem('userEmail', data.user.email || '');

@@ -893,3 +893,65 @@ model ParentPhoneVerification {
 
   @@index([phone])
 }
+
+// ── Device limit: each student may use 1 phone/tablet + 1 desktop/laptop ──────
+// A row is a device the student signed in on. revokedAt set = signed out by a
+// switch to a new device or by an admin. No foreign key to User on purpose
+// (additive table; rows are removed with the user by the app if ever needed).
+model StudentDevice {
+  id         String    @id @default(uuid())
+  userId     String
+  kind       String // "mobile" | "desktop"
+  deviceId   String // random id created by the app on that device
+  name       String    @default("") // e.g. "Samsung SM-A145F (Android 14)"
+  platform   String    @default("") // android | ios | windows | mac | linux
+  appVersion String    @default("")
+  createdAt  DateTime  @default(now())
+  lastSeenAt DateTime  @default(now())
+  revokedAt  DateTime?
+  revokedBy  String? // "switch" | "admin:<adminUserId>"
+
+  @@unique([userId, deviceId])
+  @@index([userId, kind])
+}
+
+// History of device actions (used for the switch limit and for support).
+model StudentDeviceEvent {
+  id        String   @id @default(uuid())
+  userId    String
+  kind      String // "mobile" | "desktop" | "all"
+  deviceId  String   @default("")
+  action    String // "register" | "switch" | "admin_unlink" | "admin_reset"
+  actor     String   @default("") // "student" or the admin's user id
+  detail    String   @default("")
+  createdAt DateTime @default(now())
+
+  @@index([userId, action, createdAt])
+}
+
+// ── Account deletion (student-requested) ────────────────────────────────────
+// One row per student who asked to delete their account. "pending" = in the
+// 30-day grace period (signing in again cancels it). After the grace period a
+// cron job erases the personal data and marks the row "completed". Payment
+// records are kept (legal/tax), linked only to the anonymised user id.
+// Standalone table (no foreign key) → the migration only CREATEs a new table.
+model AccountDeletion {
+  id            String    @id @default(uuid())
+  userId        String    @unique
+  status        String    @default("pending") // pending | cancelled | completed
+  reason        String    @default("") // optional, cleared when the account is erased
+  channel       String    @default("") // app | desktop | web
+  requestedAt   DateTime?
+  scheduledFor  DateTime?
+  cancelledAt   DateTime?
+  completedAt   DateTime?
+  // Confirmation code sent to the account email (stored only as a hash).
+  codeHash      String?
+  codeExpiresAt DateTime?
+  codeAttempts  Int       @default(0)
+  codeSentAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([status, scheduledFor])
+}

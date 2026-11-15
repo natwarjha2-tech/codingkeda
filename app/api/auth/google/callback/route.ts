@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { signToken } from "@/app/lib/auth";
+import { cancelDeletionOnSignIn } from "@/app/services/account-deletion.service";
 
 /**
  * GET /api/auth/google/callback
@@ -60,6 +61,8 @@ export async function GET(req: NextRequest) {
     });
 
     if (user) {
+      // Signing in during the 30-day deletion grace period restores the account.
+      await cancelDeletionOnSignIn(user.id);
       // Update googleId if not set (existing password user logging in with Google)
       if (!user.googleId) {
         user = await prisma.user.update({

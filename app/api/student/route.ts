@@ -6,12 +6,15 @@ import { verifyToken } from "@/app/lib/auth";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { getParentReportConsent } from "@/app/services/weekly-report.service";
 import { getParentVerification } from "@/app/services/parent-verify.service";
+import { checkStudentDevice } from "@/app/services/student-device.service";
 
 // ── GET /api/student — fetch logged-in user profile ──────────────────────────
 export async function GET(req: NextRequest) {
   try {
     const { error, user: authUser } = requireAuth(req);
     if (error) return error;
+    const deviceError = await checkStudentDevice(authUser);
+    if (deviceError) return deviceError;
 
     const user = await prisma.user.findUnique({
       where: { id: authUser!.userId },
