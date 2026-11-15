@@ -116,7 +116,7 @@ export async function getFinalTestStatus(userId: string, courseId: string) {
     timeLimitMin: test.timeLimitMin,
     enrolled,
     ...completion,
-    unlocked: enrolled && completion.allCompleted,
+    unlocked: enrolled,
     attemptsCount: submitted.length,
     // Past attempts (newest first) — each can be opened for review.
     attempts: submitted.map((a) => ({
@@ -148,10 +148,7 @@ export async function startFinalTest(userId: string, courseId: string) {
   const { course, test, enrolled } = await loadContext(userId, courseId);
   if (!test || !course.hasCert) throw new FinalTestError(404, "The final test is not available for this course yet.");
   if (!enrolled) throw new FinalTestError(403, "You are not enrolled in this course.");
-  const completion = await getCourseCompletion(prisma, userId, courseId);
-  if (!completion.allCompleted) {
-    throw new FinalTestError(403, `Complete all lessons to unlock the final test (${completion.completedLessons}/${completion.totalLessons} done).`);
-  }
+  // No lesson-completion requirement: an enrolled student can take the test any time.
   await finalizeExpired(userId, courseId, test.timeLimitMin, test.passPercent);
 
   let attempt = await prisma.finalTestAttempt.findFirst({

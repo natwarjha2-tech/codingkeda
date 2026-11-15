@@ -166,7 +166,7 @@ export default function WeeklyReportsPage() {
                   <Stat label="Already sent" value={t.alreadySent} />
                   <Stat label="Number not verified" value={t.notVerified} accent={t.notVerified ? "text-yellow-400" : undefined} />
                   <Stat label="No valid number" value={t.noNumber} />
-                  <Stat label="No activity this week" value={t.inactive} />
+                  <Stat label="No activity (gentle reminder)" value={t.inactive} />
                   <Stat label="Failed" value={t.failed} accent={t.failed ? "text-red-400" : undefined} />
                 </div>
                 <p className="text-slate-500 text-xs mt-4">
@@ -180,7 +180,7 @@ export default function WeeklyReportsPage() {
                   <div>
                     <h2 className="text-white font-bold">Automatic weekly sending</h2>
                     <p className="text-slate-400 text-xs mt-1">
-                      When ON, the server sends the reports by itself every Sunday evening (and finishes any left over on Monday and Tuesday). Only verified parents are messaged.
+                      When ON, the server sends the reports by itself every Sunday at 9 AM IST. Only verified parents are messaged.
                     </p>
                   </div>
                   <button onClick={toggleAuto} disabled={autoBusy}

@@ -2,8 +2,8 @@
  * Weekly parent report on WhatsApp — business logic for the admin routes.
  *
  * Who gets a message: students whose parent consented (ParentReportConsent),
- * with a valid parent number, with some activity in the week, and not already
- * sent that week. Sending is done in small batches and stops at the daily limit
+ * with a verified parent number, and not already sent that week. A student with
+ * no activity still gets a short, polite note so the parent knows. Sending is done in small batches and stops at the daily limit
  * Meta allows for the account (WHATSAPP_DAILY_LIMIT, default 250/24 h).
  *
  * DRY RUN (default): nothing is sent and NOTHING IS WRITTEN — the plan is only
@@ -17,7 +17,7 @@ import {
   testAllowlist, testAsText, waSettings,
 } from "@/app/lib/whatsapp";
 import {
-  buildTemplateParams, chunk, emptyStats, hasActivity, renderPreviewText, reportWeekFor,
+  buildTemplateParams, chunk, emptyStats, hasActivity, istDayLabel, istYmd, renderPreviewText, reportWeekFor, weekdayName,
   type ReportWeek, type WeekStats,
 } from "@/app/lib/weekly-report";
 
@@ -71,7 +71,8 @@ export async function buildPlan(now: Date = new Date(), opts: { retryFailed?: bo
   };
 
   for (const part of chunk(ids, DB_CHUNK)) {
-    const [st, ver, daily, lessons, quiz, ex, coins] = await Promise.all([
+    const inWeek = { gte: week.startUtc, lt: week.endUtc };
+    const [st, ver, daily, lessonRows, quizRows, exRows, coinRows, badgeRows, totalRows] = await Promise.all([
       prisma.student.findMany({
         where: { userId: { in: part } },
         select: { userId: true, name: true, studentName: true, parentName: true, parentContact: true },
@@ -80,45 +81,104 @@ export async function buildPlan(now: Date = new Date(), opts: { retryFailed?: bo
         where: { userId: { in: part }, live: true, verifiedPhone: { not: null } },
         select: { userId: true, verifiedPhone: true },
       }),
+      // Same table the student's calendar and "This Week" card read.
       prisma.dailyActivity.findMany({
         where: { userId: { in: part }, date: { in: week.dates } },
-        select: { userId: true, minutes: true },
+        select: { userId: true, date: true, minutes: true },
+        orderBy: { date: "asc" },
       }),
-      prisma.progress.groupBy({
-        by: ["userId"],
-        where: { userId: { in: part }, completed: true, updatedAt: { gte: week.startUtc, lt: week.endUtc } },
-        _count: { _all: true },
+      prisma.progress.findMany({
+        where: { userId: { in: part }, completed: true, updatedAt: inWeek },
+        select: { userId: true, lessonId: true, updatedAt: true },
+        orderBy: { updatedAt: "asc" },
       }),
-      prisma.quizAttempt.groupBy({
-        by: ["userId", "correct"],
-        where: { userId: { in: part }, createdAt: { gte: week.startUtc, lt: week.endUtc } },
-        _count: { _all: true },
+      prisma.quizAttempt.findMany({
+        where: { userId: { in: part }, createdAt: inWeek },
+        select: { userId: true, lessonId: true, correct: true, createdAt: true, quiz: { select: { lessonId: true } } },
+        orderBy: { createdAt: "asc" },
       }),
-      prisma.exerciseSubmission.groupBy({
-        by: ["userId", "exerciseId"],
-        where: { userId: { in: part }, passed: true, createdAt: { gte: week.startUtc, lt: week.endUtc } },
+      prisma.exerciseSubmission.findMany({
+        where: { userId: { in: part }, passed: true, createdAt: inWeek },
+        select: { userId: true, exerciseId: true, createdAt: true },
+        orderBy: { createdAt: "asc" },
       }),
       prisma.coinTransaction.groupBy({
         by: ["userId"],
-        where: { userId: { in: part }, type: "EARNED", createdAt: { gte: week.startUtc, lt: week.endUtc } },
+        where: { userId: { in: part }, type: "EARNED", createdAt: inWeek },
         _sum: { coins: true },
       }),
+      prisma.achievement.findMany({
+        where: { userId: { in: part }, createdAt: inWeek },
+        select: { userId: true, title: true, lessonId: true, createdAt: true },
+        orderBy: { createdAt: "asc" },
+      }),
+      prisma.userCoins.findMany({
+        where: { userId: { in: part } },
+        select: { userId: true, totalCoins: true },
+      }),
     ]);
+
+    // Titles for the lessons and exercises that appear in this chunk.
+    const lessonIds = new Set<string>();
+    const exerciseIds = new Set<string>();
+    for (const r of lessonRows) lessonIds.add(r.lessonId);
+    for (const r of quizRows) { const id = r.lessonId ?? r.quiz?.lessonId; if (id) lessonIds.add(id); }
+    for (const r of badgeRows) lessonIds.add(r.lessonId);
+    for (const r of exRows) exerciseIds.add(r.exerciseId);
+    const [lessonTitleRows, exerciseTitleRows] = await Promise.all([
+      lessonIds.size
+        ? prisma.lesson.findMany({ where: { id: { in: [...lessonIds] } }, select: { id: true, title: true } })
+        : Promise.resolve([] as { id: string; title: string }[]),
+      exerciseIds.size
+        ? prisma.exercise.findMany({ where: { id: { in: [...exerciseIds] } }, select: { id: true, title: true } })
+        : Promise.resolve([] as { id: string; title: string }[]),
+    ]);
+    const lessonTitle = new Map(lessonTitleRows.map((l) => [l.id, l.title]));
+    const exerciseTitle = new Map(exerciseTitleRows.map((e) => [e.id, e.title]));
+
     students.push(...st);
     for (const v of ver) if (v.verifiedPhone) verified.set(v.userId, v.verifiedPhone);
+
     for (const d of daily) {
       const s = getStats(d.userId);
       s.minutes += d.minutes;
-      if (d.minutes > 0) s.activeDays += 1;
+      if (d.minutes > 0) {
+        s.activeDays += 1;
+        s.activeDayNames.push(weekdayName(d.date));
+      }
     }
-    for (const l of lessons) getStats(l.userId).lessons = l._count._all;
-    for (const q of quiz) {
-      const s = getStats(q.userId);
-      s.quizAttempts += q._count._all;
-      if (q.correct) s.quizCorrect += q._count._all;
+    for (const l of lessonRows) {
+      getStats(l.userId).lessons.push({ title: lessonTitle.get(l.lessonId) ?? "Lesson", date: istDayLabel(l.updatedAt) });
     }
-    for (const e of ex) getStats(e.userId).exercisesPassed += 1;
-    for (const c of coins) getStats(c.userId).coins = c._sum.coins ?? 0;
+    // One quiz entry per student + lesson + day: score = right answers / answers given.
+    const quizGroups = new Map<string, { userId: string; title: string; date: string; correct: number; total: number }>();
+    for (const q of quizRows) {
+      const lid = q.lessonId ?? q.quiz?.lessonId ?? "";
+      const key = `${q.userId}|${lid}|${istYmd(q.createdAt)}`;
+      let g = quizGroups.get(key);
+      if (!g) {
+        g = { userId: q.userId, title: lessonTitle.get(lid) ?? "Quiz", date: istDayLabel(q.createdAt), correct: 0, total: 0 };
+        quizGroups.set(key, g);
+      }
+      g.total += 1;
+      if (q.correct) g.correct += 1;
+    }
+    for (const g of quizGroups.values()) {
+      getStats(g.userId).quizzes.push({ title: g.title, date: g.date, correct: g.correct, total: g.total });
+    }
+    // Each exercise counts once, on the day it was first passed this week.
+    const seenExercise = new Set<string>();
+    for (const e of exRows) {
+      const key = `${e.userId}|${e.exerciseId}`;
+      if (seenExercise.has(key)) continue;
+      seenExercise.add(key);
+      getStats(e.userId).exercises.push({ title: exerciseTitle.get(e.exerciseId) ?? "Exercise", date: istDayLabel(e.createdAt) });
+    }
+    for (const b of badgeRows) {
+      getStats(b.userId).badges.push({ title: `${b.title} (${lessonTitle.get(b.lessonId) ?? "Lesson"})`, date: istDayLabel(b.createdAt) });
+    }
+    for (const c of coinRows) getStats(c.userId).coinsWeek = c._sum.coins ?? 0;
+    for (const t of totalRows) getStats(t.userId).coinsTotal = t.totalCoins;
   }
 
   const logs = await prisma.weeklyReportLog.findMany({
@@ -139,7 +199,7 @@ export async function buildPlan(now: Date = new Date(), opts: { retryFailed?: bo
     else if (!to) state = "no_number";
     // The number on the profile must be the one the parent verified (editing it un-verifies).
     else if (!testMode && verified.get(s.userId) !== to) state = "not_verified";
-    else if (!testMode && !hasActivity(st)) state = "inactive"; // test mode: always send
+    // A student with no activity still gets a (polite) report, so the parent knows.
     else if (!testMode && failedSet.has(s.userId) && !opts.retryFailed) state = "failed";
     return {
       userId: s.userId, studentName, parentName: s.parentName?.trim() || null, to, stats: st,
@@ -158,7 +218,8 @@ export function summarize(plan: Plan) {
     ready: count("ready"),
     noNumber: count("no_number"),
     notVerified: count("not_verified"),
-    inactive: count("inactive"),
+    // Informational: ready to send, but with no activity (the parent gets a gentle reminder).
+    inactive: plan.items.filter((i) => i.state === "ready" && !hasActivity(i.stats)).length,
     alreadySent: count("already_sent"),
     failed: count("failed"),
   };
@@ -255,7 +316,14 @@ export async function sendTestMessage(rawNumber: string, studentName = "Aarav") 
   const week = reportWeekFor();
   const params = buildTemplateParams({
     parentName: "Parent", studentName, week,
-    stats: { minutes: 80, activeDays: 4, lessons: 5, quizAttempts: 8, quizCorrect: 6, exercisesPassed: 3, coins: 40 },
+    stats: {
+      minutes: 215, activeDays: 4, activeDayNames: ["Mon", "Tue", "Thu", "Sat"],
+      lessons: [{ title: "Variables", date: "10 Nov" }, { title: "Loops", date: "12 Nov" }],
+      exercises: [{ title: "Print a pattern", date: "12 Nov" }],
+      quizzes: [{ title: "Loops", date: "12 Nov", correct: 8, total: 10 }],
+      badges: [{ title: "Master (Loops)", date: "12 Nov" }],
+      coinsWeek: 7, coinsTotal: 140,
+    },
   });
   if (isDryRun() || !waSettings().configured) {
     return { ok: true as const, dryRun: true as const, to: maskNumber(to), text: renderPreviewText(params) };

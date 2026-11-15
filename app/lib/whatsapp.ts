@@ -97,8 +97,10 @@ function isHelloWorld(name: string) {
 
 /** POST one message to the Cloud API. The token is never logged. */
 async function postMessage(to: string, body: Record<string, unknown>): Promise<WaSendResult> {
-  const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-  const token = process.env.WHATSAPP_ACCESS_TOKEN;
+  // Tolerate stray spaces, quotes or line breaks pasted into .env.
+  const clean = (v?: string) => (v ?? "").replace(/\s+/g, "").replace(/^["']+|["']+$/g, "");
+  const phoneId = clean(process.env.WHATSAPP_PHONE_NUMBER_ID);
+  const token = clean(process.env.WHATSAPP_ACCESS_TOKEN);
   if (!phoneId || !token) return { ok: false, error: "WhatsApp is not configured on the server." };
   const version = process.env.WHATSAPP_API_VERSION || "v25.0";
 

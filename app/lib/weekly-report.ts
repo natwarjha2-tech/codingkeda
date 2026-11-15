@@ -1,16 +1,31 @@
 /**
  * Weekly parent report — pure helpers (no database, easy to test).
  *
- * The WhatsApp template ({{1}}…{{6}}) is fixed once Meta approves it:
- *   Hello {{1}}, here is the weekly learning update from CodingKida for {{2}},
- *   covering {{3}}.
- *   Time spent learning: {{4}} across {{5}} active days. Progress this week: {{6}}.
- *   You can see the full report in the CodingKida app. Thank you for supporting
- *   your child's learning.
+ * The WhatsApp template ({{1}}…{{10}}) is fixed once Meta approves it. Template
+ * name: weekly_learning_report (category Utility). Body (line breaks are allowed
+ * in the template text, NOT inside a variable value):
+ *
+ *   Hello {{1}}, here is the weekly learning report from CodingKida for {{2}} ({{3}}).
+ *
+ *   Learning time: {{4}}.
+ *   Active days: {{5}}.
+ *   Lessons completed: {{6}}.
+ *   Coding exercises completed: {{7}}.
+ *   Quizzes: {{8}}.
+ *   Rewards: {{9}}.
+ *
+ *   {{10}}
+ *
+ *   You can see the full report in the CodingKida app. Thank you for supporting your child's learning.
+ *
+ * Every number and date here comes from the same records the student sees in the
+ * app (daily activity calendar, completed lessons, quiz answers, coin rewards,
+ * badges), for the same Monday–Sunday week.
  */
 
 const IST_OFFSET_MS = 330 * 60 * 1000;
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface ReportWeek {
@@ -26,6 +41,20 @@ export interface ReportWeek {
 }
 
 const ymd = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+
+/** The IST calendar day of an instant, as "YYYY-MM-DD". */
+export const istYmd = (d: Date): string => ymd(d.getTime() + IST_OFFSET_MS);
+
+/** The IST calendar day of an instant, as "12 Nov". */
+export function istDayLabel(d: Date): string {
+  const ist = new Date(d.getTime() + IST_OFFSET_MS);
+  return `${ist.getUTCDate()} ${MONTHS[ist.getUTCMonth()]}`;
+}
+
+/** "2026-11-09" → "Mon". */
+export function weekdayName(dateStr: string): string {
+  return WEEKDAYS[new Date(`${dateStr}T00:00:00Z`).getUTCDay()];
+}
 
 /**
  * The week to report, in IST. Sent on a Sunday → the week that ends today.
@@ -53,42 +82,100 @@ export function formatMinutes(total: number): string {
   return r ? `${hs} ${r} minute${r === 1 ? "" : "s"}` : hs;
 }
 
+/** Something the student finished on a given day (lesson, exercise, badge). */
+export interface DayItem { title: string; date: string }
+/** One quiz sitting: all answers to one lesson's quiz on one day. */
+export interface QuizItem { title: string; date: string; correct: number; total: number }
+
 export interface WeekStats {
   minutes: number;
   activeDays: number;
-  lessons: number;
-  quizAttempts: number;
-  quizCorrect: number;
-  exercisesPassed: number;
-  coins: number;
+  /** Weekday names of the active days in order, e.g. ["Mon", "Wed"]. */
+  activeDayNames: string[];
+  lessons: DayItem[];
+  exercises: DayItem[];
+  quizzes: QuizItem[];
+  badges: DayItem[];
+  coinsWeek: number;
+  coinsTotal: number;
 }
 
 export const emptyStats = (): WeekStats => ({
-  minutes: 0, activeDays: 0, lessons: 0, quizAttempts: 0, quizCorrect: 0, exercisesPassed: 0, coins: 0,
+  minutes: 0, activeDays: 0, activeDayNames: [], lessons: [], exercises: [], quizzes: [], badges: [], coinsWeek: 0, coinsTotal: 0,
 });
 
-/** A student with no activity at all is not messaged (a list of zeros isn't kind). */
 export function hasActivity(s: WeekStats): boolean {
-  return s.minutes > 0 || s.lessons > 0 || s.quizAttempts > 0 || s.exercisesPassed > 0 || s.coins > 0;
-}
-
-/** One short sentence for {{6}}. */
-export function progressSummary(s: WeekStats): string {
-  const parts: string[] = [];
-  if (s.lessons > 0) parts.push(`${s.lessons} lesson${s.lessons === 1 ? "" : "s"} completed`);
-  if (s.quizAttempts > 0) {
-    const pct = Math.round((s.quizCorrect / s.quizAttempts) * 100);
-    parts.push(`${s.quizAttempts} quiz${s.quizAttempts === 1 ? "" : "zes"} with ${pct}% correct`);
-  }
-  if (s.exercisesPassed > 0) parts.push(`${s.exercisesPassed} coding exercise${s.exercisesPassed === 1 ? "" : "s"} passed`);
-  if (s.coins > 0) parts.push(`${s.coins} coin${s.coins === 1 ? "" : "s"} earned`);
-  return parts.length ? parts.join(", ") : "just getting started";
+  return s.minutes > 0 || s.lessons.length > 0 || s.exercises.length > 0 || s.quizzes.length > 0 || s.badges.length > 0 || s.coinsWeek > 0;
 }
 
 /** WhatsApp variables can't hold line breaks/tabs or long runs of spaces. */
-export function cleanParam(v: string, max = 200): string {
+export function cleanParam(v: string, max = 230): string {
   const s = String(v ?? "").replace(/[\r\n\t]+/g, " ").replace(/ {2,}/g, " ").trim().slice(0, max);
   return s || "-";
+}
+
+const shortTitle = (t: string, max = 28) => {
+  const s = String(t ?? "").replace(/\s+/g, " ").trim();
+  return s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s || "Lesson";
+};
+
+/** "a; b; c; +2 more" — at most `max` items are spelled out. */
+export function listItems(items: string[], max = 3): string {
+  const shown = items.slice(0, max).join("; ");
+  return items.length > max ? `${shown}; +${items.length - max} more` : shown;
+}
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+function countWithItems(n: number, noun: string, items: string[]): string {
+  return n === 0 ? "none this week" : `${plural(n, noun)} (${listItems(items)})`;
+}
+
+export function lessonsText(s: WeekStats): string {
+  return countWithItems(s.lessons.length, "lesson", s.lessons.map((l) => `${shortTitle(l.title)} on ${l.date}`));
+}
+
+export function exercisesText(s: WeekStats): string {
+  return countWithItems(s.exercises.length, "exercise", s.exercises.map((e) => `${shortTitle(e.title)} on ${e.date}`));
+}
+
+export function quizzesText(s: WeekStats): string {
+  return countWithItems(s.quizzes.length, "quiz", s.quizzes.map((q) => `${shortTitle(q.title)} on ${q.date}, score ${q.correct}/${q.total}`));
+}
+
+export function rewardsText(s: WeekStats): string {
+  const coins = s.coinsWeek > 0 ? `${plural(s.coinsWeek, "coin")} earned this week` : "no coins earned this week";
+  const total = `${s.coinsTotal} in total`;
+  const badges = s.badges.length ? `. Badges: ${listItems(s.badges.map((b) => `${shortTitle(b.title, 36)} on ${b.date}`), 2)}` : "";
+  return `${coins}, ${total}${badges}`;
+}
+
+export function activeDaysText(s: WeekStats): string {
+  const days = Math.min(7, s.activeDays);
+  return days > 0 && s.activeDayNames.length ? `${days} of 7 (${s.activeDayNames.join(", ")})` : `${days} of 7`;
+}
+
+/** A short, kind summary for the parent. Low or no activity gets a polite nudge. */
+export function overallRemark(studentName: string, s: WeekStats): string {
+  const name = studentName.trim().split(/\s+/)[0] || "Your child";
+  const quizTotal = s.quizzes.reduce((n, q) => n + q.total, 0);
+  const quizCorrect = s.quizzes.reduce((n, q) => n + q.correct, 0);
+  const accuracy = quizTotal > 0 ? quizCorrect / quizTotal : null;
+
+  let remark: string;
+  if (!hasActivity(s)) {
+    remark = `No learning was recorded this week. Spending even 20 minutes a day on coding builds strong skills, so please encourage ${name} to make time for skill development.`;
+  } else if (s.minutes < 60 || s.activeDays <= 2) {
+    remark = `${name} spent less time learning this week. A little time each day on skill development goes a long way, so please encourage regular practice.`;
+  } else if (s.activeDays >= 5 || s.minutes >= 300) {
+    remark = `Excellent work! ${name} was very consistent this week. Keep it up.`;
+  } else {
+    remark = `Good progress this week. A few more minutes of practice each day will help ${name} improve even faster.`;
+  }
+  if (accuracy !== null && accuracy < 0.5 && hasActivity(s)) {
+    remark += " A little revision before quizzes will help improve the scores.";
+  }
+  return remark;
 }
 
 export function buildTemplateParams(input: {
@@ -102,17 +189,27 @@ export function buildTemplateParams(input: {
     cleanParam(parentName?.trim() || "Parent", 60),
     cleanParam(studentName, 60),
     cleanParam(week.label, 40),
-    cleanParam(formatMinutes(stats.minutes), 40),
-    cleanParam(String(Math.min(7, stats.activeDays)), 10), // reads "…across 4 active days"
-    cleanParam(progressSummary(stats), 250),
+    cleanParam(stats.minutes > 0 ? formatMinutes(stats.minutes) : "no time recorded", 40),
+    cleanParam(activeDaysText(stats), 80),
+    cleanParam(lessonsText(stats)),
+    cleanParam(exercisesText(stats)),
+    cleanParam(quizzesText(stats)),
+    cleanParam(rewardsText(stats)),
+    cleanParam(overallRemark(studentName, stats), 280),
   ];
 }
 
-/** What the parent will read (used by the admin preview). */
+/** What the parent will read (used by the admin preview and test-as-text mode). */
 export function renderPreviewText(p: string[]): string {
   return (
-    `Hello ${p[0]}, here is the weekly learning update from CodingKida for ${p[1]}, covering ${p[2]}.\n\n` +
-    `Time spent learning: ${p[3]} across ${p[4]} active days. Progress this week: ${p[5]}.\n\n` +
+    `Hello ${p[0]}, here is the weekly learning report from CodingKida for ${p[1]} (${p[2]}).\n\n` +
+    `Learning time: ${p[3]}.\n` +
+    `Active days: ${p[4]}.\n` +
+    `Lessons completed: ${p[5]}.\n` +
+    `Coding exercises completed: ${p[6]}.\n` +
+    `Quizzes: ${p[7]}.\n` +
+    `Rewards: ${p[8]}.\n\n` +
+    `${p[9]}\n\n` +
     `You can see the full report in the CodingKida app. Thank you for supporting your child's learning.`
   );
 }
