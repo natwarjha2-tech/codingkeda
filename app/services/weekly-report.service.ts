@@ -17,9 +17,11 @@ import {
   testAllowlist, testAsText, waSettings,
 } from "@/app/lib/whatsapp";
 import {
-  buildTemplateParams, chunk, emptyStats, hasActivity, istDayLabel, istYmd, renderPreviewText, reportWeekFor, weekdayName,
+  buildTemplateParams, chunk, emptyStats, hasActivity, renderPreviewText, reportWeekFor, statsFromDays,
   type ReportWeek, type WeekStats,
 } from "@/app/lib/weekly-report";
+import { emptyDay } from "@/app/lib/day-activity";
+import { loadDayActivity } from "@/app/services/day-activity.service";
 
 export interface PlanItem {
   userId: string;
@@ -64,15 +66,9 @@ export async function buildPlan(now: Date = new Date(), opts: { retryFailed?: bo
   // Verified parent numbers: only a code that was REALLY delivered on WhatsApp counts.
   const verified = new Map<string, string>(); // userId -> verified normalized number
   const stats = new Map<string, WeekStats>();
-  const getStats = (id: string) => {
-    let s = stats.get(id);
-    if (!s) { s = emptyStats(); stats.set(id, s); }
-    return s;
-  };
 
   for (const part of chunk(ids, DB_CHUNK)) {
-    const inWeek = { gte: week.startUtc, lt: week.endUtc };
-    const [st, ver, daily, lessonRows, quizRows, exRows, coinRows, badgeRows, totalRows] = await Promise.all([
+    const [st, ver, totalRows, byUser] = await Promise.all([
       prisma.student.findMany({
         where: { userId: { in: part } },
         select: { userId: true, name: true, studentName: true, parentName: true, parentContact: true },
@@ -81,104 +77,22 @@ export async function buildPlan(now: Date = new Date(), opts: { retryFailed?: bo
         where: { userId: { in: part }, live: true, verifiedPhone: { not: null } },
         select: { userId: true, verifiedPhone: true },
       }),
-      // Same table the student's calendar and "This Week" card read.
-      prisma.dailyActivity.findMany({
-        where: { userId: { in: part }, date: { in: week.dates } },
-        select: { userId: true, date: true, minutes: true },
-        orderBy: { date: "asc" },
-      }),
-      prisma.progress.findMany({
-        where: { userId: { in: part }, completed: true, updatedAt: inWeek },
-        select: { userId: true, lessonId: true, updatedAt: true },
-        orderBy: { updatedAt: "asc" },
-      }),
-      prisma.quizAttempt.findMany({
-        where: { userId: { in: part }, createdAt: inWeek },
-        select: { userId: true, lessonId: true, correct: true, createdAt: true, quiz: { select: { lessonId: true } } },
-        orderBy: { createdAt: "asc" },
-      }),
-      prisma.exerciseSubmission.findMany({
-        where: { userId: { in: part }, passed: true, createdAt: inWeek },
-        select: { userId: true, exerciseId: true, createdAt: true },
-        orderBy: { createdAt: "asc" },
-      }),
-      prisma.coinTransaction.groupBy({
-        by: ["userId"],
-        where: { userId: { in: part }, type: "EARNED", createdAt: inWeek },
-        _sum: { coins: true },
-      }),
-      prisma.achievement.findMany({
-        where: { userId: { in: part }, createdAt: inWeek },
-        select: { userId: true, title: true, lessonId: true, createdAt: true },
-        orderBy: { createdAt: "asc" },
-      }),
       prisma.userCoins.findMany({
         where: { userId: { in: part } },
         select: { userId: true, totalCoins: true },
       }),
+      // The SAME daily activity the student sees when tapping a day in My Report.
+      loadDayActivity(part, week.dates),
     ]);
-
-    // Titles for the lessons and exercises that appear in this chunk.
-    const lessonIds = new Set<string>();
-    const exerciseIds = new Set<string>();
-    for (const r of lessonRows) lessonIds.add(r.lessonId);
-    for (const r of quizRows) { const id = r.lessonId ?? r.quiz?.lessonId; if (id) lessonIds.add(id); }
-    for (const r of badgeRows) lessonIds.add(r.lessonId);
-    for (const r of exRows) exerciseIds.add(r.exerciseId);
-    const [lessonTitleRows, exerciseTitleRows] = await Promise.all([
-      lessonIds.size
-        ? prisma.lesson.findMany({ where: { id: { in: [...lessonIds] } }, select: { id: true, title: true } })
-        : Promise.resolve([] as { id: string; title: string }[]),
-      exerciseIds.size
-        ? prisma.exercise.findMany({ where: { id: { in: [...exerciseIds] } }, select: { id: true, title: true } })
-        : Promise.resolve([] as { id: string; title: string }[]),
-    ]);
-    const lessonTitle = new Map(lessonTitleRows.map((l) => [l.id, l.title]));
-    const exerciseTitle = new Map(exerciseTitleRows.map((e) => [e.id, e.title]));
 
     students.push(...st);
     for (const v of ver) if (v.verifiedPhone) verified.set(v.userId, v.verifiedPhone);
-
-    for (const d of daily) {
-      const s = getStats(d.userId);
-      s.minutes += d.minutes;
-      if (d.minutes > 0) {
-        s.activeDays += 1;
-        s.activeDayNames.push(weekdayName(d.date));
-      }
+    const coinTotals = new Map(totalRows.map((t) => [t.userId, t.totalCoins]));
+    for (const userId of part) {
+      const byDate = byUser.get(userId);
+      const days = week.dates.map((d) => byDate?.get(d) ?? emptyDay(d));
+      stats.set(userId, statsFromDays(days, coinTotals.get(userId) ?? 0));
     }
-    for (const l of lessonRows) {
-      getStats(l.userId).lessons.push({ title: lessonTitle.get(l.lessonId) ?? "Lesson", date: istDayLabel(l.updatedAt) });
-    }
-    // One quiz entry per student + lesson + day: score = right answers / answers given.
-    const quizGroups = new Map<string, { userId: string; title: string; date: string; correct: number; total: number }>();
-    for (const q of quizRows) {
-      const lid = q.lessonId ?? q.quiz?.lessonId ?? "";
-      const key = `${q.userId}|${lid}|${istYmd(q.createdAt)}`;
-      let g = quizGroups.get(key);
-      if (!g) {
-        g = { userId: q.userId, title: lessonTitle.get(lid) ?? "Quiz", date: istDayLabel(q.createdAt), correct: 0, total: 0 };
-        quizGroups.set(key, g);
-      }
-      g.total += 1;
-      if (q.correct) g.correct += 1;
-    }
-    for (const g of quizGroups.values()) {
-      getStats(g.userId).quizzes.push({ title: g.title, date: g.date, correct: g.correct, total: g.total });
-    }
-    // Each exercise counts once, on the day it was first passed this week.
-    const seenExercise = new Set<string>();
-    for (const e of exRows) {
-      const key = `${e.userId}|${e.exerciseId}`;
-      if (seenExercise.has(key)) continue;
-      seenExercise.add(key);
-      getStats(e.userId).exercises.push({ title: exerciseTitle.get(e.exerciseId) ?? "Exercise", date: istDayLabel(e.createdAt) });
-    }
-    for (const b of badgeRows) {
-      getStats(b.userId).badges.push({ title: `${b.title} (${lessonTitle.get(b.lessonId) ?? "Lesson"})`, date: istDayLabel(b.createdAt) });
-    }
-    for (const c of coinRows) getStats(c.userId).coinsWeek = c._sum.coins ?? 0;
-    for (const t of totalRows) getStats(t.userId).coinsTotal = t.totalCoins;
   }
 
   const logs = await prisma.weeklyReportLog.findMany({

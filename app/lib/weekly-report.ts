@@ -23,10 +23,8 @@
  * badges), for the same Monday–Sunday week.
  */
 
-const IST_OFFSET_MS = 330 * 60 * 1000;
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const DAY_MS = 24 * 60 * 60 * 1000;
+import type { DayActivity } from "@/app/lib/day-activity";
+import { DAY_MS, IST_OFFSET_MS, MONTHS, dateLabel, weekdayName, ymd } from "@/app/lib/ist";
 
 export interface ReportWeek {
   /** Monday, "YYYY-MM-DD" (IST) — also the idempotency key for the send log. */
@@ -38,22 +36,6 @@ export interface ReportWeek {
   endUtc: Date;
   /** e.g. "28 Sep to 4 Oct" */
   label: string;
-}
-
-const ymd = (ms: number) => new Date(ms).toISOString().slice(0, 10);
-
-/** The IST calendar day of an instant, as "YYYY-MM-DD". */
-export const istYmd = (d: Date): string => ymd(d.getTime() + IST_OFFSET_MS);
-
-/** The IST calendar day of an instant, as "12 Nov". */
-export function istDayLabel(d: Date): string {
-  const ist = new Date(d.getTime() + IST_OFFSET_MS);
-  return `${ist.getUTCDate()} ${MONTHS[ist.getUTCMonth()]}`;
-}
-
-/** "2026-11-09" → "Mon". */
-export function weekdayName(dateStr: string): string {
-  return WEEKDAYS[new Date(`${dateStr}T00:00:00Z`).getUTCDay()];
 }
 
 /**
@@ -104,6 +86,37 @@ export const emptyStats = (): WeekStats => ({
   minutes: 0, activeDays: 0, activeDayNames: [], lessons: [], exercises: [], quizzes: [], badges: [], coinsWeek: 0, coinsTotal: 0,
 });
 
+/**
+ * Add up the week from the daily activity (the very same days the student sees
+ * in the calendar popup). `days` are the 7 days of the report week.
+ */
+export function statsFromDays(days: DayActivity[], coinsTotal: number): WeekStats {
+  const s = emptyStats();
+  s.coinsTotal = coinsTotal;
+  const seenExercise = new Set<string>();
+  for (const day of days) {
+    s.minutes += day.minutes;
+    if (day.minutes > 0) {
+      s.activeDays += 1;
+      s.activeDayNames.push(weekdayName(day.date));
+    }
+    const label = dateLabel(day.date);
+    for (const l of day.lessons) s.lessons.push({ title: l.title, date: label });
+    for (const q of day.quizzes) s.quizzes.push({ title: q.lesson, date: label, correct: q.correct, total: q.total });
+    for (const e of day.exercises) {
+      // An exercise counts once per week, on the day it was first passed.
+      const key = `${e.lesson ?? ""}|${e.title}`;
+      if (e.passed && !seenExercise.has(key)) {
+        seenExercise.add(key);
+        s.exercises.push({ title: e.title, date: label });
+      }
+    }
+    for (const c of day.coins) if (c.type === "EARNED") s.coinsWeek += c.coins;
+    for (const b of day.badges) s.badges.push({ title: `${b.title} (${b.lesson})`, date: label });
+  }
+  return s;
+}
+
 export function hasActivity(s: WeekStats): boolean {
   return s.minutes > 0 || s.lessons.length > 0 || s.exercises.length > 0 || s.quizzes.length > 0 || s.badges.length > 0 || s.coinsWeek > 0;
 }
@@ -127,20 +140,20 @@ export function listItems(items: string[], max = 3): string {
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-function countWithItems(n: number, noun: string, items: string[]): string {
-  return n === 0 ? "none this week" : `${plural(n, noun)} (${listItems(items)})`;
+function countWithItems(n: number, one: string, many: string, items: string[]): string {
+  return n === 0 ? "none this week" : `${plural(n, one, many)} (${listItems(items)})`;
 }
 
 export function lessonsText(s: WeekStats): string {
-  return countWithItems(s.lessons.length, "lesson", s.lessons.map((l) => `${shortTitle(l.title)} on ${l.date}`));
+  return countWithItems(s.lessons.length, "lesson", "lessons", s.lessons.map((l) => `${shortTitle(l.title)} on ${l.date}`));
 }
 
 export function exercisesText(s: WeekStats): string {
-  return countWithItems(s.exercises.length, "exercise", s.exercises.map((e) => `${shortTitle(e.title)} on ${e.date}`));
+  return countWithItems(s.exercises.length, "exercise", "exercises", s.exercises.map((e) => `${shortTitle(e.title)} on ${e.date}`));
 }
 
 export function quizzesText(s: WeekStats): string {
-  return countWithItems(s.quizzes.length, "quiz", s.quizzes.map((q) => `${shortTitle(q.title)} on ${q.date}, score ${q.correct}/${q.total}`));
+  return countWithItems(s.quizzes.length, "quiz", "quizzes", s.quizzes.map((q) => `${shortTitle(q.title)} on ${q.date}, score ${q.correct}/${q.total}`));
 }
 
 export function rewardsText(s: WeekStats): string {

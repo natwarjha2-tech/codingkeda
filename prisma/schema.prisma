@@ -131,11 +131,12 @@ model Enrollment {
 }
 
 model Progress {
-  id        String   @id @default(uuid())
-  userId    String
-  lessonId  String
-  completed Boolean  @default(false)
-  updatedAt DateTime @updatedAt
+  id          String    @id @default(uuid())
+  userId      String
+  lessonId    String
+  completed   Boolean   @default(false)
+  completedAt DateTime? // when the lesson was FIRST completed (daily activity + weekly report)
+  updatedAt   DateTime  @updatedAt
   lesson    Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
