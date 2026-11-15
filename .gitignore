@@ -54,3 +54,8 @@ build_output.txt
 codo.mp3
 codo_long.mp3
 _replicate.cjs
+
+
+# Generated test reports
+*TestReport.xlsx
+*TestReport.csv
