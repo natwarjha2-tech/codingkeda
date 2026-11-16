@@ -6,6 +6,7 @@ import { X, Loader2, Mail, Eye, EyeOff, User, Lock } from "lucide-react";
 import { loginUser, saveToken } from "@/services/auth";
 import SignupExtraFields from "@/components/SignupExtraFields";
 import { checkSignup } from "@/app/lib/signup-check";
+import { explainSignupResponse, showProblem, NETWORK_PROBLEM, type SignupField } from "@/app/lib/signup-errors";
 import { getWebDevice } from "@/app/lib/web-device";
 import { consentBlocked } from "@/app/lib/consent-client";
 
@@ -37,9 +38,11 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
   const [parentName, setParentName] = useState("");
   const [parentEmail, setParentEmail] = useState("");
   const [parentPhone, setParentPhone] = useState("");
+  const [notice, setNotice] = useState("");
+  const [signupField, setSignupField] = useState<SignupField>(null);
 
   const clearSignup = () => {
-    setSignupName(""); setSignupEmail(""); setSignupMobile(""); setSignupPassword(""); setSignupError("");
+    setSignupName(""); setSignupEmail(""); setSignupMobile(""); setSignupPassword(""); setSignupError(""); setSignupField(null);
     setSignupDob(""); setParentName(""); setParentEmail(""); setParentPhone("");
   };
 
@@ -74,11 +77,12 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setSignupError("");
+    setSignupField(null);
     const checked = checkSignup({
       name: signupName, email: signupEmail, mobile: signupMobile, password: signupPassword,
       dob: signupDob, parentName, parentEmail, parentPhone,
     });
-    if ("error" in checked) return setSignupError(checked.error);
+    if ("error" in checked) return report(checked.error, checked.field);
     setSignupLoading(true);
     try {
       const res = await fetch("/api/auth/signup", {
@@ -86,14 +90,26 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...checked.body, device: getWebDevice() }),
       });
-      const data = await res.json();
-      if (!res.ok) return setSignupError(data.message || "Signup failed.");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const p = explainSignupResponse(res.status, data);
+        return report(p.message, p.field);
+      }
       setMode("login");
       setEmail(signupEmail);
+      setNotice("✅ Account created. Log in with your email and password to continue.");
       clearSignup();
-    } catch { setSignupError("Something went wrong!"); }
+    } catch { report(NETWORK_PROBLEM.message, null); }
     finally { setSignupLoading(false); }
   };
+
+  // Show a sign-up problem: message next to the button, the field marked red, scroll to it.
+  const report = (message: string, field: SignupField) => {
+    setSignupError(message);
+    setSignupField(field);
+    showProblem(field, "m-signup-error-box");
+  };
+  const darkField = (f: SignupField) => (signupField === f ? "border-red-500 ring-2 ring-red-500/30" : "border-white/10");
 
   if (!isOpen) return null;
 
@@ -117,6 +133,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
             <h2 className="text-xl font-extrabold text-white mb-1">Welcome back! 👋</h2>
             <p className="text-slate-400 text-sm mb-5">Log in to continue your learning journey</p>
 
+            {notice && !error && <div role="status" className="bg-green-500/10 border border-green-500/30 text-green-400 text-xs px-3 py-2 rounded-xl mb-4">{notice}</div>}
             {error && <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-xs px-3 py-2 rounded-xl mb-4">⚠️ {error}</div>}
 
             <form className="space-y-4" onSubmit={handleLogin}>
@@ -154,36 +171,34 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
             <h2 className="text-xl font-extrabold text-white mb-1">Start learning free 🚀</h2>
             <p className="text-slate-400 text-sm mb-5">Join 5,00,000+ learners today</p>
 
-            {signupError && <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-xs px-3 py-2 rounded-xl mb-4">⚠️ {signupError}</div>}
-
-            <form className="space-y-3.5" onSubmit={handleSignup}>
+            <form className="space-y-3.5" onSubmit={handleSignup} noValidate>
               <div>
                 <label className="text-xs font-semibold text-slate-300 block mb-1.5">Full Name</label>
                 <div className="relative">
                   <User size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
-                  <input type="text" placeholder="Rahul Sharma" value={signupName} onChange={e => setSignupName(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 focus:border-purple-500 rounded-xl pl-10 pr-4 py-3 text-white text-sm outline-none placeholder:text-slate-500" />
+                  <input id="signup-name" type="text" placeholder="Rahul Sharma" value={signupName} onChange={e => setSignupName(e.target.value)}
+                    className={`w-full bg-white/5 border ${darkField("name")} focus:border-purple-500 rounded-xl pl-10 pr-4 py-3 text-white text-sm outline-none placeholder:text-slate-500`} />
                 </div>
               </div>
               <div>
                 <label className="text-xs font-semibold text-slate-300 block mb-1.5">Email</label>
                 <div className="relative">
                   <Mail size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
-                  <input type="email" placeholder="you@example.com" value={signupEmail} onChange={e => setSignupEmail(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 focus:border-purple-500 rounded-xl pl-10 pr-4 py-3 text-white text-sm outline-none placeholder:text-slate-500" />
+                  <input id="signup-email" type="email" placeholder="you@example.com" value={signupEmail} onChange={e => setSignupEmail(e.target.value)}
+                    className={`w-full bg-white/5 border ${darkField("email")} focus:border-purple-500 rounded-xl pl-10 pr-4 py-3 text-white text-sm outline-none placeholder:text-slate-500`} />
                 </div>
               </div>
               <div>
                 <label className="text-xs font-semibold text-slate-300 block mb-1.5">Mobile Number</label>
-                <input type="tel" placeholder="+91 98765 43210" value={signupMobile} onChange={e => setSignupMobile(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 focus:border-purple-500 rounded-xl px-4 py-3 text-white text-sm outline-none placeholder:text-slate-500" />
+                <input id="signup-mobile" type="tel" placeholder="+91 98765 43210" value={signupMobile} onChange={e => setSignupMobile(e.target.value)}
+                  className={`w-full bg-white/5 border ${darkField("mobile")} focus:border-purple-500 rounded-xl px-4 py-3 text-white text-sm outline-none placeholder:text-slate-500`} />
               </div>
               <div>
                 <label className="text-xs font-semibold text-slate-300 block mb-1.5">Password</label>
                 <div className="relative">
                   <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
-                  <input type={showSignupPassword ? "text" : "password"} placeholder="Min. 8 characters" value={signupPassword} onChange={e => setSignupPassword(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 focus:border-purple-500 rounded-xl pl-10 pr-10 py-3 text-white text-sm outline-none placeholder:text-slate-500" />
+                  <input id="signup-password" type={showSignupPassword ? "text" : "password"} placeholder="Min. 8 characters" value={signupPassword} onChange={e => setSignupPassword(e.target.value)}
+                    className={`w-full bg-white/5 border ${darkField("password")} focus:border-purple-500 rounded-xl pl-10 pr-10 py-3 text-white text-sm outline-none placeholder:text-slate-500`} />
                   <button type="button" onClick={() => setShowSignupPassword(!showSignupPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500">
                     {showSignupPassword ? <EyeOff size={15} /> : <Eye size={15} />}
                   </button>
@@ -191,11 +206,21 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
               </div>
               <SignupExtraFields
                 dark
+                badField={signupField}
                 dob={signupDob} setDob={setSignupDob}
                 parentName={parentName} setParentName={setParentName}
                 parentEmail={parentEmail} setParentEmail={setParentEmail}
                 parentPhone={parentPhone} setParentPhone={setParentPhone}
               />
+              {signupError && (
+                <div id="m-signup-error-box" role="alert" className="bg-red-500/15 border border-red-500/40 text-red-300 text-sm px-3 py-2.5 rounded-xl">
+                  ⚠️ {signupError}
+                  {signupField === "email" && /already registered/i.test(signupError) && (
+                    <button type="button" onClick={() => { setMode("login"); setEmail(signupEmail.trim()); setSignupError(""); setSignupField(null); }}
+                      className="block mt-1.5 text-xs font-semibold text-purple-300 underline">Log in with this email →</button>
+                  )}
+                </div>
+              )}
               <button type="submit" disabled={signupLoading}
                 className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-white text-sm bg-purple-600 hover:bg-purple-700 disabled:opacity-60">
                 {signupLoading ? <><Loader2 size={15} className="animate-spin" /> Creating...</> : "Create Free Account"}

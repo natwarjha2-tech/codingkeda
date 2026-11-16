@@ -7,10 +7,10 @@ import { X, Loader2, CheckCircle, Mail, Eye, EyeOff, Code, Users, BookOpen, Tren
 import Navbar from "@/components/Navbar";
 import { loginUser, saveToken, LoginError } from "@/services/auth";
 import { getWebDevice, confirmReplaceDevice } from "@/app/lib/web-device";
-import { validateName, cleanName } from "@/app/lib/name";
-import { dobError, isMinorDob } from "@/app/lib/age";
-import { validatePassword, PASSWORD_HINT } from "@/app/lib/password-rules";
 import { consentBlocked } from "@/app/lib/consent-client";
+import SignupExtraFields from "@/components/SignupExtraFields";
+import { checkSignup } from "@/app/lib/signup-check";
+import { explainSignupResponse, showProblem, NETWORK_PROBLEM, type SignupField } from "@/app/lib/signup-errors";
 
 /* ── Forgot Password Modal ── */
 function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
@@ -113,7 +113,8 @@ function LoginForm() {
   const [parentName, setParentName] = useState("");
   const [parentEmail, setParentEmail] = useState("");
   const [parentPhone, setParentPhone] = useState("");
-  const signupMinor = isMinorDob(signupDob) === true; // under 18 → the parent's email and phone are needed
+  const [notice, setNotice] = useState("");
+  const [signupField, setSignupField] = useState<SignupField>(null);
 
   // OTP state
   const [otpEmail, setOtpEmail] = useState("");
@@ -163,40 +164,46 @@ function LoginForm() {
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setSignupError("");
-    if (!signupName || !signupEmail || !signupMobile || !signupPassword || !signupDob) return setSignupError("Please fill all fields!");
-    const nameProblem = validateName(signupName);
-    if (nameProblem) return setSignupError(nameProblem);
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(signupEmail.trim())) return setSignupError("Please enter a valid email!");
-    if (signupMobile.replace(/\D/g, "").length < 10) return setSignupError("Please enter a valid mobile number!");
-    const dobProblem = dobError(signupDob);
-    if (dobProblem) return setSignupError(dobProblem);
-    const passwordProblem = validatePassword(signupPassword, { email: signupEmail });
-    if (passwordProblem) return setSignupError(`${passwordProblem} ${PASSWORD_HINT}`);
-    if (signupMinor) {
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(parentEmail.trim())) return setSignupError("Enter your parent or guardian's email address.");
-      if (parentEmail.trim().toLowerCase() === signupEmail.trim().toLowerCase()) return setSignupError("The parent email must be different from your own email.");
-      if (parentPhone.replace(/\D/g, "").length < 10) return setSignupError("Enter your parent or guardian's 10-digit phone number.");
-    }
+    setSignupField(null);
+    const checked = checkSignup({
+      name: signupName, email: signupEmail, mobile: signupMobile, password: signupPassword,
+      dob: signupDob, parentName, parentEmail, parentPhone,
+    });
+    if ("error" in checked) return reportSignup(checked.error, checked.field);
     setSignupLoading(true);
     try {
       const res = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: cleanName(signupName), email: signupEmail, password: signupPassword, device: getWebDevice(),
-          dob: signupDob,
-          ...(signupMinor ? { parentName: cleanName(parentName), parentEmail: parentEmail.trim(), parentPhone: parentPhone.trim() } : {}),
-        }),
+        body: JSON.stringify({ ...checked.body, device: getWebDevice() }),
       });
-      const data = await res.json();
-      if (!res.ok) return setSignupError(data.message || "Signup failed.");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const p = explainSignupResponse(res.status, data);
+        return reportSignup(p.message, p.field);
+      }
       const flow = searchParams.get("flow") || "";
       if (flow === "free") { router.replace("/login?flow=free"); }
       else if (flow === "survey") { router.replace("/login?flow=survey"); }
-      else { localStorage.setItem("isNewUser", "true"); setIsSignup(false); }
-    } catch { setSignupError("Something went wrong!"); }
+      else {
+        localStorage.setItem("isNewUser", "true");
+        setEmail(signupEmail.trim());
+        setError("");
+        setNotice("✅ Account created. Log in with your email and password to continue.");
+        setIsSignup(false);
+      }
+    } catch { reportSignup(NETWORK_PROBLEM.message, null); }
     finally { setSignupLoading(false); }
   };
+
+  // Show a sign-up problem: message next to the button, the field marked red, scroll to it.
+  const reportSignup = (message: string, field: SignupField) => {
+    setSignupError(message);
+    setSignupField(field);
+    showProblem(field, "signup-error-box");
+  };
+  const fieldClass = (f: SignupField) =>
+    `w-full bg-slate-50 border ${signupField === f ? "border-red-500 ring-2 ring-red-200" : "border-slate-200"} focus:border-purple-500 rounded-xl px-4 py-3 text-slate-900 text-sm outline-none transition-colors placeholder:text-slate-400`;
 
   return (
     <>
@@ -263,8 +270,10 @@ function LoginForm() {
           </div>
 
           {/* RIGHT SIDE — Login/Signup Form */}
-          <div className="w-full lg:w-1/2 flex items-center justify-center px-6 py-8 bg-white overflow-hidden">
-            <div className="w-full max-w-md">
+          {/* Scrolls on its own (thin visible scrollbar); my-auto keeps short forms centred
+              without cutting off the top of tall ones. */}
+          <div className="w-full lg:w-1/2 flex justify-center px-6 py-8 bg-white overflow-y-auto overscroll-contain [scrollbar-width:thin] [scrollbar-color:#c4b5fd_transparent]">
+            <div className="w-full max-w-md my-auto pb-4">
               {/* Mobile logo */}
               <div className="lg:hidden mb-6 text-center">
                 <Link href="/" className="text-2xl font-extrabold text-slate-900">Coding<span className="text-purple-600">Kida</span></Link>
@@ -280,6 +289,7 @@ function LoginForm() {
                         <p className="text-slate-500 text-sm">Log in to continue your learning journey</p>
                       </div>
 
+                      {notice && !error && <div role="status" className="bg-green-50 border border-green-200 text-green-700 text-sm px-4 py-3 rounded-xl mb-4">{notice}</div>}
                       {error && <div className="bg-red-50 border border-red-200 text-red-600 text-sm px-4 py-3 rounded-xl mb-4">⚠️ {error}</div>}
 
                       <form className="space-y-5" onSubmit={handleSubmit}>
@@ -392,52 +402,46 @@ function LoginForm() {
                         <p className="text-slate-500 text-sm">Join 5,00,000+ learners today</p>
                       </div>
 
-                      {signupError && <div className="bg-red-50 border border-red-200 text-red-600 text-sm px-4 py-3 rounded-xl mb-4">⚠️ {signupError}</div>}
-
-                      <form className="space-y-4" onSubmit={handleSignup}>
+                      <form className="space-y-4" onSubmit={handleSignup} noValidate>
                         <div>
-                          <label className="text-sm font-semibold text-slate-700 block mb-1.5">Full Name</label>
-                          <input type="text" placeholder="Rahul Sharma" value={signupName} onChange={e => setSignupName(e.target.value)}
-                            className={`w-full bg-slate-50 border ${signupError && !signupName ? "border-red-400" : "border-slate-200"} focus:border-purple-500 rounded-xl px-4 py-3 text-slate-900 text-sm outline-none transition-colors placeholder:text-slate-400`} />
+                          <label htmlFor="signup-name" className="text-sm font-semibold text-slate-700 block mb-1.5">Full Name</label>
+                          <input id="signup-name" type="text" placeholder="Rahul Sharma" value={signupName} onChange={e => setSignupName(e.target.value)}
+                            aria-invalid={signupField === "name"} className={fieldClass("name")} />
                         </div>
                         <div>
-                          <label className="text-sm font-semibold text-slate-700 block mb-1.5">Email</label>
-                          <input type="email" placeholder="you@example.com" value={signupEmail} onChange={e => setSignupEmail(e.target.value)}
-                            className={`w-full bg-slate-50 border ${signupError && !signupEmail ? "border-red-400" : "border-slate-200"} focus:border-purple-500 rounded-xl px-4 py-3 text-slate-900 text-sm outline-none transition-colors placeholder:text-slate-400`} />
+                          <label htmlFor="signup-email" className="text-sm font-semibold text-slate-700 block mb-1.5">Email</label>
+                          <input id="signup-email" type="email" placeholder="you@example.com" value={signupEmail} onChange={e => setSignupEmail(e.target.value)}
+                            aria-invalid={signupField === "email"} className={fieldClass("email")} />
                         </div>
                         <div>
-                          <label className="text-sm font-semibold text-slate-700 block mb-1.5">Mobile Number</label>
-                          <input type="tel" placeholder="+91 98765 43210" value={signupMobile} onChange={e => setSignupMobile(e.target.value)}
-                            className={`w-full bg-slate-50 border ${signupError && !signupMobile ? "border-red-400" : "border-slate-200"} focus:border-purple-500 rounded-xl px-4 py-3 text-slate-900 text-sm outline-none transition-colors placeholder:text-slate-400`} />
+                          <label htmlFor="signup-mobile" className="text-sm font-semibold text-slate-700 block mb-1.5">Mobile Number</label>
+                          <input id="signup-mobile" type="tel" placeholder="+91 98765 43210" value={signupMobile} onChange={e => setSignupMobile(e.target.value)}
+                            aria-invalid={signupField === "mobile"} className={fieldClass("mobile")} />
                         </div>
                         <div>
-                          <label className="text-sm font-semibold text-slate-700 block mb-1.5">Password</label>
+                          <label htmlFor="signup-password" className="text-sm font-semibold text-slate-700 block mb-1.5">Password</label>
                           <div className="relative">
-                            <input type={showSignupPassword ? "text" : "password"} placeholder="Min. 8 characters" value={signupPassword} onChange={e => setSignupPassword(e.target.value)}
-                              className={`w-full bg-slate-50 border ${signupError && !signupPassword ? "border-red-400" : "border-slate-200"} focus:border-purple-500 rounded-xl px-4 pr-11 py-3 text-slate-900 text-sm outline-none transition-colors placeholder:text-slate-400`} />
+                            <input id="signup-password" type={showSignupPassword ? "text" : "password"} placeholder="Min. 8 characters" value={signupPassword} onChange={e => setSignupPassword(e.target.value)}
+                              aria-invalid={signupField === "password"} className={`${fieldClass("password")} pr-11`} />
                             <button type="button" onClick={() => setShowSignupPassword(!showSignupPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-purple-600 transition-colors">
                               {showSignupPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                             </button>
                           </div>
-                          <p className="text-xs text-slate-400 mt-1.5">{PASSWORD_HINT}</p>
                         </div>
-                        <div>
-                          <label className="text-sm font-semibold text-slate-700 block mb-1.5">Date of Birth</label>
-                          <input type="date" value={signupDob} onChange={e => setSignupDob(e.target.value)}
-                            className={`w-full bg-slate-50 border ${signupError && !signupDob ? "border-red-400" : "border-slate-200"} focus:border-purple-500 rounded-xl px-4 py-3 text-slate-900 text-sm outline-none transition-colors`} />
-                        </div>
-                        {signupMinor && (
-                          <div className="rounded-xl border border-purple-200 bg-purple-50 p-4 space-y-3">
-                            <div>
-                              <p className="text-sm font-bold text-slate-800">Parent or guardian</p>
-                              <p className="text-xs text-slate-500 mt-0.5">You are under 18, so a parent or guardian must confirm. After you log in, we will send them a code.</p>
-                            </div>
-                            <input type="text" placeholder="Parent or guardian name" value={parentName} onChange={e => setParentName(e.target.value)}
-                              className="w-full bg-white border border-slate-200 focus:border-purple-500 rounded-xl px-4 py-3 text-slate-900 text-sm outline-none" />
-                            <input type="email" placeholder="Parent email" value={parentEmail} onChange={e => setParentEmail(e.target.value)}
-                              className="w-full bg-white border border-slate-200 focus:border-purple-500 rounded-xl px-4 py-3 text-slate-900 text-sm outline-none" />
-                            <input type="tel" placeholder="Parent phone (WhatsApp)" value={parentPhone} onChange={e => setParentPhone(e.target.value)}
-                              className="w-full bg-white border border-slate-200 focus:border-purple-500 rounded-xl px-4 py-3 text-slate-900 text-sm outline-none" />
+                        <SignupExtraFields
+                          badField={signupField}
+                          dob={signupDob} setDob={setSignupDob}
+                          parentName={parentName} setParentName={setParentName}
+                          parentEmail={parentEmail} setParentEmail={setParentEmail}
+                          parentPhone={parentPhone} setParentPhone={setParentPhone}
+                        />
+                        {signupError && (
+                          <div id="signup-error-box" role="alert" className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-xl">
+                            ⚠️ {signupError}
+                            {signupField === "email" && /already registered/i.test(signupError) && (
+                              <button type="button" onClick={() => { setEmail(signupEmail.trim()); setIsSignup(false); setSignupError(""); setSignupField(null); }}
+                                className="block mt-1.5 text-xs font-semibold text-purple-700 hover:underline">Log in with this email →</button>
+                            )}
                           </div>
                         )}
                         <motion.button type="submit" disabled={signupLoading}
