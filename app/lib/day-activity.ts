@@ -6,10 +6,10 @@
 
 export interface DayLesson { title: string; module: string | null; course: string | null; at: string }
 /** One quiz sitting: all answers to one lesson's quiz on one day. */
-export interface DayQuiz { lesson: string; course: string | null; correct: number; total: number; at: string }
-export interface DayExercise { title: string; lesson: string | null; language: string | null; passed: boolean; attempts: number; at: string }
-export interface DayCoin { type: string; coins: number; reason: string; at: string }
-export interface DayBadge { title: string; lesson: string; at: string }
+export interface DayQuiz { lesson: string; module: string | null; course: string | null; correct: number; total: number; at: string }
+export interface DayExercise { title: string; lesson: string | null; module: string | null; course: string | null; language: string | null; passed: boolean; attempts: number; at: string }
+export interface DayCoin { type: string; coins: number; reason: string; lesson: string | null; module: string | null; course: string | null; at: string }
+export interface DayBadge { title: string; lesson: string; module: string | null; course: string | null; at: string }
 
 export interface DayActivity {
   /** "YYYY-MM-DD" (IST). */

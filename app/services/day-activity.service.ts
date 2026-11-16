@@ -61,7 +61,7 @@ export async function loadDayActivity(userIds: string[], dates: string[]): Promi
     }),
     prisma.coinTransaction.findMany({
       where: { userId: { in: userIds }, createdAt: inRange },
-      select: { userId: true, type: true, coins: true, reason: true, createdAt: true },
+      select: { userId: true, type: true, coins: true, reason: true, lessonId: true, courseId: true, createdAt: true },
       orderBy: { createdAt: "asc" },
     }),
     prisma.achievement.findMany({
@@ -78,8 +78,13 @@ export async function loadDayActivity(userIds: string[], dates: string[]): Promi
   for (const r of attempts) { const id = r.lessonId ?? r.quiz?.lessonId; if (id) lessonIds.add(id); }
   for (const r of badges) lessonIds.add(r.lessonId);
   for (const r of submissions) exerciseIds.add(r.exerciseId);
+  const courseIds = new Set<string>();
+  for (const r of coins) {
+    if (r.lessonId) lessonIds.add(r.lessonId);
+    else if (r.courseId) courseIds.add(r.courseId);
+  }
 
-  const [lessonRows, exerciseRows] = await Promise.all([
+  const [lessonRows, exerciseRows, courseRows] = await Promise.all([
     lessonIds.size
       ? prisma.lesson.findMany({
           where: { id: { in: [...lessonIds] } },
@@ -89,10 +94,18 @@ export async function loadDayActivity(userIds: string[], dates: string[]): Promi
     exerciseIds.size
       ? prisma.exercise.findMany({
           where: { id: { in: [...exerciseIds] } },
-          select: { id: true, title: true, lesson: { select: { title: true } } },
+          select: {
+            id: true,
+            title: true,
+            lesson: { select: { title: true, module: { select: { title: true, course: { select: { title: true } } } } } },
+          },
         })
       : Promise.resolve([]),
+    courseIds.size
+      ? prisma.course.findMany({ where: { id: { in: [...courseIds] } }, select: { id: true, title: true } })
+      : Promise.resolve([]),
   ]);
+  const courseTitle = new Map(courseRows.map((c) => [c.id, c.title]));
   const lessonInfo = new Map(lessonRows.map((l) => [l.id, l]));
   const exerciseInfo = new Map(exerciseRows.map((e) => [e.id, e]));
 
@@ -131,6 +144,7 @@ export async function loadDayActivity(userIds: string[], dates: string[]): Promi
     const l = lessonInfo.get(g.lessonId);
     g.day.quizzes.push({
       lesson: l?.title ?? "Quiz",
+      module: l?.module?.title ?? null,
       course: l?.module?.course?.title ?? null,
       correct: g.correct,
       total: g.total,
@@ -156,6 +170,8 @@ export async function loadDayActivity(userIds: string[], dates: string[]): Promi
     g.day.exercises.push({
       title: e?.title ?? "Exercise",
       lesson: e?.lesson?.title ?? null,
+      module: e?.lesson?.module?.title ?? null,
+      course: e?.lesson?.module?.course?.title ?? null,
       language: g.language,
       passed: g.passed,
       attempts: g.attempts,
@@ -165,11 +181,29 @@ export async function loadDayActivity(userIds: string[], dates: string[]): Promi
 
   for (const c of coins) {
     const day = dayOf(c.userId, istYmd(c.createdAt));
-    if (day) day.coins.push({ type: c.type, coins: c.coins, reason: c.reason, at: c.createdAt.toISOString() });
+    if (!day) continue;
+    const l = c.lessonId ? lessonInfo.get(c.lessonId) : undefined;
+    day.coins.push({
+      type: c.type,
+      coins: c.coins,
+      reason: c.reason,
+      lesson: l?.title ?? null,
+      module: l?.module?.title ?? null,
+      course: l?.module?.course?.title ?? (c.courseId ? courseTitle.get(c.courseId) ?? null : null),
+      at: c.createdAt.toISOString(),
+    });
   }
   for (const b of badges) {
     const day = dayOf(b.userId, istYmd(b.createdAt));
-    if (day) day.badges.push({ title: b.title, lesson: lessonInfo.get(b.lessonId)?.title ?? "Lesson", at: b.createdAt.toISOString() });
+    if (!day) continue;
+    const l = lessonInfo.get(b.lessonId);
+    day.badges.push({
+      title: b.title,
+      lesson: l?.title ?? "Lesson",
+      module: l?.module?.title ?? null,
+      course: l?.module?.course?.title ?? null,
+      at: b.createdAt.toISOString(),
+    });
   }
 
   return result;

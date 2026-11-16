@@ -7,6 +7,12 @@ const socialLinks = [
   { label: "X", href: "https://x.com/CodingKida4U", svg: <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path d="M18.9 1h3.7l-8 9.1L24 23h-7.4l-5.8-7.5L4.5 23H.8l8.6-9.8L0 1h7.6l5.2 6.8L18.9 1zm-1.3 19.8h2L6.5 3.2H4.3l13.3 17.6z"/></svg> },
 ];
 
+const legalLinks: Record<string, string> = {
+  "Privacy Policy": "/privacy",
+  "Terms of Service": "/terms",
+  "Refund Policy": "/terms#refunds",
+};
+
 export default function Footer() {
   return (
     <footer className="bg-[#080810] border-t border-white/8 pt-14 pb-6 px-6">
@@ -35,7 +41,9 @@ export default function Footer() {
             <h5 className="text-white font-bold text-sm mb-4">{col.title}</h5>
             <ul className="space-y-2.5">
               {col.links.map((l) => (
-                <li key={l}><a href="#" className="text-slate-400 hover:text-white text-sm transition-colors">{l}</a></li>
+                <li key={l}>
+                  <a href={legalLinks[l] ?? "#"} className="text-slate-400 hover:text-white text-sm transition-colors">{l}</a>
+                </li>
               ))}
             </ul>
           </div>

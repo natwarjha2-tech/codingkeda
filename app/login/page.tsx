@@ -401,7 +401,7 @@ function LoginForm() {
                           {signupLoading ? <><motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}><Loader2 size={16} /></motion.div> Creating account...</> : "Create Free Account"}
                         </motion.button>
                         <p className="text-xs text-slate-400 text-center">
-                          By signing up, you agree to our{" "}<a href="#" className="text-purple-600 hover:underline">Terms</a> and{" "}<a href="#" className="text-purple-600 hover:underline">Privacy Policy</a>
+                          By signing up, you agree to our{" "}<a href="/terms" target="_blank" rel="noopener noreferrer" className="text-purple-600 hover:underline">Terms</a> and{" "}<a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-purple-600 hover:underline">Privacy Policy</a>
                         </p>
                       </form>
 
@@ -434,8 +434,8 @@ function LoginForm() {
         <div className="border-t border-slate-100 py-4 px-6 flex items-center justify-between text-xs text-slate-400">
           <span>© 2024 CodingKida. All rights reserved.</span>
           <div className="flex gap-6">
-            <Link href="#" className="hover:text-slate-600 transition-colors">Privacy Policy</Link>
-            <Link href="#" className="hover:text-slate-600 transition-colors">Terms of Service</Link>
+            <Link href="/privacy" className="hover:text-slate-600 transition-colors">Privacy Policy</Link>
+            <Link href="/terms" className="hover:text-slate-600 transition-colors">Terms of Service</Link>
           </div>
         </div>
       </main>
