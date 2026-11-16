@@ -14,6 +14,7 @@
  *    (so a failed student can't memorise the set before the retry).
  */
 import { prisma } from "@/app/lib/prisma";
+import { isActiveEnrollment } from "@/app/lib/access";
 import { sendEmail } from "@/app/lib/mail";
 import { logger } from "@/app/lib/logger";
 import { notifyCertificateEarned } from "@/app/lib/notification";
@@ -78,7 +79,7 @@ async function loadContext(userId: string, courseId: string) {
   if (!course) throw new FinalTestError(404, "Course not found.");
   const test = await prisma.finalTest.findUnique({ where: { courseId } });
   const enrollment = await prisma.enrollment.findUnique({ where: { userId_courseId: { userId, courseId } } });
-  return { course, test, enrolled: !!enrollment };
+  return { course, test, enrolled: isActiveEnrollment(enrollment) };
 }
 
 // ── Status (drives the Final Test card) ─────────────────────────────────────

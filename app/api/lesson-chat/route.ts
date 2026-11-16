@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
+import { isActiveEnrollment } from "@/app/lib/access";
 import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import {
@@ -31,9 +32,9 @@ export async function GET(req: NextRequest) {
     if (!allowed) {
       const enrollment = await prisma.enrollment.findUnique({
         where: { userId_courseId: { userId: user!.userId, courseId: ctx.courseId } },
-        select: { id: true },
+        select: { id: true, expiresAt: true },
       });
-      allowed = !!enrollment;
+      allowed = isActiveEnrollment(enrollment);
     }
     if (!allowed) return apiError(403, "You don't have access to this lesson chat.");
 

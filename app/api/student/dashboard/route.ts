@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
+import { activeEnrollment } from "@/app/lib/access";
 import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { getSignedFileUrlFromUrl, getS3KeyFromUrl } from "@/app/lib/s3";
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
 
     // Get all enrollments with course + modules + lessons
     const enrollments = await prisma.enrollment.findMany({
-      where: { userId: user!.userId },
+      where: { userId: user!.userId, ...activeEnrollment() },
       include: {
         course: {
           include: {

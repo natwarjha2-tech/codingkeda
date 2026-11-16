@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
+import { activeEnrollment } from "@/app/lib/access";
 import { requireAdmin } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { notifyNewHomework } from "@/app/lib/notification";
@@ -38,7 +39,7 @@ export async function POST(req: NextRequest) {
       const course = lesson.module?.course;
       if (course) {
         const enrollments = await prisma.enrollment.findMany({
-          where: { courseId: course.id },
+          where: { courseId: course.id, ...activeEnrollment() },
           select: { userId: true },
         });
         await Promise.all(

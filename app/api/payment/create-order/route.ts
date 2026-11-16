@@ -3,6 +3,9 @@ import { prisma } from "@/app/lib/prisma";
 import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { logger } from "@/app/lib/logger";
+import { isActiveEnrollment } from "@/app/lib/access";
+import { priceFor, ACCESS_DAYS, ZENALPHA_NAME, COUPON_MAX_PERCENT, type PlanId } from "@/app/lib/pricing";
+import { zenAlphaCourses } from "@/app/services/plan-access.service";
 import Razorpay from "razorpay";
 
 const RAZORPAY_KEY_ID = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "";
@@ -12,8 +15,14 @@ const razorpay = new Razorpay({ key_id: RAZORPAY_KEY_ID, key_secret: RAZORPAY_KE
 
 /**
  * POST /api/payment/create-order
- * Create a Razorpay order for course payment
- * Requires: Bearer token, courseId, amount
+ * body: { plan?: "zenalpha" | "course", courseId?: string, discountId?: string }
+ *
+ * The SERVER decides the price (₹1,999 − 70% = ₹599 for 3 months, then the
+ * student's coupon, at most 30%). Any `amount` sent by the browser is ignored.
+ *  - plan "zenalpha": AI, Cyber Safety, Robotics, GreenTech (courses marked
+ *    "Include in ZenAlpha"). A course in ZenAlpha is always sold as ZenAlpha.
+ *  - plan "course": one subject.
+ * Buying again while access is on extends it (renewal); lifetime access can't be bought again.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -24,72 +33,94 @@ export async function POST(req: NextRequest) {
     const { error, user } = requireAuth(req);
     if (error) return error;
 
-    const { courseId, amount, discountId } = await req.json();
-    if (!courseId?.trim()) return apiError(400, "Course ID is required.");
-    if (!amount || amount <= 0 || isNaN(Number(amount))) return apiError(400, "Valid amount is required.");
+    const body = await req.json().catch(() => ({}));
+    const discountId: string | undefined = body?.discountId ? String(body.discountId) : undefined;
+    let plan: PlanId = body?.plan === "zenalpha" ? "zenalpha" : "course";
+    let courseId: string | null = typeof body?.courseId === "string" && body.courseId.trim() ? body.courseId.trim() : null;
 
-    const course = await prisma.course.findUnique({ where: { id: courseId } });
-    if (!course) return apiError(404, "Course not found.");
-
-    const existingEnrollment = await prisma.enrollment.findUnique({
-      where: { userId_courseId: { userId: user!.userId, courseId } },
-    });
-    if (existingEnrollment) return apiError(409, "You are already enrolled in this course.");
-
-    // Base price (before discount) supplied by the client package selection.
-    const baseAmount = Number(amount);
-
-    // ── Apply discount SERVER-SIDE (never trust a client-sent final price) ──
-    // The client may pass a discountId; we validate it belongs to this user,
-    // is still unconsumed, and compute the discounted amount ourselves.
-    let appliedDiscount: { id: string; percent: number } | null = null;
-    let finalAmount = baseAmount;
-
-    if (discountId) {
-      const disc = await prisma.userDiscount.findFirst({
-        where: { id: String(discountId), userId: user!.userId, consumed: false },
-      });
-      if (!disc) {
-        return apiError(400, "Discount is invalid, already used, or does not belong to you.");
+    // ── What is being bought ──
+    let title = ZENALPHA_NAME;
+    let coveredIds: string[] = [];
+    if (plan === "course") {
+      if (!courseId) return apiError(400, "Course ID is required.");
+      const course = await prisma.course.findUnique({ where: { id: courseId } });
+      if (!course) return apiError(404, "Course not found.");
+      if (course.inZenAlpha) {
+        plan = "zenalpha"; // ZenAlpha subjects are sold together
+      } else {
+        title = course.title;
+        coveredIds = [course.id];
       }
-      const percent = Math.max(0, Math.min(100, disc.percent));
-      // Round to the nearest rupee; enforce a minimum charge of ₹1.
-      finalAmount = Math.max(1, Math.round(baseAmount * (1 - percent / 100)));
-      appliedDiscount = { id: disc.id, percent };
+    }
+    if (plan === "zenalpha") {
+      const courses = await zenAlphaCourses();
+      if (courses.length === 0) return apiError(503, "ZenAlpha is not available yet. Please check back soon.");
+      coveredIds = courses.map((c) => c.id);
+      courseId = null;
+      title = ZENALPHA_NAME;
     }
 
-    // Create Razorpay order for the FINAL (discounted) amount.
-    const amountInPaisa = Math.round(finalAmount * 100);
+    // Lifetime access can't be bought again; 3-month access can be renewed.
+    const existing = await Promise.all(
+      coveredIds.map((id) =>
+        prisma.enrollment.findUnique({ where: { userId_courseId: { userId: user!.userId, courseId: id } } }),
+      ),
+    );
+    const allLifetime = existing.length > 0 && existing.every((e) => isActiveEnrollment(e) && !e!.expiresAt);
+    if (allLifetime) {
+      return apiError(409, plan === "zenalpha" ? "You already have ZenAlpha." : "You are already enrolled in this course.");
+    }
+
+    // ── Coupon (validated and capped SERVER-SIDE) ──
+    let applied: { id: string; percent: number } | null = null;
+    if (discountId) {
+      const disc = await prisma.userDiscount.findFirst({
+        where: { id: discountId, userId: user!.userId, consumed: false },
+      });
+      if (!disc) return apiError(400, "Discount is invalid, already used, or does not belong to you.");
+      applied = { id: disc.id, percent: Math.max(0, Math.min(COUPON_MAX_PERCENT, disc.percent)) };
+    }
+    const price = priceFor(applied?.percent ?? 0);
+
+    // Razorpay order for the FINAL amount.
+    const amountInPaisa = Math.round(price.finalPrice * 100);
     const razorpayOrder = await razorpay.orders.create({
       amount: amountInPaisa,
       currency: "INR",
       receipt: `order_${user!.userId.slice(0, 8)}_${Date.now()}`,
       notes: {
         userId: user!.userId,
-        courseId,
-        courseName: course.title,
-        ...(appliedDiscount ? { discountId: appliedDiscount.id, discountPercent: String(appliedDiscount.percent) } : {}),
+        plan,
+        ...(courseId ? { courseId } : {}),
+        courseName: title,
+        ...(applied ? { discountId: applied.id, discountPercent: String(applied.percent) } : {}),
       },
     });
 
-    // Store payment record (final amount + which discount was applied)
     const payment = await prisma.payment.create({
       data: {
         userId: user!.userId,
         courseId,
+        plan,
         razorpayOrderId: razorpayOrder.id,
         amount: amountInPaisa,
         status: "pending",
-        discountId: appliedDiscount?.id ?? null,
-        discountPercent: appliedDiscount?.percent ?? null,
+        discountId: applied?.id ?? null,
+        discountPercent: applied?.percent ?? null,
       },
     });
 
     return apiSuccess({
       orderId: razorpayOrder.id,
-      amount: finalAmount,
-      baseAmount,
-      discountPercent: appliedDiscount?.percent ?? 0,
+      plan,
+      title,
+      amount: price.finalPrice, // ₹ to pay
+      baseAmount: price.price, // ₹599 before the coupon
+      listPrice: price.listPrice, // ₹1,999
+      offPercent: price.offPercent, // 70
+      discountPercent: price.couponPercent,
+      couponOff: price.couponOff,
+      accessDays: ACCESS_DAYS,
       currency: "INR",
       keyId: RAZORPAY_KEY_ID,
       paymentId: payment.id,

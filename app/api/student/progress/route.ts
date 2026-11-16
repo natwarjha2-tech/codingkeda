@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
+import { activeEnrollment } from "@/app/lib/access";
 import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { logger } from "@/app/lib/logger";
@@ -22,7 +23,7 @@ export async function GET(req: NextRequest) {
 
     // Get all enrollments with full course structure
     const enrollments = await prisma.enrollment.findMany({
-      where: { userId },
+      where: { userId, ...activeEnrollment() },
       include: {
         course: {
           include: {

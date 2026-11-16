@@ -1,5 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
+import { isActiveEnrollment } from "@/app/lib/access";
+import { priceFor, ACCESS_DAYS } from "@/app/lib/pricing";
 import { extractUser } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { getSignedFileUrlFromUrl, getS3KeyFromUrl } from "@/app/lib/s3";
@@ -55,6 +57,8 @@ export async function GET(
 
     // Check if user is enrolled + get progress (parallel — both independent)
     let isEnrolled = false;
+    let accessEndsAt: string | null = null; // 3-month plans: when access ends
+    let accessExpired = false; // bought before, but the 3 months are over
     let userProgress: string[] = [];
 
     const authUser = extractUser(req);
@@ -71,7 +75,9 @@ export async function GET(
           select: { lessonId: true },
         }),
       ]);
-      isEnrolled = !!enrollment;
+      isEnrolled = isActiveEnrollment(enrollment);
+      accessEndsAt = enrollment?.expiresAt ? enrollment.expiresAt.toISOString() : null;
+      accessExpired = !!enrollment && !isEnrolled;
       userProgress = progress.map((p) => p.lessonId);
     }
 
@@ -157,6 +163,14 @@ export async function GET(
       course: {
         ...signedCourse,
         isEnrolled,
+        accessEndsAt,
+        accessExpired,
+        // What "Unlock" buys: the ZenAlpha plan (4 subjects) or this one subject. Same price for both.
+        purchase: {
+          plan: course.inZenAlpha ? "zenalpha" : "course",
+          ...priceFor(0),
+          accessDays: ACCESS_DAYS,
+        },
         progressPercent,
         completedLessons: userProgress,
         // Real enrolled-student count (purchasers), for the hero "Students" stat.

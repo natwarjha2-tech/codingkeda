@@ -53,6 +53,7 @@ export async function POST(req: NextRequest) {
       hasCert,
       color,
       icon,
+      inZenAlpha,
     } = body;
 
     // Required fields validation
@@ -90,6 +91,7 @@ export async function POST(req: NextRequest) {
         color: color?.trim() || "from-purple-500 to-pink-500",
         icon: icon?.trim() || "fa-book",
         isActive: true,
+        inZenAlpha: Boolean(inZenAlpha),
         createdBy: user!.userId,
       },
     });

@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, Shield, Loader2, CheckCircle, ArrowRight, AlertCircle } from "lucide-react";
 import Navbar from "@/components/Navbar";
+import { priceFor, rupees, COUPON_MAX_PERCENT } from "@/app/lib/pricing";
 
 declare global {
   interface Window {
@@ -11,27 +12,21 @@ declare global {
   }
 }
 
-const PACKAGES: Record<string, {
-  name: string; tag: string; emoji: string; price: string; original: string;
-  discount: string; desc: string; features: string[]; glow: string;
-}> = {
-  "ZenZ Package": {
-    name: "ZenZ Package", tag: "For Class 4–8", emoji: "🌟",
-    price: "₹499", original: "₹2,499", discount: "80% OFF",
-    desc: "A fun, beginner-friendly coding journey designed for young learners.",
-    features: ["Scratch & Python basics", "Build games & animations", "Live mentor support", "Certificate on completion", "Lifetime access", "Mobile-friendly content"],
-    glow: "rgba(168,85,247,0.3)",
-  },
-  "ZenAlpha Package": {
-    name: "ZenAlpha Package", tag: "For Class 9–12", emoji: "⚡",
-    price: "₹599", original: "₹2,999", discount: "80% OFF",
-    desc: "Advanced coding curriculum for high schoolers ready to go deep.",
-    features: ["DSA & real-world projects", "Web & App development", "Career-ready skills", "Industry certificate", "Lifetime access", "1-on-1 doubt sessions"],
-    glow: "rgba(99,102,241,0.3)",
-  },
-};
-
-const DEFAULT_PKG = "ZenAlpha Package";
+const ZENALPHA_FEATURES = [
+  "4 subjects: AI, Cyber Safety, Robotics and GreenTech",
+  "Live mentor support and doubt sessions",
+  "Quizzes, exercises, projects and coins",
+  "Certificate on completion",
+  "3 months of full access",
+  "Works on the website, mobile app and desktop app",
+];
+const COURSE_FEATURES = [
+  "Full course: all lessons, notes and quizzes",
+  "Live mentor support and doubt sessions",
+  "Certificate on completion",
+  "3 months of full access",
+  "Works on the website, mobile app and desktop app",
+];
 
 function getToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -46,26 +41,32 @@ function getToken(): string | null {
 function PaymentContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const pkgName = searchParams.get("package") || DEFAULT_PKG;
   const courseIdParam = searchParams.get("courseId") || null;
-  const pkg = PACKAGES[pkgName] ?? PACKAGES[DEFAULT_PKG];
+  // Opened from the phone/desktop app: after paying, send the student back to the app.
+  const fromApp = searchParams.get("from") === "app";
+  // A "package" link (no courseId) is the ZenAlpha bundle. A course link is that one subject,
+  // unless the course is part of ZenAlpha (the server then sells ZenAlpha).
+  const [courseTitle, setCourseTitle] = useState<string | null>(null);
+  const [courseInBundle, setCourseInBundle] = useState(false);
+  const isZenAlpha = !courseIdParam || courseInBundle;
+  const planName = isZenAlpha ? "ZenAlpha" : courseTitle || "this course";
+  const planTag = isZenAlpha ? "4 subjects in one plan" : "Single subject";
+  const planEmoji = isZenAlpha ? "⚡" : "📘";
+  const planFeatures = isZenAlpha ? ZENALPHA_FEATURES : COURSE_FEATURES;
 
   const [paying, setPaying] = useState(false);
   const [success, setSuccess] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const [enrollError, setEnrollError] = useState("");
-  const [resolvedCourseId, setResolvedCourseId] = useState<string | null>(courseIdParam);
-  const [resolving, setResolving] = useState(!courseIdParam);
 
-  // Redeemed discount available for this user (from CK Mall).
+  // Coupon available for this user (from CK Mall). The server caps it at 30%.
   type Discount = { id: string; percent: number; label: string; source: string };
   const [availableDiscount, setAvailableDiscount] = useState<Discount | null>(null);
   const [discountApplied, setDiscountApplied] = useState(false);
 
-  // Base (pre-discount) price parsed from the package string, e.g. "₹599" -> 599.
-  const basePrice = parseInt((pkg.price || "").replace(/[^0-9]/g, ""), 10) || 0;
-  const activePercent = discountApplied && availableDiscount ? availableDiscount.percent : 0;
-  const finalPrice = activePercent > 0 ? Math.max(1, Math.round(basePrice * (1 - activePercent / 100))) : basePrice;
+  const couponPct = discountApplied && availableDiscount ? availableDiscount.percent : 0;
+  const price = priceFor(couponPct); // same numbers the server charges
+  const finalPrice = price.finalPrice;
 
   useEffect(() => {
     const currentToken = getToken();
@@ -100,26 +101,24 @@ function PaymentContent() {
           })
           .catch(() => {});
 
-        // Resolve courseId
-        if (!courseIdParam && pkgName) {
-          setResolving(true);
-          fetch(`/api/courses/resolve?package=${encodeURIComponent(pkgName)}`)
+        // What is being bought (title, and whether it is sold as ZenAlpha)
+        if (courseIdParam) {
+          fetch(`/api/courses/${encodeURIComponent(courseIdParam)}`, { headers: { Authorization: `Bearer ${currentToken}` } })
             .then(r => r.json())
-            .then(data => { if (data.success && data.courseId) setResolvedCourseId(data.courseId); })
-            .catch(() => {})
-            .finally(() => setResolving(false));
-        } else if (courseIdParam) {
-          setResolvedCourseId(courseIdParam);
-          setResolving(false);
-        } else {
-          setResolving(false);
+            .then(data => {
+              if (data.success && data.course) {
+                setCourseTitle(data.course.title || null);
+                setCourseInBundle(data.course.purchase?.plan === "zenalpha");
+              }
+            })
+            .catch(() => {});
         }
       })
       .catch(() => {
         const returnUrl = typeof window !== "undefined" ? window.location.href : "/payment";
         router.replace(`/login?redirect=${encodeURIComponent(returnUrl)}`);
       });
-  }, [courseIdParam, pkgName, router]);
+  }, [courseIdParam, router]);
 
   const handlePayment = async () => {
     setEnrollError("");
@@ -128,11 +127,6 @@ function PaymentContent() {
     if (!currentToken) {
       const returnUrl = encodeURIComponent(window.location.href);
       router.push(`/login?redirect=${returnUrl}`);
-      return;
-    }
-
-    if (!resolvedCourseId) {
-      setEnrollError("Course not found. Please go back and try again.");
       return;
     }
 
@@ -146,10 +140,11 @@ function PaymentContent() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${currentToken}`,
         },
+        // No amount: the server decides the price.
         body: JSON.stringify({
-          courseId: resolvedCourseId,
-          amount: basePrice,
-          discountId: activePercent > 0 && availableDiscount ? availableDiscount.id : undefined,
+          plan: isZenAlpha ? "zenalpha" : "course",
+          courseId: courseIdParam || undefined,
+          discountId: couponPct > 0 && availableDiscount ? availableDiscount.id : undefined,
         }),
       });
 
@@ -173,13 +168,13 @@ function PaymentContent() {
         amount: orderData.amount * 100, // Convert to paisa
         currency: orderData.currency,
         name: "CodingKida",
-        description: `Payment for ${pkg.name}`,
+        description: `${orderData.title || planName} - 3 months access`,
         order_id: orderData.orderId,
         handler: async (response: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) => {
           // Payment successful - webhook will handle enrollment
           setPaying(false);
           setSuccess(true);
-          setTimeout(() => router.replace("/dashboard"), 2500);
+          if (!fromApp) setTimeout(() => router.replace("/dashboard"), 2500);
         },
         prefill: {
           name: orderData.userName,
@@ -235,8 +230,12 @@ function PaymentContent() {
               <CheckCircle size={40} className="text-green-400" />
             </motion.div>
             <h2 className="text-3xl font-extrabold text-white mb-2">Payment Successful! 🎉</h2>
-            <p className="text-slate-400 text-sm mb-2">Welcome to <span className="text-purple-300 font-semibold">{pkg.name}</span></p>
-            <p className="text-slate-500 text-xs">Redirecting to your dashboard...</p>
+            <p className="text-slate-400 text-sm mb-2">Welcome to <span className="text-purple-300 font-semibold">{planName}</span></p>
+            <p className="text-slate-500 text-xs">
+              {fromApp
+                ? "Close this window to go back to the CodingKida app. Your course unlocks there in a few seconds."
+                : "Redirecting to your dashboard..."}
+            </p>
             <div className="flex justify-center gap-1.5 mt-6">
               {[0,1,2].map(i => (
                 <motion.div key={i}
@@ -272,44 +271,34 @@ function PaymentContent() {
                 background: "linear-gradient(135deg,rgba(124,58,237,0.18),rgba(236,72,153,0.08))",
                 border: "1px solid rgba(124,58,237,0.3)",
                 backdropFilter: "blur(20px)",
-                boxShadow: `0 24px 80px rgba(0,0,0,0.5), 0 0 40px ${pkg.glow}`,
+                boxShadow: "0 24px 80px rgba(0,0,0,0.5), 0 0 40px rgba(124,58,237,0.3)",
               }}
             >
               {/* Course header */}
               <div className="flex items-center gap-4 mb-4 pb-4 border-b border-white/8">
                 <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-3xl flex-shrink-0"
                   style={{ background: "rgba(124,58,237,0.15)", border: "1px solid rgba(124,58,237,0.25)" }}>
-                  {pkg.emoji}
+                  {planEmoji}
                 </div>
                 <div className="flex-1">
-                  <h2 className="text-2xl font-extrabold text-white">{pkg.name}</h2>
+                  <h2 className="text-2xl font-extrabold text-white">{planName}</h2>
                   <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
                     style={{ background: "rgba(124,58,237,0.2)", color: "#c4b5fd" }}>
-                    {pkg.tag}
+                    {planTag}
                   </span>
                 </div>
                 <div className="text-right">
-                  {activePercent > 0 ? (
-                    <>
-                      <p className="text-xl font-extrabold text-white">₹{finalPrice}</p>
-                      <p className="text-xs text-slate-500 line-through">₹{basePrice}</p>
-                      <span className="text-[10px] font-bold text-green-400">{activePercent}% OFF applied</span>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-xl font-extrabold text-white">{pkg.price}</p>
-                      <p className="text-xs text-slate-500 line-through">{pkg.original}</p>
-                      <span className="text-[10px] font-bold text-green-400">{pkg.discount}</span>
-                    </>
-                  )}
+                  <p className="text-xs text-slate-500 line-through">{rupees(price.listPrice)}</p>
+                  <p className="text-xl font-extrabold text-white">{rupees(price.price)}</p>
+                  <span className="text-[10px] font-bold text-green-400">{price.offPercent}% OFF</span>
                 </div>
               </div>
 
-              <p className="text-slate-300 text-sm mb-5">{pkg.desc}</p>
+              <p className="text-slate-300 text-sm mb-5">3 months of full access. One payment, no auto-renewal.</p>
 
               {/* Features */}
               <ul className="space-y-2.5 mb-6">
-                {pkg.features.map((f, i) => (
+                {planFeatures.map((f, i) => (
                   <motion.li key={i}
                     initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: 0.2 + i * 0.06 }}
@@ -335,7 +324,7 @@ function PaymentContent() {
                       <span className="text-lg">🎟️</span>
                       <div className="min-w-0">
                         <p className="text-sm font-bold text-green-400 truncate">
-                          {availableDiscount.percent}% discount available
+                          {Math.min(availableDiscount.percent, COUPON_MAX_PERCENT)}% coupon available
                         </p>
                         <p className="text-[11px] text-slate-400 truncate">
                           {availableDiscount.label || "Redeemed from CK Mall"}
@@ -357,10 +346,8 @@ function PaymentContent() {
                   </div>
                   {discountApplied && (
                     <div className="mt-3 pt-3 flex items-center justify-between text-sm" style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-                      <span className="text-slate-300">You pay</span>
-                      <span className="font-extrabold text-white">
-                        ₹{finalPrice} <span className="text-xs text-slate-500 line-through ml-1">₹{basePrice}</span>
-                      </span>
+                      <span className="text-slate-300">Coupon ({price.couponPercent}%)</span>
+                      <span className="font-bold text-green-400">-{rupees(price.couponOff)}</span>
                     </div>
                   )}
                 </div>
@@ -387,10 +374,10 @@ function PaymentContent() {
               <motion.button
                 initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.5 }}
-                whileHover={!paying && !resolving ? { scale: 1.03, boxShadow: "0 12px 36px rgba(124,58,237,0.5)" } : {}}
-                whileTap={!paying && !resolving ? { scale: 0.97 } : {}}
+                whileHover={!paying ? { scale: 1.03, boxShadow: "0 12px 36px rgba(124,58,237,0.5)" } : {}}
+                whileTap={!paying ? { scale: 0.97 } : {}}
                 onClick={handlePayment}
-                disabled={paying || resolving}
+                disabled={paying}
                 className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl font-bold text-white text-sm transition-all duration-200 disabled:opacity-70"
                 style={{ background: "linear-gradient(135deg,#7c3aed,#ec4899)", boxShadow: "0 6px 24px rgba(124,58,237,0.35)" }}
               >
@@ -398,10 +385,8 @@ function PaymentContent() {
                   <><motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}>
                     <Loader2 size={16} />
                   </motion.div> Processing...</>
-                ) : resolving ? (
-                  <><Loader2 size={16} className="animate-spin" /> Loading...</>
                 ) : token ? (
-                  <>Proceed to Payment ₹{finalPrice} <ArrowRight size={15} /></>
+                  <>Pay {rupees(finalPrice)} for 3 months <ArrowRight size={15} /></>
                 ) : (
                   <>Login to Purchase <ArrowRight size={15} /></>
                 )}

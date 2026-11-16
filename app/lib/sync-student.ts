@@ -1,4 +1,5 @@
 import { prisma } from "@/app/lib/prisma";
+import { activeEnrollment } from "@/app/lib/access";
 
 /**
  * Sync Student record when a user enrolls in a course.
@@ -20,7 +21,7 @@ export async function syncStudentOnEnroll(userId: string): Promise<void> {
 
     // Count total enrollments for this user
     const enrollmentCount = await prisma.enrollment.count({
-      where: { userId },
+      where: { userId, ...activeEnrollment() },
     });
 
     // Upsert Student record

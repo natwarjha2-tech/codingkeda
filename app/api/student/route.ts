@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
+import { activeEnrollment } from "@/app/lib/access";
 import { requireAuth } from "@/app/lib/middleware";
 import { extractUser } from "@/app/lib/middleware";
 import { verifyToken } from "@/app/lib/auth";
@@ -31,7 +32,7 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    const enrollmentCount = await prisma.enrollment.count({ where: { userId: authUser!.userId } });
+    const enrollmentCount = await prisma.enrollment.count({ where: { userId: authUser!.userId, ...activeEnrollment() } });
     const parentReportConsent = await getParentReportConsent(authUser!.userId);
     const parentVerification = await getParentVerification(authUser!.userId).catch(() => null);
 

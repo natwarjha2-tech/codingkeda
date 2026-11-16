@@ -39,6 +39,7 @@ interface Course {
   category: string;
   instructor?: string;
   instructorEmail?: string;
+  inZenAlpha?: boolean;
   color: string;
   modules: Module[];
 }
@@ -62,7 +63,7 @@ export default function ManageCoursePage() {
   const [savingCourse, setSavingCourse] = useState(false);
   const [editCourseError, setEditCourseError] = useState("");
   const [editCourseForm, setEditCourseForm] = useState({
-    title: "", subtitle: "", category: "", instructor: "", instructorEmail: "",
+    title: "", subtitle: "", category: "", instructor: "", instructorEmail: "", inZenAlpha: false,
   });
 
   // Lesson modal
@@ -1059,6 +1060,7 @@ export default function ManageCoursePage() {
       category: course.category || "",
       instructor: course.instructor || "",
       instructorEmail: course.instructorEmail || "",
+      inZenAlpha: !!course.inZenAlpha,
     });
     setShowEditCourse(true);
   };
@@ -1083,6 +1085,7 @@ export default function ManageCoursePage() {
           category: editCourseForm.category.trim(),
           instructor: editCourseForm.instructor.trim(),
           instructorEmail: editCourseForm.instructorEmail.trim(),
+          inZenAlpha: editCourseForm.inZenAlpha,
         }),
       });
       const data = await res.json();
@@ -1094,6 +1097,7 @@ export default function ManageCoursePage() {
           category: editCourseForm.category.trim(),
           instructor: editCourseForm.instructor.trim(),
           instructorEmail: editCourseForm.instructorEmail.trim().toLowerCase(),
+          inZenAlpha: editCourseForm.inZenAlpha,
         } : prev);
         setShowEditCourse(false);
       } else {
@@ -1554,12 +1558,24 @@ export default function ManageCoursePage() {
                     <input
                       type={type || "text"}
                       placeholder={placeholder}
-                      value={editCourseForm[key as keyof typeof editCourseForm]}
+                      value={String(editCourseForm[key as keyof typeof editCourseForm])}
                       onChange={e => setEditCourseForm(p => ({ ...p, [key]: e.target.value }))}
                       className="w-full bg-white/5 border border-white/10 focus:border-purple-500 rounded-xl px-4 py-2.5 text-white text-sm outline-none transition-colors placeholder:text-slate-500"
                     />
                   </div>
                 ))}
+                <label className="flex items-start gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editCourseForm.inZenAlpha}
+                    onChange={e => setEditCourseForm(p => ({ ...p, inZenAlpha: e.target.checked }))}
+                    className="mt-0.5 h-4 w-4 accent-purple-500"
+                  />
+                  <span className="text-xs text-slate-300">
+                    <span className="font-semibold text-white block">Include in ZenAlpha</span>
+                    Sold only as part of the ZenAlpha bundle (₹599, 3 months). Leave unticked to sell this subject on its own (₹599, 3 months).
+                  </span>
+                </label>
                 <div className="flex gap-3 pt-1">
                   <button type="button" onClick={() => setShowEditCourse(false)}
                     className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-slate-300 bg-white/5 hover:bg-white/10 transition-colors">

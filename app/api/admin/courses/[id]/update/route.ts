@@ -44,6 +44,7 @@ export async function POST(
       color,
       icon,
       isActive,
+      inZenAlpha,
       rating,
       students,
     } = body;
@@ -84,6 +85,7 @@ export async function POST(
     if (color !== undefined) updateData.color = color.trim();
     if (icon !== undefined) updateData.icon = icon.trim();
     if (isActive !== undefined) updateData.isActive = Boolean(isActive);
+    if (inZenAlpha !== undefined) updateData.inZenAlpha = Boolean(inZenAlpha);
     if (rating !== undefined) {
       const parsedRating = parseFloat(rating);
       if (isNaN(parsedRating) || parsedRating < 0 || parsedRating > 5) {
@@ -141,6 +143,7 @@ export async function POST(
         color: updatedCourse.color,
         icon: updatedCourse.icon,
         isActive: updatedCourse.isActive,
+        inZenAlpha: updatedCourse.inZenAlpha,
         rating: updatedCourse.rating,
         students: updatedCourse.students,
         enrollmentCount: updatedCourse._count.enrollments,

@@ -13,6 +13,7 @@
  */
 
 import { prisma } from "@/app/lib/prisma";
+import { activeEnrollment, isActiveEnrollment } from "@/app/lib/access";
 import {
   notifyLessonQuestion,
   notifyLessonAnswer,
@@ -176,9 +177,9 @@ export async function postLessonMessage(opts: {
   if (!isInstructor) {
     const enrollment = await prisma.enrollment.findUnique({
       where: { userId_courseId: { userId: opts.senderId, courseId: ctx.courseId } },
-      select: { id: true },
+      select: { id: true, expiresAt: true },
     });
-    isEnrolledStudent = !!enrollment;
+    isEnrolledStudent = isActiveEnrollment(enrollment);
   }
 
   if (!isInstructor && !isEnrolledStudent) {
@@ -245,7 +246,7 @@ export async function postLessonMessage(opts: {
     } else {
       // Instructor replied → notify every enrolled student (skip the instructor).
       const enrollments = await prisma.enrollment.findMany({
-        where: { courseId: ctx.courseId },
+        where: { courseId: ctx.courseId, ...activeEnrollment() },
         select: { userId: true },
       });
       await Promise.all(
@@ -408,9 +409,9 @@ export async function escalateToExpert(opts: {
   if (!isInstructor) {
     const enrollment = await prisma.enrollment.findUnique({
       where: { userId_courseId: { userId: opts.requesterId, courseId: ctx.courseId } },
-      select: { id: true },
+      select: { id: true, expiresAt: true },
     });
-    if (!enrollment) {
+    if (!isActiveEnrollment(enrollment)) {
       return { ok: false, status: 403, message: "You don't have access to this lesson." };
     }
   }

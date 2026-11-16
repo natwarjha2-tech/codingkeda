@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
+import { isActiveEnrollment } from "@/app/lib/access";
 import { extractUser } from "@/app/lib/middleware";
 import { getLessonMessages, resolveLessonContext } from "@/app/lib/lesson-chat";
 
@@ -55,9 +56,9 @@ export async function GET(req: NextRequest) {
   if (!isInstructor) {
     const enrollment = await prisma.enrollment.findUnique({
       where: { userId_courseId: { userId: user.userId, courseId: ctx.courseId } },
-      select: { id: true },
+      select: { id: true, expiresAt: true },
     });
-    if (!enrollment) return new Response("Forbidden", { status: 403 });
+    if (!isActiveEnrollment(enrollment)) return new Response("Forbidden", { status: 403 });
   }
 
   const viewerId = user.userId;

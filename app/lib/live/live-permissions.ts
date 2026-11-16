@@ -16,6 +16,7 @@
  */
 
 import { prisma } from "@/app/lib/prisma";
+import { isActiveEnrollment } from "@/app/lib/access";
 
 /**
  * Is this user the instructor/owner of the course?
@@ -58,9 +59,9 @@ export async function isEnrolledStudent(
   if (!userId || !courseId) return false;
   const enrollment = await prisma.enrollment.findUnique({
     where: { userId_courseId: { userId, courseId } },
-    select: { id: true },
+    select: { id: true, expiresAt: true },
   });
-  return !!enrollment;
+  return isActiveEnrollment(enrollment);
 }
 
 /**

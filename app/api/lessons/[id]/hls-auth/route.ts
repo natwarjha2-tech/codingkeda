@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
+import { isActiveEnrollment } from "@/app/lib/access";
 import { extractUser } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import {
@@ -62,7 +63,7 @@ export async function GET(
       authUser && courseId
         ? prisma.enrollment.findUnique({
             where: { userId_courseId: { userId: authUser.userId, courseId } },
-            select: { id: true },
+            select: { id: true, expiresAt: true },
           })
         : Promise.resolve(null),
       s3KeyRaw
@@ -73,7 +74,7 @@ export async function GET(
         : Promise.resolve(null),
     ]);
 
-    const canAccess = !!enrollment || lesson.isFree;
+    const canAccess = isActiveEnrollment(enrollment) || lesson.isFree;
     if (!canAccess) {
       return apiSuccess({ hlsReady: false, locked: true, masterUrl: null, cookies: null, expiresIn: 0 });
     }

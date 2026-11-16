@@ -75,6 +75,8 @@ model Course {
   color       String
   icon        String
   isActive    Boolean      @default(true)
+  /// Part of the ZenAlpha plan (one payment unlocks all ZenAlpha courses for 3 months).
+  inZenAlpha  Boolean      @default(false)
   createdBy   String?
   createdAt   DateTime     @default(now())
   enrollments Enrollment[]
@@ -119,10 +121,14 @@ model Lesson {
 }
 
 model Enrollment {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   userId    String
   courseId  String
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
+  /// When access ends. Null = never (all enrollments made before plans existed).
+  expiresAt DateTime?
+  /// How access was given: "zenalpha", "course" (paid), or null (older / free / admin).
+  source    String?
   course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -399,8 +405,11 @@ model Payment {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  courseId String
-  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  /// The course bought. Null for a ZenAlpha plan payment (it unlocks several courses).
+  courseId String?
+  course   Course? @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  /// What was bought: "zenalpha" or "course". Null on payments made before plans existed (= course).
+  plan     String?
 
   razorpayOrderId   String  @unique // Razorpay order ID
   razorpayPaymentId String? // Razorpay payment ID (after success)

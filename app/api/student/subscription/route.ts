@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
+import { activeEnrollment } from "@/app/lib/access";
 import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 
@@ -19,7 +20,7 @@ export async function GET(req: NextRequest) {
     });
 
     const enrollments = await prisma.enrollment.findMany({
-      where: { userId: user!.userId },
+      where: { userId: user!.userId, ...activeEnrollment() },
       include: { course: { select: { id: true, title: true, icon: true, color: true } } },
       orderBy: { createdAt: "desc" },
     });
@@ -40,7 +41,10 @@ export async function GET(req: NextRequest) {
         coursesEnrolled: enrollments.length,
         totalSpent,
         lastPaymentDate: payments[0]?.createdAt || null,
-        enrolledCourses: enrollments.map(e => ({ courseId: e.course.id, title: e.course.title, icon: e.course.icon, color: e.course.color, enrolledAt: e.createdAt })),
+        enrolledCourses: enrollments.map(e => ({
+          courseId: e.course.id, title: e.course.title, icon: e.course.icon, color: e.course.color, enrolledAt: e.createdAt,
+          accessEndsAt: e.expiresAt, plan: e.source,
+        })),
       },
     });
   } catch {

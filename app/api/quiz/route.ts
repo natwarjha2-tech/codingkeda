@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
+import { isActiveEnrollment } from "@/app/lib/access";
 import { requireAuth, extractUser } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { logger } from "@/app/lib/logger";
@@ -88,7 +89,7 @@ export async function POST(req: NextRequest) {
       const enrollment = await prisma.enrollment.findUnique({
         where: { userId_courseId: { userId: user!.userId, courseId } },
       });
-      if (!enrollment) {
+      if (!isActiveEnrollment(enrollment)) {
         logger.warn("quiz-submit", "enrollment_missing", { userId: user!.userId, courseId });
         return apiError(403, "Access denied. You are not enrolled in this course.");
       }

@@ -28,7 +28,7 @@ jest.mock("razorpay", () => {
 
 jest.mock("@/app/lib/prisma", () => ({
   prisma: {
-    course: { findUnique: jest.fn() },
+    course: { findUnique: jest.fn(), findMany: jest.fn() },
     enrollment: { findUnique: jest.fn(), upsert: jest.fn() },
     userDiscount: { findFirst: jest.fn(), updateMany: jest.fn() },
     payment: { create: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
@@ -55,6 +55,7 @@ import { notifyCourseEnrolled, notifyPaymentFailed } from "@/app/lib/notificatio
 import { rewardReferrerOnFirstPurchase } from "@/app/lib/referral";
 
 const mCourseFind = prisma.course.findUnique as jest.MockedFunction<typeof prisma.course.findUnique>;
+const mCourseMany = prisma.course.findMany as jest.MockedFunction<typeof prisma.course.findMany>;
 const mEnrollFind = prisma.enrollment.findUnique as jest.MockedFunction<typeof prisma.enrollment.findUnique>;
 const mEnrollUpsert = prisma.enrollment.upsert as jest.MockedFunction<typeof prisma.enrollment.upsert>;
 const mDiscFind = prisma.userDiscount.findFirst as jest.MockedFunction<typeof prisma.userDiscount.findFirst>;
@@ -103,24 +104,19 @@ describe("POST /api/payment/create-order", () => {
     expect(res.status).toBe(400);
   });
 
-  it("400 when amount is invalid", async () => {
-    expect((await createOrder(authedReq({ courseId: "c1", amount: 0 }))).status).toBe(400);
-    expect((await createOrder(authedReq({ courseId: "c1", amount: -5 }))).status).toBe(400);
-  });
-
   it("404 when the course doesn't exist", async () => {
     mCourseFind.mockResolvedValue(null as never);
     expect((await createOrder(authedReq({ courseId: "c1", amount: 100 }))).status).toBe(404);
   });
 
   it("409 when the user is already enrolled", async () => {
-    mCourseFind.mockResolvedValue({ id: "c1", title: "Course" } as never);
+    mCourseFind.mockResolvedValue({ id: "c1", title: "Course", inZenAlpha: false } as never);
     mEnrollFind.mockResolvedValue({ userId: "user-1", courseId: "c1" } as never);
     expect((await createOrder(authedReq({ courseId: "c1", amount: 100 }))).status).toBe(409);
   });
 
   it("creates an order + pending payment for the full amount (no discount)", async () => {
-    mCourseFind.mockResolvedValue({ id: "c1", title: "Course" } as never);
+    mCourseFind.mockResolvedValue({ id: "c1", title: "Course", inZenAlpha: false } as never);
     mEnrollFind.mockResolvedValue(null as never);
     mockOrdersCreate.mockResolvedValue({ id: "order_123" });
     mPayCreate.mockResolvedValue({ id: "pay-1" } as never);
@@ -131,18 +127,18 @@ describe("POST /api/payment/create-order", () => {
     expect(res.status).toBe(200);
     expect(data.success).toBe(true);
     expect(data.orderId).toBe("order_123");
-    expect(data.amount).toBe(500);
+    expect(data.amount).toBe(599); // server price, not the client amount
     expect(data.discountPercent).toBe(0);
     // amount passed to Razorpay is in paisa
-    expect(mockOrdersCreate).toHaveBeenCalledWith(expect.objectContaining({ amount: 50000, currency: "INR" }));
+    expect(mockOrdersCreate).toHaveBeenCalledWith(expect.objectContaining({ amount: 59900, currency: "INR" }));
     // stored payment amount is also in paisa
     expect(mPayCreate).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ amount: 50000, status: "pending", discountId: null }),
+      data: expect.objectContaining({ amount: 59900, status: "pending", discountId: null }),
     }));
   });
 
   it("applies a valid discount server-side (never trusts client price)", async () => {
-    mCourseFind.mockResolvedValue({ id: "c1", title: "Course" } as never);
+    mCourseFind.mockResolvedValue({ id: "c1", title: "Course", inZenAlpha: false } as never);
     mEnrollFind.mockResolvedValue(null as never);
     mDiscFind.mockResolvedValue({ id: "disc-1", percent: 20, userId: "user-1", consumed: false } as never);
     mockOrdersCreate.mockResolvedValue({ id: "order_d" });
@@ -151,27 +147,53 @@ describe("POST /api/payment/create-order", () => {
     const res = await createOrder(authedReq({ courseId: "c1", amount: 1000, discountId: "disc-1" }));
     const data = await res.json();
 
-    expect(data.amount).toBe(800); // 1000 - 20%
+    expect(data.amount).toBe(479); // 599 - 20%
     expect(data.discountPercent).toBe(20);
-    expect(mockOrdersCreate).toHaveBeenCalledWith(expect.objectContaining({ amount: 80000 }));
+    expect(mockOrdersCreate).toHaveBeenCalledWith(expect.objectContaining({ amount: 47900 }));
   });
 
   it("400 when the discount is invalid / not the user's / already used", async () => {
-    mCourseFind.mockResolvedValue({ id: "c1", title: "Course" } as never);
+    mCourseFind.mockResolvedValue({ id: "c1", title: "Course", inZenAlpha: false } as never);
     mEnrollFind.mockResolvedValue(null as never);
     mDiscFind.mockResolvedValue(null as never);
     expect((await createOrder(authedReq({ courseId: "c1", amount: 1000, discountId: "bad" }))).status).toBe(400);
   });
 
+  it("ZenAlpha plan sells all ZenAlpha subjects as one order", async () => {
+    mCourseMany.mockResolvedValue([{ id: "z1", title: "AI" }, { id: "z2", title: "Robotics" }] as never);
+    mEnrollFind.mockResolvedValue(null as never);
+    mockOrdersCreate.mockResolvedValue({ id: "order_z" });
+    mPayCreate.mockResolvedValue({ id: "pay-z" } as never);
+    const res = await createOrder(authedReq({ plan: "zenalpha" }));
+    const data = await res.json();
+    expect(res.status).toBe(200);
+    expect(data.plan).toBe("zenalpha");
+    expect(data.amount).toBe(599);
+    expect(mPayCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ plan: "zenalpha", courseId: null }),
+    }));
+  });
+
+  it("caps a coupon at 30%", async () => {
+    mCourseFind.mockResolvedValue({ id: "c1", title: "Course", inZenAlpha: false } as never);
+    mEnrollFind.mockResolvedValue(null as never);
+    mDiscFind.mockResolvedValue({ id: "d", percent: 80, userId: "user-1", consumed: false } as never);
+    mockOrdersCreate.mockResolvedValue({ id: "order_cap" });
+    mPayCreate.mockResolvedValue({ id: "pay-cap" } as never);
+    const data = await (await createOrder(authedReq({ courseId: "c1", discountId: "d" }))).json();
+    expect(data.discountPercent).toBe(30);
+    expect(data.amount).toBe(419); // 599 - 30%
+  });
+
   it("500 when Razorpay order creation throws", async () => {
-    mCourseFind.mockResolvedValue({ id: "c1", title: "Course" } as never);
+    mCourseFind.mockResolvedValue({ id: "c1", title: "Course", inZenAlpha: false } as never);
     mEnrollFind.mockResolvedValue(null as never);
     mockOrdersCreate.mockRejectedValue(new Error("gateway down"));
     expect((await createOrder(authedReq({ courseId: "c1", amount: 100 }))).status).toBe(500);
   });
 
   it("502 when Razorpay reports an authentication failure", async () => {
-    mCourseFind.mockResolvedValue({ id: "c1", title: "Course" } as never);
+    mCourseFind.mockResolvedValue({ id: "c1", title: "Course", inZenAlpha: false } as never);
     mEnrollFind.mockResolvedValue(null as never);
     mockOrdersCreate.mockRejectedValue(new Error("authentication failed (401)"));
     expect((await createOrder(authedReq({ courseId: "c1", amount: 100 }))).status).toBe(502);
@@ -223,10 +245,11 @@ describe("POST /api/payment/webhook", () => {
 
   it("captures payment → marks success, enrolls, syncs + notifies", async () => {
     mPayFind.mockResolvedValue({
-      id: "pay-1", userId: "user-1", courseId: "c1", discountId: null,
+      id: "pay-1", userId: "user-1", courseId: "c1", plan: "course", status: "pending", discountId: null,
       course: { title: "Course" }, user: { id: "user-1" },
     } as never);
     mPayUpdate.mockResolvedValue({} as never);
+    mEnrollFind.mockResolvedValue(null as never);
     mEnrollUpsert.mockResolvedValue({} as never);
 
     const res = await webhook(webhookReq(capturedBody("payment.captured")));
@@ -237,12 +260,42 @@ describe("POST /api/payment/webhook", () => {
     expect(mNotifyEnrolled).toHaveBeenCalled();
   });
 
-  it("consumes the applied discount on a successful capture", async () => {
+  it("ZenAlpha capture grants every ZenAlpha subject, once", async () => {
     mPayFind.mockResolvedValue({
-      id: "pay-1", userId: "user-1", courseId: "c1", discountId: "disc-1",
+      id: "pay-z", userId: "user-1", courseId: null, plan: "zenalpha", status: "pending", discountId: null,
+      course: null, user: { id: "user-1" },
+    } as never);
+    mPayUpdate.mockResolvedValue({} as never);
+    mCourseMany.mockResolvedValue([{ id: "z1", title: "AI" }, { id: "z2", title: "Robotics" }] as never);
+    mEnrollFind.mockResolvedValue(null as never);
+    mEnrollUpsert.mockResolvedValue({} as never);
+
+    const res = await webhook(webhookReq(capturedBody("payment.captured")));
+    expect(res.status).toBe(200);
+    expect(mEnrollUpsert).toHaveBeenCalledTimes(2);
+    expect(mEnrollUpsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ courseId: "z1", source: "zenalpha", expiresAt: expect.any(Date) }),
+    }));
+  });
+
+  it("does not grant twice when the payment is already successful", async () => {
+    mPayFind.mockResolvedValue({
+      id: "pay-1", userId: "user-1", courseId: "c1", plan: "course", status: "success", discountId: null,
       course: { title: "Course" }, user: { id: "user-1" },
     } as never);
     mPayUpdate.mockResolvedValue({} as never);
+    const res = await webhook(webhookReq(capturedBody("payment.captured")));
+    expect(res.status).toBe(200);
+    expect(mEnrollUpsert).not.toHaveBeenCalled();
+  });
+
+  it("consumes the applied discount on a successful capture", async () => {
+    mPayFind.mockResolvedValue({
+      id: "pay-1", userId: "user-1", courseId: "c1", plan: "course", status: "pending", discountId: "disc-1",
+      course: { title: "Course" }, user: { id: "user-1" },
+    } as never);
+    mPayUpdate.mockResolvedValue({} as never);
+    mEnrollFind.mockResolvedValue(null as never);
     mEnrollUpsert.mockResolvedValue({} as never);
     mDiscUpdateMany.mockResolvedValue({ count: 1 } as never);
 
@@ -254,10 +307,11 @@ describe("POST /api/payment/webhook", () => {
 
   it("handles payment.authorized the same as captured", async () => {
     mPayFind.mockResolvedValue({
-      id: "pay-1", userId: "user-1", courseId: "c1", discountId: null,
+      id: "pay-1", userId: "user-1", courseId: "c1", plan: "course", status: "pending", discountId: null,
       course: { title: "Course" }, user: { id: "user-1" },
     } as never);
     mPayUpdate.mockResolvedValue({} as never);
+    mEnrollFind.mockResolvedValue(null as never);
     mEnrollUpsert.mockResolvedValue({} as never);
 
     const res = await webhook(webhookReq(capturedBody("payment.authorized")));
@@ -267,7 +321,7 @@ describe("POST /api/payment/webhook", () => {
 
   it("payment.failed → marks failed + notifies, no enrollment", async () => {
     mPayFind.mockResolvedValue({
-      id: "pay-1", userId: "user-1", courseId: "c1", discountId: null,
+      id: "pay-1", userId: "user-1", courseId: "c1", plan: "course", status: "pending", discountId: null,
       course: { title: "Course" }, user: { id: "user-1" },
     } as never);
     mPayUpdate.mockResolvedValue({} as never);
@@ -281,7 +335,7 @@ describe("POST /api/payment/webhook", () => {
 
   it("ignores an unrelated event (200, no side effects)", async () => {
     mPayFind.mockResolvedValue({
-      id: "pay-1", userId: "user-1", courseId: "c1", discountId: null,
+      id: "pay-1", userId: "user-1", courseId: "c1", plan: "course", status: "pending", discountId: null,
       course: { title: "Course" }, user: { id: "user-1" },
     } as never);
     const res = await webhook(webhookReq(capturedBody("payment.pending")));

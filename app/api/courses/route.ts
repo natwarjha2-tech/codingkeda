@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
       orderBy: { createdAt: "asc" },
       select: {
         id: true, title: true, subtitle: true, category: true, instructor: true, institute: true,
-        students: true, rating: true, totalHours: true, totalVideos: true, hasCert: true, color: true, icon: true,
+        students: true, rating: true, totalHours: true, totalVideos: true, hasCert: true, color: true, icon: true, inZenAlpha: true,
         // Real counts: enrolled students (purchasers) + lesson ids (for real
         // lesson count and feedback-rating aggregation). Duration is detected
         // client-side from the video files (DB lesson.duration is unreliable),

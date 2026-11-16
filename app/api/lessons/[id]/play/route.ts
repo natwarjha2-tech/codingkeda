@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
+import { isActiveEnrollment } from "@/app/lib/access";
 import { extractUser } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { getSignedFileUrlFromUrl, getS3KeyFromUrl, isCloudFrontConfigured, getHlsMasterUrl } from "@/app/lib/s3";
@@ -66,7 +67,7 @@ export async function GET(
       authUser && courseId
         ? prisma.enrollment.findUnique({
             where: { userId_courseId: { userId: authUser.userId, courseId } },
-            select: { id: true },
+            select: { id: true, expiresAt: true },
           })
         : Promise.resolve(null),
       s3KeyRaw
@@ -77,7 +78,7 @@ export async function GET(
         : Promise.resolve(null),
     ]);
 
-    const isEnrolled = !!enrollment;
+    const isEnrolled = isActiveEnrollment(enrollment);
     const canAccess = isEnrolled || lesson.isFree;
     if (!canAccess) {
       // Locked — no playable URL (client shows the paywall).

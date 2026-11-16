@@ -5,17 +5,18 @@ import { syncStudentOnEnroll } from "@/app/lib/sync-student";
 import { notifyCourseEnrolled, notifyPaymentFailed } from "@/app/lib/notification";
 import { rewardReferrerOnFirstPurchase } from "@/app/lib/referral";
 import { logger } from "@/app/lib/logger";
+import { grantPlanAccess, zenAlphaCourses } from "@/app/services/plan-access.service";
 import crypto from "crypto";
 
 /**
  * POST /api/payment/webhook
  * Handle Razorpay webhook for payment status updates.
- * Signature verification required (no auth — Razorpay calls this directly).
+ * Signature verification required (no auth â€” Razorpay calls this directly).
  * Hard-fails if RAZORPAY_WEBHOOK_SECRET is not configured.
  */
 export async function POST(req: NextRequest) {
   try {
-    // Hard-fail if webhook secret is not configured — prevents signature bypass
+    // Hard-fail if webhook secret is not configured â€” prevents signature bypass
     const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
     if (!webhookSecret || webhookSecret.trim().length === 0) {
       logger.error("payment-webhook", "secret_not_configured", {});
@@ -50,16 +51,22 @@ export async function POST(req: NextRequest) {
     if (!payment) return apiError(404, "Payment record not found.");
 
     if (event === "payment.authorized" || event === "payment.captured") {
+      // Razorpay sends authorized and captured for one payment; grant only once.
+      const alreadyDone = payment.status === "success";
       await prisma.payment.update({ where: { id: payment.id }, data: { status: "success", razorpayPaymentId } });
 
-      await prisma.enrollment.upsert({
-        where: { userId_courseId: { userId: payment.userId, courseId: payment.courseId } },
-        update: {},
-        create: { userId: payment.userId, courseId: payment.courseId },
-      });
+      const isBundle = payment.plan === "zenalpha" || !payment.courseId;
+      const bundle = isBundle ? await zenAlphaCourses() : [];
+      const grantIds = isBundle ? bundle.map((c) => c.id) : [payment.courseId as string];
+      const notifyCourseId = payment.courseId ?? grantIds[0] ?? "";
+      const notifyTitle = payment.course?.title ?? "ZenAlpha";
+
+      if (!alreadyDone) {
+        await grantPlanAccess(payment.userId, grantIds, isBundle ? "zenalpha" : "course");
+      }
 
       // Consume the discount that was applied to this payment (if any), so it
-      // can't be reused. Non-blocking — never fail enrollment over this.
+      // can't be reused. Non-blocking â€” never fail enrollment over this.
       if (payment.discountId) {
         try {
           await prisma.userDiscount.updateMany({
@@ -72,17 +79,17 @@ export async function POST(req: NextRequest) {
       }
 
       await syncStudentOnEnroll(payment.userId);
-      logger.success("payment-webhook", "enrollment_complete", { userId: payment.userId, courseId: payment.courseId, paymentId: razorpayPaymentId });
+      logger.success("payment-webhook", "enrollment_complete", { userId: payment.userId, courseId: notifyCourseId, paymentId: razorpayPaymentId });
 
       // Referral: if THIS buyer was referred, pay the referrer now (their first
-      // purchase). Idempotent + non-blocking — never fails enrollment.
+      // purchase). Idempotent + non-blocking â€” never fails enrollment.
       rewardReferrerOnFirstPurchase(payment.userId).catch(() => {});
 
       // Notification: course enrolled successfully (non-blocking, idempotent)
       notifyCourseEnrolled({
         userId: payment.userId,
-        courseId: payment.courseId,
-        courseName: payment.course.title,
+        courseId: notifyCourseId,
+        courseName: notifyTitle,
         paymentId: razorpayPaymentId,
       }).catch(() => {});
 
@@ -96,8 +103,8 @@ export async function POST(req: NextRequest) {
       // Notification: payment failed (non-blocking, idempotent)
       notifyPaymentFailed({
         userId: payment.userId,
-        courseId: payment.courseId,
-        courseName: payment.course.title,
+        courseId: payment.courseId ?? "",
+        courseName: payment.course?.title ?? "ZenAlpha",
         orderId: razorpayOrderId,
       }).catch(() => {});
 
