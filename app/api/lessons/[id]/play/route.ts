@@ -4,6 +4,7 @@ import { extractUser } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { getSignedFileUrlFromUrl, getS3KeyFromUrl, isCloudFrontConfigured, getHlsMasterUrl } from "@/app/lib/s3";
 import { checkStudentDevice } from "@/app/services/student-device.service";
+import { checkParentConsent } from "@/app/services/parent-consent.service";
 
 /**
  * GET /api/lessons/[id]/play
@@ -48,6 +49,9 @@ export async function GET(
     // Device limit: a replaced/unlinked device can't play lessons.
     const deviceError = await checkStudentDevice(authUser);
     if (deviceError) return deviceError;
+    // Students under 18 need a verified parent (after the grace period).
+    const consentError = await checkParentConsent(authUser);
+    if (consentError) return consentError;
     const s3KeyRaw = lesson.videoUrl ? getS3KeyFromUrl(lesson.videoUrl) : null;
 
     // Fire the two INDEPENDENT follow-up queries in PARALLEL — both only depend

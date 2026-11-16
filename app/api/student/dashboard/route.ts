@@ -4,6 +4,7 @@ import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { getSignedFileUrlFromUrl, getS3KeyFromUrl } from "@/app/lib/s3";
 import { checkStudentDevice } from "@/app/services/student-device.service";
+import { checkParentConsent } from "@/app/services/parent-consent.service";
 
 /**
  * GET /api/student/dashboard
@@ -15,6 +16,8 @@ export async function GET(req: NextRequest) {
     if (error) return error;
     const deviceError = await checkStudentDevice(user);
     if (deviceError) return deviceError;
+    const consentError = await checkParentConsent(user);
+    if (consentError) return consentError;
 
     const signed = new URL(req.url).searchParams.get("signed") === "true";
 

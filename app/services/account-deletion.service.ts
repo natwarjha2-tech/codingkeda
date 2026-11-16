@@ -264,6 +264,7 @@ async function eraseOne(userId: string): Promise<void> {
     prisma.notificationOutbox.deleteMany({ where: { userId } }),
     prisma.notification.deleteMany({ where: { userId } }),
     prisma.parentPhoneVerification.deleteMany({ where: { userId } }),
+    prisma.parentConsent.deleteMany({ where: { userId } }),
     prisma.parentReportConsent.deleteMany({ where: { userId } }),
     prisma.weeklyReportLog.deleteMany({ where: { userId } }),
     prisma.enrollToken.deleteMany({ where: { userId } }),

@@ -894,6 +894,34 @@ model ParentPhoneVerification {
   @@index([phone])
 }
 
+// ── Parental consent (students under 18) ────────────────────────────────────
+// Standalone table (no foreign keys) → the migration only CREATEs a new table.
+// One row per student:
+//  - deadlineAt: the day by which the parent must be verified. Set at signup for
+//    under-18 sign-ups (= now), otherwise on first check (now + 14 days).
+//  - the parent EMAIL one-time code (stored only as a hash) and the email that was
+//    verified. An email counts as verified only while it equals the student's
+//    CURRENT parentEmail, so changing it invalidates it automatically.
+// The parent PHONE is verified in ParentPhoneVerification (existing table).
+model ParentConsent {
+  id            String    @id @default(uuid())
+  userId        String    @unique
+  deadlineAt    DateTime?
+  email         String? // lower-cased parent email the latest code was sent to
+  codeHash      String? // HMAC of the code (never the code itself)
+  expiresAt     DateTime?
+  attempts      Int       @default(0) // wrong guesses for the current code
+  verifiedEmail String? // lower-cased parent email that was successfully verified
+  verifiedAt    DateTime?
+  sendsDay      String? // "YYYY-MM-DD" (IST) the counter below belongs to
+  sendsToday    Int       @default(0) // codes requested today (abuse limit)
+  lastSentAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([email])
+}
+
 // ── Device limit: each student may use 1 phone/tablet + 1 desktop/laptop ──────
 // A row is a device the student signed in on. revokedAt set = signed out by a
 // switch to a new device or by an admin. No foreign key to User on purpose

@@ -4,6 +4,11 @@ import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { setParentReportConsent } from "@/app/services/weekly-report.service";
 import { getParentVerification } from "@/app/services/parent-verify.service";
+import { forgetConsent } from "@/app/services/parent-consent.service";
+import { validateName, cleanName } from "@/app/lib/name";
+import { dobError } from "@/app/lib/age";
+import { isValidEmail } from "@/app/lib/validation";
+import { normalizeWhatsAppNumber } from "@/app/lib/whatsapp";
 
 /**
  * PATCH /api/student/profile
@@ -18,9 +23,28 @@ export async function PATCH(req: NextRequest) {
     const body = await req.json();
     const { name, studentName, studentDob, studentGrade, studentGender, studentSchool, parentName, parentEmail, parentContact, parentReportConsent } = body;
 
+    // Check what the student typed before saving anything.
+    if (name?.trim()) {
+      const problem = validateName(name);
+      if (problem) return apiError(400, problem);
+    }
+    if (typeof studentDob === "string" && studentDob.trim()) {
+      const problem = dobError(studentDob);
+      if (problem) return apiError(400, problem);
+    }
+    if (typeof parentEmail === "string" && parentEmail.trim()) {
+      if (!isValidEmail(parentEmail)) return apiError(400, "Enter a valid parent email address.");
+      if (parentEmail.trim().toLowerCase() === String(user!.email ?? "").trim().toLowerCase()) {
+        return apiError(400, "The parent email must be different from your own email.");
+      }
+    }
+    if (typeof parentContact === "string" && parentContact.trim() && !normalizeWhatsAppNumber(parentContact)) {
+      return apiError(400, "Enter a valid parent phone number.");
+    }
+
     // Update User display name if provided
     if (name?.trim()) {
-      await prisma.user.update({ where: { id: user!.userId }, data: { name: name.trim() } });
+      await prisma.user.update({ where: { id: user!.userId }, data: { name: cleanName(name) } });
     }
 
     // Build student update data — only include fields that were sent
@@ -33,7 +57,7 @@ export async function PATCH(req: NextRequest) {
     if (parentName !== undefined) studentData.parentName = parentName?.trim() || null;
     if (parentEmail !== undefined) studentData.parentEmail = parentEmail?.trim() || null;
     if (parentContact !== undefined) studentData.parentContact = parentContact?.trim() || null;
-    if (name?.trim()) studentData.name = name.trim();
+    if (name?.trim()) studentData.name = cleanName(name);
 
     // Upsert student record
     if (Object.keys(studentData).length > 0) {
@@ -48,6 +72,9 @@ export async function PATCH(req: NextRequest) {
         });
       }
     }
+
+    // Date of birth or parent details may have changed the parent-check answer.
+    forgetConsent(user!.userId);
 
     // Parent consent for the weekly WhatsApp report (opt-in; only when sent).
     if (typeof parentReportConsent === "boolean") {

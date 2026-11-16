@@ -412,8 +412,10 @@ describe("attendance", () => {
     const res = await attendancePost(makeReq({ token: USER, body: { date: "2025-01-01", minutes: 30, sessions: 1 } }));
     const body = await readJson(res);
     expect(res.status).toBe(200);
-    const arg = mActivityUpsert.mock.calls[0][0] as { update: { minutes: number } };
-    expect(arg.update.minutes).toBe(50); // 20 + 30
+    // The database adds the minutes itself (atomic increment), so two sends at the same
+    // moment (phone + desktop) can't overwrite each other.
+    const arg = mActivityUpsert.mock.calls[0][0] as { update: { minutes: { increment: number } } };
+    expect(arg.update.minutes).toEqual({ increment: 30 });
   });
 });
 

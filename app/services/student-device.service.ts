@@ -1,22 +1,26 @@
 /**
  * Device limit for students.
- *  - DEVICE_LIMIT_MODE=single (default): ONE device in total — a phone OR a
- *    computer, never both at the same time.
- *  - DEVICE_LIMIT_MODE=per-kind: 1 phone/tablet + 1 computer.
+ *  - DEVICE_LIMIT_MODE=per-kind (default): up to DEVICE_MAX_MOBILE phones/tablets
+ *    (default 2) and DEVICE_MAX_DESKTOP computers (default 1). All stay registered
+ *    at the same time and none signs the others out.
+ *  - DEVICE_LIMIT_MODE=single: ONE device in total — a phone OR a computer.
  *
- * How it works (modelled on the usual "registered devices" pattern of learning
- * and streaming apps — a fixed number of device slots, replace a device
- * yourself, a limited number of replacements, and support can reset):
- *  - The first sign-in takes the slot.
- *  - Signing in on ANOTHER device asks "use this device instead?". Confirming
- *    signs the old device out. At most DEVICE_SWITCH_LIMIT replacements
- *    (default 2) per DEVICE_SWITCH_WINDOW_DAYS (default 30); after that the
- *    student has to contact support.
+ * How it works:
+ *  - Each device takes a free slot on its first sign-in. Logging out does NOT
+ *    free a slot: that device can always sign in again.
+ *  - Once the slots of that kind are full, another computer / phone is refused
+ *    ("contact support"), so a password shared with a friend doesn't work on the
+ *    friend's devices.
+ *  - DEVICE_SWITCH_LIMIT (default 0) is how many times the student may replace a
+ *    device themselves per DEVICE_SWITCH_WINDOW_DAYS (default 30). With 0 only
+ *    support can change a device. If you set it above 0, the apps ask
+ *    "use this device instead?" and confirming signs the old device out.
  *  - A super-admin can unlink one device or reset all (which also resets the
  *    replacement count).
  *  - Each sign-in token carries the device id ("did"); key routes reject a token
  *    whose device was replaced or unlinked.
  *  - Admin / super-admin accounts are never limited.
+ *  - The website (platform "web") is not limited and never takes a slot.
  *  - Requests from app versions that don't send a device yet are allowed, unless
  *    DEVICE_LIMIT_BLOCK_OLD_APPS=true (then they are asked to update).
  *  - DEVICE_LIMIT_ENABLED=false switches the whole feature off.
@@ -44,8 +48,11 @@ export interface DeviceSettings {
   blockOldApps: boolean;
   switchLimit: number;
   windowDays: number;
-  /** "single" = ONE device in total (phone OR computer). "per-kind" = 1 phone + 1 computer. */
+  /** "single" = ONE device in total (phone OR computer). "per-kind" = separate limits for phones/tablets and computers. */
   mode: "single" | "per-kind";
+  /** per-kind: how many phones/tablets and how many computers one student may register. */
+  maxMobile: number;
+  maxDesktop: number;
 }
 
 export function deviceSettings(): DeviceSettings {
@@ -56,9 +63,12 @@ export function deviceSettings(): DeviceSettings {
   return {
     enabled: process.env.DEVICE_LIMIT_ENABLED !== "false",
     blockOldApps: process.env.DEVICE_LIMIT_BLOCK_OLD_APPS === "true",
-    switchLimit: n(process.env.DEVICE_SWITCH_LIMIT, 2, 0, 50),
+    // 0 = a registered device is permanent; only support (admin unlink) can change it.
+    switchLimit: n(process.env.DEVICE_SWITCH_LIMIT, 0, 0, 50),
     windowDays: n(process.env.DEVICE_SWITCH_WINDOW_DAYS, 30, 1, 365),
-    mode: process.env.DEVICE_LIMIT_MODE === "per-kind" ? "per-kind" : "single",
+    mode: process.env.DEVICE_LIMIT_MODE === "single" ? "single" : "per-kind",
+    maxMobile: n(process.env.DEVICE_MAX_MOBILE, 2, 1, 10),
+    maxDesktop: n(process.env.DEVICE_MAX_DESKTOP, 1, 1, 10),
   };
 }
 
@@ -104,6 +114,13 @@ export function claimErrorResponse(r: Extract<ClaimResult, { ok: false }>): Next
 
 const kindLabel = (k: DeviceKind) => (k === "mobile" ? "phone or tablet" : "computer");
 const kindShort = (k: string) => (k === "mobile" ? "phone" : "computer");
+
+/** e.g. "Each account works on up to 2 phones or tablets and 1 computer". */
+function limitsText(s: DeviceSettings): string {
+  const phones = `${s.maxMobile} ${s.maxMobile === 1 ? "phone or tablet" : "phones or tablets"}`;
+  const computers = `${s.maxDesktop} ${s.maxDesktop === 1 ? "computer" : "computers"}`;
+  return `Each account works on up to ${phones} and ${computers}`;
+}
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
@@ -159,6 +176,8 @@ export async function claimDevice(
     return { ok: true };
   }
   if (!s.enabled) return { ok: true, did: device.id };
+  // The website (browser) is not limited: it is never registered and never takes a slot.
+  if (device.platform === "web") return { ok: true };
 
   let switched: { from: string; to: string } | null = null;
   let result: ClaimResult;
@@ -178,12 +197,20 @@ export async function claimDevice(
       return { ok: true, did: device.id };
     }
 
-    // "single" mode: any other active device (phone OR computer) takes the one slot.
+    // "single" mode: one device in total. "per-kind": up to maxMobile phones/tablets and maxDesktop computers.
     const single = s.mode === "single";
-    const active = await tx.studentDevice.findFirst({
-      where: { userId: user.id, ...(single ? {} : { kind: device.kind }), revokedAt: null, NOT: { deviceId: device.id } },
-      orderBy: { lastSeenAt: "desc" },
+    const max = single ? 1 : device.kind === "mobile" ? s.maxMobile : s.maxDesktop;
+    // Devices already registered in this group, least recently used first.
+    const others = await tx.studentDevice.findMany({
+      where: {
+        userId: user.id,
+        ...(single ? {} : { kind: device.kind }),
+        revokedAt: null,
+        NOT: [{ deviceId: device.id }, { platform: "web" }], // browsers registered earlier don't count
+      },
+      orderBy: { lastSeenAt: "asc" },
     });
+    const active = others[others.length - 1]; // most recently used, shown in messages
 
     const activate = () =>
       tx.studentDevice.upsert({
@@ -192,7 +219,7 @@ export async function claimDevice(
         update: { kind: device.kind, ...meta, revokedAt: null, revokedBy: null },
       });
 
-    if (!active) {
+    if (others.length < max) {
       await activate();
       await tx.studentDeviceEvent.create({
         data: { userId: user.id, kind: device.kind, deviceId: device.id, action: "register", actor: "student", detail: device.name },
@@ -207,10 +234,13 @@ export async function claimDevice(
     const here = single ? "device" : kindLabel(device.kind);
 
     if (switchesLeft <= 0) {
-      return {
-        ok: false, status: 403, code: "DEVICE_SWITCH_LIMIT", current, switchesLeft: 0,
-        message: `This account is already used on another ${otherLabel}, and the device can't be changed again right now. Please contact CodingKida support.`,
-      };
+      const message = s.switchLimit === 0 && !single
+        ? `This account already has ${others.length} registered ${kindLabel(device.kind)}${others.length === 1 ? "" : "s"} ` +
+          `(${others.map((o) => o.name || "unknown").join(", ")}). ` +
+          `${limitsText(s)}, and a registered device stays linked. ` +
+          `To use a different ${kindLabel(device.kind)}, please contact CodingKida support.`
+        : `This account is already used on another ${otherLabel}, and the device can't be changed again right now. Please contact CodingKida support.`;
+      return { ok: false, status: 403, code: "DEVICE_SWITCH_LIMIT", current, switchesLeft: 0, message };
     }
     if (!opts.replace) {
       return {
@@ -219,16 +249,17 @@ export async function claimDevice(
       };
     }
 
-    // Sign out EVERY other active device in the slot (also repairs any leftover duplicates).
+    // Sign out the least recently used device(s) so this one fits (also repairs any leftover extras).
+    const toRevoke = others.slice(0, others.length - max + 1);
     await tx.studentDevice.updateMany({
-      where: { userId: user.id, ...(single ? {} : { kind: device.kind }), revokedAt: null, NOT: { deviceId: device.id } },
+      where: { id: { in: toRevoke.map((o) => o.id) } },
       data: { revokedAt: now, revokedBy: "switch" },
     });
     await activate();
     await tx.studentDeviceEvent.create({
-      data: { userId: user.id, kind: single ? "any" : device.kind, deviceId: device.id, action: "switch", actor: "student", detail: `${active.name} -> ${device.name}` },
+      data: { userId: user.id, kind: single ? "any" : device.kind, deviceId: device.id, action: "switch", actor: "student", detail: `${toRevoke.map((o) => o.name).join(", ")} -> ${device.name}` },
     });
-    switched = { from: active.name, to: device.name };
+    switched = { from: toRevoke.map((o) => o.name).join(", "), to: device.name };
     return { ok: true, did: device.id };
   }, { timeout: 15000 });
   } catch (err) {

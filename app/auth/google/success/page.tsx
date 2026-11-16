@@ -2,6 +2,7 @@
 import { useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getWebDevice } from "@/app/lib/web-device";
+import { consentBlocked } from "@/app/lib/consent-client";
 
 function GoogleSuccessContent() {
   const router = useRouter();
@@ -40,7 +41,8 @@ function GoogleSuccessContent() {
         localStorage.setItem("userEmail", user.email || "");
         localStorage.setItem("user", JSON.stringify({ ...user, loginMethod: "google" }));
 
-        window.location.href = "/dashboard";
+        // Under 18 and the parent isn't verified yet (deadline passed): finish that first.
+        window.location.href = (await consentBlocked(finalToken)) ? "/parent-consent" : "/dashboard";
       } catch {
         router.replace("/login?error=google_failed");
       }

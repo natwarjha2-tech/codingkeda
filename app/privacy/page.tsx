@@ -22,6 +22,11 @@ export default function PrivacyPage() {
       <ul>
         <li>A child under 18 may use CodingKida only with the consent of a parent or legal guardian.</li>
         <li>By registering a child, the parent or guardian consents to the collection and use of the child&apos;s data as described here.</li>
+        <li>
+          We check this consent. For a student under 18 we collect the date of birth and the parent or guardian&apos;s name, email and
+          phone number, and we send a one-time code to the parent&apos;s email (and to their WhatsApp) that the parent must confirm. Until
+          it is confirmed, the student can use the Platform for a limited time only.
+        </li>
         <li>We do not show targeted advertising to children, we do not track children for advertising, and we do not sell personal data.</li>
         <li>A parent or guardian can ask to see, correct or delete their child&apos;s data, or withdraw consent, at any time (see section 8).</li>
       </ul>
@@ -42,7 +47,7 @@ export default function PrivacyPage() {
           </tr>
           <tr>
             <td>Parent or guardian name, email and phone or WhatsApp number</td>
-            <td>To get consent, send progress reports and contact the family</td>
+            <td>To get and check the parent&apos;s consent (one-time codes), send progress reports and contact the family</td>
           </tr>
           <tr>
             <td>Learning activity: lessons completed, exercises, quizzes, test scores, active learning time, certificates</td>
@@ -53,7 +58,7 @@ export default function PrivacyPage() {
             <td>To run your code, give learning help, and show your work back to you</td>
           </tr>
           <tr>
-            <td>Device information: a random app install ID, device type (phone or computer), platform, app version and last-used time. Push notification token</td>
+            <td>Device information: a device ID (on Android, the Android ID, which is not linked to advertising), device type (phone or computer), device name, platform, app version and last-used time. Push notification token</td>
             <td>To enforce the one-device-at-a-time rule, protect the account, and send notifications</td>
           </tr>
           <tr>

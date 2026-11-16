@@ -3,6 +3,7 @@ import { prisma } from "@/app/lib/prisma";
 import { signToken } from "@/app/lib/auth";
 import { claimDevice, claimErrorResponse, parseDevice } from "@/app/services/student-device.service";
 import { cancelDeletionOnSignIn } from "@/app/services/account-deletion.service";
+import { cleanName, validateName } from "@/app/lib/name";
 
 /**
  * POST /api/auth/verify-otp
@@ -68,7 +69,8 @@ export async function POST(req: NextRequest) {
       user = await prisma.user.create({
         data: {
           email: normalizedEmail,
-          name: name?.trim() || normalizedEmail.split("@")[0],
+          // A typed name is used only when it is a real name; otherwise the email prefix, as before.
+          name: typeof name === "string" && cleanName(name) && !validateName(name) ? cleanName(name) : normalizedEmail.split("@")[0],
           password: "", // no password for OTP users
           role: "user",
         },

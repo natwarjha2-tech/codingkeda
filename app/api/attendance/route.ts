@@ -3,6 +3,7 @@ import { prisma } from "@/app/lib/prisma";
 import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { checkStudentDevice } from "@/app/services/student-device.service";
+import { checkParentConsent } from "@/app/services/parent-consent.service";
 
 /**
  * Server-side per-day learning activity, so the "My Report" calendar can show
@@ -71,6 +72,8 @@ export async function POST(req: NextRequest) {
     // A replaced/unlinked device no longer adds learning time.
     const deviceError = await checkStudentDevice(user);
     if (deviceError) return deviceError;
+    const consentError = await checkParentConsent(user);
+    if (consentError) return consentError;
 
     const body = await req.json().catch(() => ({}));
     const date: string = String(body?.date || "");

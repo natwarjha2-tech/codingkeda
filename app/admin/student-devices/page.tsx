@@ -14,7 +14,7 @@ interface Detail {
   devices: Device[];
   events: DeviceEvent[];
   switchesLeft: { mobile: number; desktop: number; any: number };
-  settings: { enabled: boolean; blockOldApps: boolean; switchLimit: number; windowDays: number; mode: "single" | "per-kind" };
+  settings: { enabled: boolean; blockOldApps: boolean; switchLimit: number; windowDays: number; mode: "single" | "per-kind"; maxMobile: number; maxDesktop: number };
 }
 
 const fmt = (iso: string) => new Date(iso).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
@@ -139,7 +139,9 @@ export default function StudentDevicesPage() {
             </div>
 
             <p className="text-xs text-slate-400">
-              {detail.settings.mode === "single"
+              {detail.settings.switchLimit === 0
+                ? `Each student has ${detail.settings.mode === "single" ? "one device in total" : `up to ${detail.settings.maxMobile} phone${detail.settings.maxMobile === 1 ? "" : "s"} or tablet${detail.settings.maxMobile === 1 ? "" : "s"} and ${detail.settings.maxDesktop} computer${detail.settings.maxDesktop === 1 ? "" : "s"}`}. Registered devices stay linked after logout; the only way to change one is to unlink it here.`
+                : detail.settings.mode === "single"
                 ? `One device in total (phone or computer). Device changes left in this ${detail.settings.windowDays}-day period: ${detail.switchesLeft.any} of ${detail.settings.switchLimit}.`
                 : `Switches left (every ${detail.settings.windowDays} days): phone ${detail.switchesLeft.mobile} of ${detail.settings.switchLimit}, computer ${detail.switchesLeft.desktop} of ${detail.settings.switchLimit}.`}
               {!detail.settings.enabled && " The device limit is currently switched OFF on the server."}

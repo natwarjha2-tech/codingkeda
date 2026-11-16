@@ -48,6 +48,11 @@ export default function TermsPage() {
           <Link href="/privacy">Privacy Policy</Link>.
         </li>
         <li>The parent or guardian is responsible for the child&apos;s use of the Platform.</li>
+        <li>
+          <b>Parent verification.</b> We ask for your date of birth. If you are under 18, you give your parent or guardian&apos;s email
+          address and phone number, and they confirm with a one-time code before you can use the Platform. If you started without
+          doing this, you have 14 days to complete it. After that, learning is paused until your parent or guardian is verified.
+        </li>
         <li>We may ask for proof of age or of parental consent, and may suspend an account if we cannot confirm it.</li>
       </ul>
 
@@ -56,9 +61,10 @@ export default function TermsPage() {
         <li>Give accurate information when you register and keep it up to date.</li>
         <li>Keep your password and login codes secret. You are responsible for activity on your account.</li>
         <li>
-          <b>One device at a time.</b> An account can be signed in on one device at a time. Signing in on a new device signs you out of
-          the previous one. We limit how often you can switch devices (currently 2 switches in any 30 days). Contact support if you
-          need more.
+          <b>Registered devices.</b> An account can be used on up to 2 phones or tablets and 1 computer. A device is registered the
+          first time you sign in on it and stays registered after you log out. A different device is refused once these places are
+          full. Contact support if you need to change a registered device, for example after you replace or reset your phone or
+          computer. The website is not limited.
         </li>
         <li>Do not share, sell, rent or transfer your account or course access.</li>
         <li>Tell us straight away if you think someone else has used your account.</li>

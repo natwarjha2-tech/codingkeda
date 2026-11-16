@@ -22,24 +22,10 @@ import { NextResponse } from "next/server";
  * Does NOT require special characters (reduces user frustration without
  * significantly impacting security when combined with rate limiting + bcrypt).
  */
-export function validatePassword(password: string): string | null {
-  if (!password || password.length < 8) {
-    return "Password must be at least 8 characters.";
-  }
-  if (password.length > 128) {
-    return "Password must not exceed 128 characters.";
-  }
-  if (!/[A-Z]/.test(password)) {
-    return "Password must contain at least one uppercase letter.";
-  }
-  if (!/[a-z]/.test(password)) {
-    return "Password must contain at least one lowercase letter.";
-  }
-  if (!/[0-9]/.test(password)) {
-    return "Password must contain at least one number.";
-  }
-  return null; // Valid
-}
+// The rules live in a pure file so the sign-up form in the browser applies the
+// same checks (also: not a common password, not containing the email name).
+// Re-exported here so existing imports keep working.
+export { validatePassword, isCommonPassword } from "./password-rules";
 
 /**
  * Parse and validate request body against a Zod schema.

@@ -7,6 +7,10 @@ import { X, Loader2, CheckCircle, Mail, Eye, EyeOff, Code, Users, BookOpen, Tren
 import Navbar from "@/components/Navbar";
 import { loginUser, saveToken, LoginError } from "@/services/auth";
 import { getWebDevice, confirmReplaceDevice } from "@/app/lib/web-device";
+import { validateName, cleanName } from "@/app/lib/name";
+import { dobError, isMinorDob } from "@/app/lib/age";
+import { validatePassword, PASSWORD_HINT } from "@/app/lib/password-rules";
+import { consentBlocked } from "@/app/lib/consent-client";
 
 /* ── Forgot Password Modal ── */
 function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
@@ -105,6 +109,11 @@ function LoginForm() {
   const [signupPassword, setSignupPassword] = useState("");
   const [signupLoading, setSignupLoading] = useState(false);
   const [signupError, setSignupError] = useState("");
+  const [signupDob, setSignupDob] = useState("");
+  const [parentName, setParentName] = useState("");
+  const [parentEmail, setParentEmail] = useState("");
+  const [parentPhone, setParentPhone] = useState("");
+  const signupMinor = isMinorDob(signupDob) === true; // under 18 → the parent's email and phone are needed
 
   // OTP state
   const [otpEmail, setOtpEmail] = useState("");
@@ -140,6 +149,8 @@ function LoginForm() {
       const flow = searchParams.get("flow");
       const redirect = searchParams.get("redirect");
       localStorage.setItem("ck_token", data.token);
+      // Students under 18 whose parent isn't verified yet (deadline passed): finish that first.
+      if (await consentBlocked(data.token)) { router.replace("/parent-consent"); return; }
       if (redirect) { router.replace(decodeURIComponent(redirect)); }
       else if (flow === "free") { localStorage.removeItem("isNewUser"); router.replace("/dashboard"); }
       else if (flow === "survey") { localStorage.removeItem("isNewUser"); router.replace("/recommendation"); }
@@ -152,16 +163,30 @@ function LoginForm() {
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setSignupError("");
-    if (!signupName || !signupEmail || !signupMobile || !signupPassword) return setSignupError("Please fill all fields!");
-    if (!signupEmail.includes("@")) return setSignupError("Please enter a valid email!");
-    if (signupMobile.length < 10) return setSignupError("Please enter a valid mobile number!");
-    if (signupPassword.length < 8) return setSignupError("Password must be at least 8 characters!");
+    if (!signupName || !signupEmail || !signupMobile || !signupPassword || !signupDob) return setSignupError("Please fill all fields!");
+    const nameProblem = validateName(signupName);
+    if (nameProblem) return setSignupError(nameProblem);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(signupEmail.trim())) return setSignupError("Please enter a valid email!");
+    if (signupMobile.replace(/\D/g, "").length < 10) return setSignupError("Please enter a valid mobile number!");
+    const dobProblem = dobError(signupDob);
+    if (dobProblem) return setSignupError(dobProblem);
+    const passwordProblem = validatePassword(signupPassword, { email: signupEmail });
+    if (passwordProblem) return setSignupError(`${passwordProblem} ${PASSWORD_HINT}`);
+    if (signupMinor) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(parentEmail.trim())) return setSignupError("Enter your parent or guardian's email address.");
+      if (parentEmail.trim().toLowerCase() === signupEmail.trim().toLowerCase()) return setSignupError("The parent email must be different from your own email.");
+      if (parentPhone.replace(/\D/g, "").length < 10) return setSignupError("Enter your parent or guardian's 10-digit phone number.");
+    }
     setSignupLoading(true);
     try {
       const res = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: signupName, email: signupEmail, password: signupPassword, device: getWebDevice() }),
+        body: JSON.stringify({
+          name: cleanName(signupName), email: signupEmail, password: signupPassword, device: getWebDevice(),
+          dob: signupDob,
+          ...(signupMinor ? { parentName: cleanName(parentName), parentEmail: parentEmail.trim(), parentPhone: parentPhone.trim() } : {}),
+        }),
       });
       const data = await res.json();
       if (!res.ok) return setSignupError(data.message || "Signup failed.");
@@ -337,7 +362,7 @@ function LoginForm() {
                                   localStorage.setItem('token', data.token);
                                   localStorage.setItem('userEmail', data.user.email || '');
                                   localStorage.setItem('user', JSON.stringify({ ...data.user, loginMethod: 'otp' }));
-                                  window.location.href = '/dashboard';
+                                  window.location.href = (await consentBlocked(data.token)) ? '/parent-consent' : '/dashboard';
                                 } else { setOtpMsg(data.message || 'Invalid OTP.'); setOtpMsgType('error'); }
                               } catch { setOtpMsg('Network error.'); setOtpMsgType('error'); }
                               setOtpLoading(false);
@@ -394,7 +419,27 @@ function LoginForm() {
                               {showSignupPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                             </button>
                           </div>
+                          <p className="text-xs text-slate-400 mt-1.5">{PASSWORD_HINT}</p>
                         </div>
+                        <div>
+                          <label className="text-sm font-semibold text-slate-700 block mb-1.5">Date of Birth</label>
+                          <input type="date" value={signupDob} onChange={e => setSignupDob(e.target.value)}
+                            className={`w-full bg-slate-50 border ${signupError && !signupDob ? "border-red-400" : "border-slate-200"} focus:border-purple-500 rounded-xl px-4 py-3 text-slate-900 text-sm outline-none transition-colors`} />
+                        </div>
+                        {signupMinor && (
+                          <div className="rounded-xl border border-purple-200 bg-purple-50 p-4 space-y-3">
+                            <div>
+                              <p className="text-sm font-bold text-slate-800">Parent or guardian</p>
+                              <p className="text-xs text-slate-500 mt-0.5">You are under 18, so a parent or guardian must confirm. After you log in, we will send them a code.</p>
+                            </div>
+                            <input type="text" placeholder="Parent or guardian name" value={parentName} onChange={e => setParentName(e.target.value)}
+                              className="w-full bg-white border border-slate-200 focus:border-purple-500 rounded-xl px-4 py-3 text-slate-900 text-sm outline-none" />
+                            <input type="email" placeholder="Parent email" value={parentEmail} onChange={e => setParentEmail(e.target.value)}
+                              className="w-full bg-white border border-slate-200 focus:border-purple-500 rounded-xl px-4 py-3 text-slate-900 text-sm outline-none" />
+                            <input type="tel" placeholder="Parent phone (WhatsApp)" value={parentPhone} onChange={e => setParentPhone(e.target.value)}
+                              className="w-full bg-white border border-slate-200 focus:border-purple-500 rounded-xl px-4 py-3 text-slate-900 text-sm outline-none" />
+                          </div>
+                        )}
                         <motion.button type="submit" disabled={signupLoading}
                           whileHover={!signupLoading ? { scale: 1.02 } : {}} whileTap={!signupLoading ? { scale: 0.97 } : {}}
                           className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-white text-sm transition-all duration-200 disabled:opacity-50 bg-purple-600 hover:bg-purple-700 shadow-lg shadow-purple-200">
