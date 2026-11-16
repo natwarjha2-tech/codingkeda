@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { User, Mail, Calendar, BookOpen, Save, Loader2, CheckCircle, Camera } from "lucide-react";
 import Navbar from "@/components/Navbar";
+import ProfileVerification from "@/components/ProfileVerification";
 import { getToken } from "@/services/auth";
 import { useAuthRedirect } from "@/hooks/useAuthRedirect";
 import MobileBackButton from "@/components/MobileBackButton";
@@ -162,6 +163,10 @@ export default function ProfilePage() {
             <h1 className="text-2xl font-extrabold text-white mb-1">Edit Profile</h1>
             <p className="text-slate-400 text-sm">Manage your account information</p>
           </motion.div>
+
+          {/* Profile status: Verified / Unverified + "Verify profile" */}
+          <ProfileVerification variant="card" />
+
 
           {/* Avatar */}
           <motion.div

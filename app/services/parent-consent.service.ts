@@ -26,7 +26,8 @@ import { logger } from "@/app/lib/logger";
 import { sendEmailChecked } from "@/app/lib/mail";
 import { isValidEmail } from "@/app/lib/validation";
 import { isMinorDob, ageFromDob } from "@/app/lib/age";
-import { isDryRun, isTestMode, otpConfigured } from "@/app/lib/whatsapp";
+import { isDryRun, isTestMode, otpConfigured, normalizeWhatsAppNumber } from "@/app/lib/whatsapp";
+import { validateName } from "@/app/lib/name";
 import type { JwtPayload } from "@/app/lib/auth";
 import {
   CODE_TTL_MS, MAX_ATTEMPTS, MAX_SENDS_PER_DAY, MAX_SENDS_PER_PHONE_PER_DAY, RESEND_COOLDOWN_MS,
@@ -87,7 +88,13 @@ export interface ConsentState {
   daysLeft: number | null;
   /** Deadline passed and still not verified: the app must show the verification screen first. */
   blocked: boolean;
+  /**
+   * Profile status for the profile screen ("Verified" / "Unverified"), worked out
+   * even when the deadline check is switched off. `missing` lists what is left.
+   */
+  profile: { verified: boolean; missing: string[] };
   /** What the student saved so far, to pre-fill the form. */
+  studentName: string | null;
   studentDob: string | null;
   parentName: string | null;
   parentEmail: string | null;
@@ -98,13 +105,17 @@ export interface ConsentState {
 
 export async function getConsentState(userId: string, now: Date = new Date()): Promise<ConsentState> {
   const s = consentSettings();
-  const student = await prisma.student.findUnique({
-    where: { userId },
-    select: { studentDob: true, parentName: true, parentEmail: true, parentContact: true },
-  });
+  const [student, user] = await Promise.all([
+    prisma.student.findUnique({
+      where: { userId },
+      select: { studentDob: true, parentName: true, parentEmail: true, parentContact: true },
+    }),
+    prisma.user.findUnique({ where: { id: userId }, select: { name: true } }),
+  ]);
   const email = normEmail(student?.parentEmail);
   const base = {
     enabled: s.enabled,
+    studentName: user?.name ?? null,
     phoneRequired: s.requirePhone,
     studentDob: student?.studentDob ?? null,
     parentName: student?.parentName ?? null,
@@ -113,29 +124,47 @@ export async function getConsentState(userId: string, now: Date = new Date()): P
     parentContact: student?.parentContact ?? null,
   };
 
-  if (!s.enabled) {
-    return {
-      ...base, required: false, reason: "off", age: null, dobMissing: false, emailVerified: false, phoneVerified: false,
-      phoneTestMode: false, verified: true, deadlineAt: null, daysLeft: null, blocked: false, parentPhoneLast4: null,
-    };
-  }
-
   const minor = isMinorDob(student?.studentDob, now);
   const age = ageFromDob(student?.studentDob, now);
-  const required = minor !== false;
+  const needsParent = minor !== false; // under 18, or age not on file
 
-  if (!required) {
-    return {
-      ...base, required: false, reason: "adult", age, dobMissing: false, emailVerified: false, phoneVerified: false,
-      phoneTestMode: false, verified: true, deadlineAt: null, daysLeft: null, blocked: false, parentPhoneLast4: null,
-    };
-  }
-
-  const row = await prisma.parentConsent.findUnique({ where: { userId } });
+  // What is verified so far (read even when the deadline check is switched off,
+  // so the profile badge is always right).
+  let row: Awaited<ReturnType<typeof prisma.parentConsent.findUnique>> = null;
+  try { row = await prisma.parentConsent.findUnique({ where: { userId } }); } catch { /* table not migrated yet */ }
   const emailVerified = !!email && !!row?.verifiedEmail && row.verifiedEmail === email;
   const pv = await getParentVerification(userId, now);
   const phoneVerified = pv.verified;
-  const verified = emailVerified && (!s.requirePhone || phoneVerified);
+  const parentDone = emailVerified && (!s.requirePhone || phoneVerified);
+
+  // Profile status shown on the profile screen: student details + (under 18) verified parent.
+  const missing: string[] = [];
+  if (!user?.name || validateName(user.name)) missing.push("Your full name");
+  if (minor === null) missing.push("Your date of birth");
+  if (needsParent) {
+    if (!student?.parentName?.trim()) missing.push("Parent name");
+    if (!email) missing.push("Parent email");
+    else if (!emailVerified) missing.push("Parent email verification");
+    if (!normalizeWhatsAppNumber(student?.parentContact)) missing.push("Parent phone");
+    else if (s.requirePhone && !phoneVerified) missing.push("Parent phone verification");
+  }
+  const profile = { verified: missing.length === 0, missing };
+
+  if (!s.enabled) {
+    return {
+      ...base, profile, required: false, reason: "off", age, dobMissing: minor === null, emailVerified, phoneVerified,
+      phoneTestMode: pv.testMode, verified: true, deadlineAt: null, daysLeft: null, blocked: false, parentPhoneLast4: pv.phoneLast4,
+    };
+  }
+
+  if (!needsParent) {
+    return {
+      ...base, profile, required: false, reason: "adult", age, dobMissing: false, emailVerified, phoneVerified,
+      phoneTestMode: pv.testMode, verified: true, deadlineAt: null, daysLeft: null, blocked: false, parentPhoneLast4: pv.phoneLast4,
+    };
+  }
+
+  const verified = parentDone;
 
   // The deadline starts the first time we see an account that needs a parent check.
   let deadline: Date | null = row?.deadlineAt ?? null;
@@ -153,6 +182,7 @@ export async function getConsentState(userId: string, now: Date = new Date()): P
 
   return {
     ...base,
+    profile,
     required: true,
     reason: minor === true ? "minor" : "age_unknown",
     age,

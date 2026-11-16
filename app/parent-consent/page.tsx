@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import { dobError, ageFromDob } from "@/app/lib/age";
-import { cleanName } from "@/app/lib/name";
+import { cleanName, validateName } from "@/app/lib/name";
 
 /**
  * Parent verification (students under 18, and anyone whose age is not on file).
@@ -27,6 +27,8 @@ interface Consent {
   parentEmailMasked?: string | null;
   parentContact?: string | null;
   parentPhoneLast4?: string | null;
+  studentName?: string | null;
+  profile?: { verified: boolean; missing: string[] };
 }
 
 type Busy = "" | "save" | "emailSend" | "emailConfirm" | "phoneSend" | "phoneConfirm";
@@ -49,6 +51,8 @@ export default function ParentConsentPage() {
   const [busy, setBusy] = useState<Busy>("");
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
+  const [fullName, setFullName] = useState("");
+  const [savedName, setSavedName] = useState("");
   const [dob, setDob] = useState("");
   const [parentName, setParentName] = useState("");
   const [parentEmail, setParentEmail] = useState("");
@@ -71,6 +75,8 @@ export default function ParentConsentPage() {
   }, [token]);
 
   const fill = (x: Consent) => {
+    setFullName(x.studentName ?? "");
+    setSavedName(x.studentName ?? "");
     setDob(toIso(x.studentDob));
     setParentName(x.parentName ?? "");
     setParentEmail(x.parentEmail ?? "");
@@ -95,6 +101,7 @@ export default function ParentConsentPage() {
   useEffect(() => { if (token) load(); }, [token, load]);
 
   const dirty = !!c && (
+    fullName.trim() !== savedName ||
     dob !== toIso(c.studentDob) ||
     parentName.trim() !== (c.parentName ?? "") ||
     parentEmail.trim() !== (c.parentEmail ?? "") ||
@@ -102,6 +109,8 @@ export default function ParentConsentPage() {
   );
 
   const save = async (): Promise<boolean> => {
+    const nameProblem = fullName.trim() !== savedName ? validateName(fullName) : null;
+    if (nameProblem) { setMsg({ text: nameProblem, ok: false }); return false; }
     const problem = dobError(dob);
     if (problem) { setMsg({ text: problem, ok: false }); return false; }
     const adult = (ageFromDob(dob) ?? 0) >= 18;
@@ -114,6 +123,7 @@ export default function ParentConsentPage() {
       await api("/api/student/profile", {
         method: "PATCH",
         body: JSON.stringify({
+          ...(fullName.trim() !== savedName ? { name: cleanName(fullName) } : {}),
           studentDob: dob.trim(),
           ...(adult ? {} : { parentName: cleanName(parentName), parentEmail: parentEmail.trim(), parentContact: parentPhone.trim() }),
         }),
@@ -196,13 +206,17 @@ export default function ParentConsentPage() {
     );
   }
 
-  if (!c.required || c.verified) {
+  const profileDone = c.profile ? c.profile.verified : (!c.required || c.verified);
+  // Under 18 (or age not known yet): the parent steps are needed.
+  const needsParent = (ageFromDob(c.studentDob) ?? 0) < 18;
+
+  if (profileDone) {
     return shell(
       <div className="text-center py-10">
         <div className="text-5xl mb-3">✅</div>
-        <h1 className="text-2xl font-bold text-slate-900 mb-2">{c.required ? "Parent verified" : "All set"}</h1>
+        <h1 className="text-2xl font-bold text-slate-900 mb-2">Profile verified</h1>
         <p className="text-slate-500 text-sm mb-5">
-          {c.required ? "Thank you. Your parent or guardian is verified. You can use CodingKida without any limit." : "No parent verification is needed for your age."}
+          {needsParent ? "Thank you. Your parent or guardian is verified. You can use CodingKida without any limit." : "Your details are complete."}
         </p>
         <button className={btn} onClick={() => router.replace("/dashboard")}>Continue</button>
       </div>,
@@ -214,10 +228,16 @@ export default function ParentConsentPage() {
 
   return shell(
     <>
-      <h1 className="text-2xl font-bold text-slate-900 mb-1">Parent verification</h1>
+      <h1 className="text-2xl font-bold text-slate-900 mb-1">Verify your profile</h1>
       <p className="text-slate-500 text-sm mb-4">
         CodingKida is made for students, and anyone under 18 needs a parent or guardian to confirm. It takes about two minutes.
       </p>
+      {c.profile && c.profile.missing.length > 0 && (
+        <div className="text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 mb-4">
+          <p className="font-semibold text-slate-800 mb-1">Still needed</p>
+          <ul className="list-disc pl-5 space-y-0.5">{c.profile.missing.map((m) => <li key={m}>{m}</li>)}</ul>
+        </div>
+      )}
 
       {c.blocked ? (
         <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-xl mb-4">
@@ -237,6 +257,8 @@ export default function ParentConsentPage() {
 
       <div className={card}>
         <h2 className="font-bold text-slate-900">1. Your details</h2>
+        <label className={label}>Your full name</label>
+        <input className={input} value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Rahul Sharma" />
         <label className={label}>Your date of birth</label>
         <input type="date" className={input} value={dob} onChange={(e) => setDob(e.target.value)} />
         <label className={label}>Parent or guardian name</label>

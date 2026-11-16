@@ -4,6 +4,10 @@ import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { X, Loader2, Mail, Eye, EyeOff, User, Lock } from "lucide-react";
 import { loginUser, saveToken } from "@/services/auth";
+import SignupExtraFields from "@/components/SignupExtraFields";
+import { checkSignup } from "@/app/lib/signup-check";
+import { getWebDevice } from "@/app/lib/web-device";
+import { consentBlocked } from "@/app/lib/consent-client";
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -29,10 +33,19 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
   const [showSignupPassword, setShowSignupPassword] = useState(false);
   const [signupLoading, setSignupLoading] = useState(false);
   const [signupError, setSignupError] = useState("");
+  const [signupDob, setSignupDob] = useState("");
+  const [parentName, setParentName] = useState("");
+  const [parentEmail, setParentEmail] = useState("");
+  const [parentPhone, setParentPhone] = useState("");
+
+  const clearSignup = () => {
+    setSignupName(""); setSignupEmail(""); setSignupMobile(""); setSignupPassword(""); setSignupError("");
+    setSignupDob(""); setParentName(""); setParentEmail(""); setParentPhone("");
+  };
 
   const resetState = () => {
     setEmail(""); setPassword(""); setError(""); setMode("login");
-    setSignupName(""); setSignupEmail(""); setSignupMobile(""); setSignupPassword(""); setSignupError("");
+    clearSignup();
   };
 
   const handleClose = () => { resetState(); onClose(); };
@@ -51,7 +64,8 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
       localStorage.setItem("user", JSON.stringify({ email, role: "user" }));
       localStorage.setItem("ck_token", data.token);
       handleClose();
-      router.replace("/dashboard");
+      // Under 18 and the parent isn't verified yet (deadline passed): finish that first.
+      router.replace((await consentBlocked(data.token)) ? "/parent-consent" : "/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong!");
     } finally { setLoading(false); }
@@ -60,22 +74,23 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setSignupError("");
-    if (!signupName || !signupEmail || !signupMobile || !signupPassword) return setSignupError("Please fill all fields!");
-    if (!signupEmail.includes("@")) return setSignupError("Please enter a valid email!");
-    if (signupMobile.length < 10) return setSignupError("Please enter a valid mobile number!");
-    if (signupPassword.length < 8) return setSignupError("Password must be at least 8 characters!");
+    const checked = checkSignup({
+      name: signupName, email: signupEmail, mobile: signupMobile, password: signupPassword,
+      dob: signupDob, parentName, parentEmail, parentPhone,
+    });
+    if ("error" in checked) return setSignupError(checked.error);
     setSignupLoading(true);
     try {
       const res = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: signupName, email: signupEmail, password: signupPassword }),
+        body: JSON.stringify({ ...checked.body, device: getWebDevice() }),
       });
       const data = await res.json();
       if (!res.ok) return setSignupError(data.message || "Signup failed.");
       setMode("login");
       setEmail(signupEmail);
-      setSignupName(""); setSignupEmail(""); setSignupMobile(""); setSignupPassword(""); setSignupError("");
+      clearSignup();
     } catch { setSignupError("Something went wrong!"); }
     finally { setSignupLoading(false); }
   };
@@ -174,6 +189,13 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
                   </button>
                 </div>
               </div>
+              <SignupExtraFields
+                dark
+                dob={signupDob} setDob={setSignupDob}
+                parentName={parentName} setParentName={setParentName}
+                parentEmail={parentEmail} setParentEmail={setParentEmail}
+                parentPhone={parentPhone} setParentPhone={setParentPhone}
+              />
               <button type="submit" disabled={signupLoading}
                 className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-white text-sm bg-purple-600 hover:bg-purple-700 disabled:opacity-60">
                 {signupLoading ? <><Loader2 size={15} className="animate-spin" /> Creating...</> : "Create Free Account"}

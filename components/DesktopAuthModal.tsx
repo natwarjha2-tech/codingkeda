@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Loader2, CheckCircle, Mail, Eye, EyeOff, Code, Users, BookOpen, TrendingUp } from "lucide-react";
 import { loginUser, saveToken } from "@/services/auth";
+import SignupExtraFields from "@/components/SignupExtraFields";
+import { checkSignup } from "@/app/lib/signup-check";
+import { getWebDevice } from "@/app/lib/web-device";
+import { consentBlocked } from "@/app/lib/consent-client";
 
 /* ── Forgot Password Modal (inner) ── */
 function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
@@ -110,6 +114,10 @@ export default function DesktopAuthModal({ isOpen, onClose }: DesktopAuthModalPr
   const [signupPassword, setSignupPassword] = useState("");
   const [signupLoading, setSignupLoading] = useState(false);
   const [signupError, setSignupError] = useState("");
+  const [signupDob, setSignupDob] = useState("");
+  const [parentName, setParentName] = useState("");
+  const [parentEmail, setParentEmail] = useState("");
+  const [parentPhone, setParentPhone] = useState("");
 
   useEffect(() => {
     setMounted(true);
@@ -139,7 +147,8 @@ export default function DesktopAuthModal({ isOpen, onClose }: DesktopAuthModalPr
       localStorage.setItem("user", JSON.stringify({ email, role: "user" }));
       localStorage.setItem("ck_token", data.token);
       onClose();
-      router.replace("/dashboard");
+      // Under 18 and the parent isn't verified yet (deadline passed): finish that first.
+      router.replace((await consentBlocked(data.token)) ? "/parent-consent" : "/dashboard");
     } catch (err) { setError(err instanceof Error ? err.message : "Something went wrong!"); }
     finally { setLoading(false); }
   };
@@ -147,16 +156,17 @@ export default function DesktopAuthModal({ isOpen, onClose }: DesktopAuthModalPr
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setSignupError("");
-    if (!signupName || !signupEmail || !signupMobile || !signupPassword) return setSignupError("Please fill all fields!");
-    if (!signupEmail.includes("@")) return setSignupError("Please enter a valid email!");
-    if (signupMobile.length < 10) return setSignupError("Please enter a valid mobile number!");
-    if (signupPassword.length < 8) return setSignupError("Password must be at least 8 characters!");
+    const checked = checkSignup({
+      name: signupName, email: signupEmail, mobile: signupMobile, password: signupPassword,
+      dob: signupDob, parentName, parentEmail, parentPhone,
+    });
+    if ("error" in checked) return setSignupError(checked.error);
     setSignupLoading(true);
     try {
       const res = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: signupName, email: signupEmail, password: signupPassword }),
+        body: JSON.stringify({ ...checked.body, device: getWebDevice() }),
       });
       const data = await res.json();
       if (!res.ok) return setSignupError(data.message || "Signup failed.");
@@ -356,13 +366,19 @@ export default function DesktopAuthModal({ isOpen, onClose }: DesktopAuthModalPr
                               </button>
                             </div>
                           </div>
+                          <SignupExtraFields
+                            dob={signupDob} setDob={setSignupDob}
+                            parentName={parentName} setParentName={setParentName}
+                            parentEmail={parentEmail} setParentEmail={setParentEmail}
+                            parentPhone={parentPhone} setParentPhone={setParentPhone}
+                          />
                           <motion.button type="submit" disabled={signupLoading}
                             whileHover={!signupLoading ? { scale: 1.02 } : {}} whileTap={!signupLoading ? { scale: 0.97 } : {}}
                             className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-white text-sm transition-all duration-200 disabled:opacity-50 bg-purple-600 hover:bg-purple-700 shadow-lg shadow-purple-200">
                             {signupLoading ? <><motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}><Loader2 size={16} /></motion.div> Creating account...</> : "Create Free Account"}
                           </motion.button>
                           <p className="text-xs text-slate-400 text-center">
-                            By signing up, you agree to our{" "}<a href="#" className="text-purple-600 hover:underline">Terms</a> and{" "}<a href="#" className="text-purple-600 hover:underline">Privacy Policy</a>
+                            By signing up, you agree to our{" "}<a href="/terms" target="_blank" rel="noopener noreferrer" className="text-purple-600 hover:underline">Terms</a> and{" "}<a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-purple-600 hover:underline">Privacy Policy</a>
                           </p>
                         </form>
 

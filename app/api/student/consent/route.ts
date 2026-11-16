@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
     const { error, user } = requireAuth(req);
     if (error) return error;
     if (user!.role === "admin" || user!.role === "super-admin") {
-      return apiSuccess({ consent: { enabled: false, required: false, verified: true, blocked: false } });
+      return apiSuccess({ consent: { enabled: false, required: false, verified: true, blocked: false, profile: { verified: true, missing: [] } } });
     }
     return apiSuccess({ consent: await getConsentState(user!.userId) });
   } catch (err) {

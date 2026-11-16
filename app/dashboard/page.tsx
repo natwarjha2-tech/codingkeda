@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Check, Zap, Lock, ArrowRight } from "lucide-react";
 import Navbar from "@/components/Navbar";
+import ProfileVerification from "@/components/ProfileVerification";
 import { getToken } from "@/services/auth";
 import SearchBar from "@/components/SearchBar";
 import { useAuthRedirect } from "@/hooks/useAuthRedirect";
@@ -59,6 +60,9 @@ export default function Dashboard() {
       <main className="min-h-screen bg-[#0f0f1a] px-6 py-10 pt-24">
         <div className="max-w-4xl mx-auto">
           <MobileBackButton />
+
+          {/* Stays until the profile / parent is verified */}
+          <ProfileVerification variant="banner" />
 
           {/* Header */}
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
