@@ -174,6 +174,8 @@ function PaymentContent() {
           // Payment successful - webhook will handle enrollment
           setPaying(false);
           setSuccess(true);
+          // The desktop app's payment window watches for this title and closes itself.
+          if (fromApp) document.title = "Payment successful – CodingKida";
           if (!fromApp) setTimeout(() => router.replace("/dashboard"), 2500);
         },
         prefill: {
@@ -233,7 +235,7 @@ function PaymentContent() {
             <p className="text-slate-400 text-sm mb-2">Welcome to <span className="text-purple-300 font-semibold">{planName}</span></p>
             <p className="text-slate-500 text-xs">
               {fromApp
-                ? "Close this window to go back to the CodingKida app. Your course unlocks there in a few seconds."
+                ? "Going back to the CodingKida app. If this window stays open, close it. Your course unlocks in a few seconds."
                 : "Redirecting to your dashboard..."}
             </p>
             <div className="flex justify-center gap-1.5 mt-6">
