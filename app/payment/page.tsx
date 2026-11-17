@@ -44,6 +44,9 @@ function PaymentContent() {
   const courseIdParam = searchParams.get("courseId") || null;
   // Opened from the phone/desktop app: after paying, send the student back to the app.
   const fromApp = searchParams.get("from") === "app";
+  // Opened from the PHONE app: after paying, jump back to it (this also closes the browser tab).
+  const toMobileApp = fromApp && searchParams.get("return") === "mobile";
+  const mobileReturnUrl = `codingkida://payment-done?status=success${courseIdParam ? `&courseId=${encodeURIComponent(courseIdParam)}` : ""}`;
   // A "package" link (no courseId) is the ZenAlpha bundle. A course link is that one subject,
   // unless the course is part of ZenAlpha (the server then sells ZenAlpha).
   const [courseTitle, setCourseTitle] = useState<string | null>(null);
@@ -176,6 +179,8 @@ function PaymentContent() {
           setSuccess(true);
           // The desktop app's payment window watches for this title and closes itself.
           if (fromApp) document.title = "Payment successful – CodingKida";
+          // Phone app: show the success screen briefly, then go back to the app.
+          if (toMobileApp) setTimeout(() => { window.location.href = mobileReturnUrl; }, 1500);
           if (!fromApp) setTimeout(() => router.replace("/dashboard"), 2500);
         },
         prefill: {
@@ -233,11 +238,24 @@ function PaymentContent() {
             </motion.div>
             <h2 className="text-3xl font-extrabold text-white mb-2">Payment Successful! 🎉</h2>
             <p className="text-slate-400 text-sm mb-2">Welcome to <span className="text-purple-300 font-semibold">{planName}</span></p>
-            <p className="text-slate-500 text-xs">
-              {fromApp
-                ? "Going back to the CodingKida app. If this window stays open, close it. Your course unlocks in a few seconds."
-                : "Redirecting to your dashboard..."}
-            </p>
+            {toMobileApp ? (
+              <>
+                <a
+                  href={mobileReturnUrl}
+                  className="inline-flex items-center justify-center gap-2 mt-4 w-full max-w-xs px-6 py-4 rounded-2xl font-bold text-white text-base"
+                  style={{ background: "linear-gradient(135deg,#7c3aed,#ec4899)", boxShadow: "0 8px 28px rgba(124,58,237,0.45)" }}
+                >
+                  Open the CodingKida app <ArrowRight size={16} />
+                </a>
+                <p className="text-slate-500 text-xs mt-3">Your course is ready there.</p>
+              </>
+            ) : (
+              <p className="text-slate-500 text-xs">
+                {fromApp
+                  ? "Close this window to go back to the CodingKida app. Your course unlocks in a few seconds."
+                  : "Redirecting to your dashboard..."}
+              </p>
+            )}
             <div className="flex justify-center gap-1.5 mt-6">
               {[0,1,2].map(i => (
                 <motion.div key={i}

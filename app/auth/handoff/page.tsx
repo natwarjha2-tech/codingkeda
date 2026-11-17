@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, Suspense } from "react";
+import { useEffect, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
 /**
@@ -11,8 +11,14 @@ import { useSearchParams } from "next/navigation";
 function HandoffContent() {
   const searchParams = useSearchParams();
   const [failed, setFailed] = useState("");
+  // Run once. Removing the code from the address bar (below) makes Next.js report
+  // new, empty search params; without this guard that second run showed
+  // "This link is not complete" for a moment before the first run finished.
+  const started = useRef(false);
 
   useEffect(() => {
+    if (started.current) return;
+    started.current = true;
     const code = searchParams.get("code") || "";
     // Don't leave the code in the address bar or history.
     try { window.history.replaceState(null, "", "/auth/handoff"); } catch { /* ignore */ }
