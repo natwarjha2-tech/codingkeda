@@ -8,9 +8,14 @@ export const metadata: Metadata = {
   description: "The terms that apply when you use the CodingKida website, mobile app and desktop app.",
 };
 
-export default function TermsPage() {
+export default async function TermsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  const embed = (await searchParams).embed === "1";
   return (
-    <LegalPage title="Terms and Conditions" effective={LEGAL.termsEffective}>
+    <LegalPage title="Terms and Conditions" effective={LEGAL.termsEffective} embed={embed}>
       <p>
         CodingKida (the Platform) is operated by <b>{LEGAL.companyName}</b>, CIN {LEGAL.cin}, registered office at {LEGAL.address}
         {" "}(we, us, our). By creating an account or using the CodingKida website, mobile app or desktop app, you agree to these

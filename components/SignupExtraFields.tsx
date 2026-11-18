@@ -1,5 +1,7 @@
 "use client";
+import { useState } from "react";
 import { isMinorDob } from "@/app/lib/age";
+import LegalAgreeModal, { type LegalDoc } from "@/components/LegalAgreeModal";
 import { PASSWORD_HINT } from "@/app/lib/password-rules";
 import type { SignupField } from "@/app/lib/signup-errors";
 
@@ -31,6 +33,8 @@ export default function SignupExtraFields({
   badField?: SignupField;
 }) {
   const minor = isMinorDob(dob) === true;
+  // Which document the "read the terms" window shows (null = closed).
+  const [doc, setDoc] = useState<LegalDoc | null>(null);
   const label = dark ? "text-xs font-semibold text-slate-300 block mb-1.5" : "text-sm font-semibold text-slate-700 block mb-1.5";
   const base = dark
     ? "w-full bg-white/5 border focus:border-purple-500 rounded-xl px-4 py-3 text-white text-sm outline-none placeholder:text-slate-500 [color-scheme:dark]"
@@ -87,11 +91,17 @@ export default function SignupExtraFields({
           className="mt-0.5 h-4 w-4 accent-purple-600 flex-shrink-0" aria-invalid={badField === "terms"} />
         <span className={dark ? "text-xs text-slate-300 leading-relaxed" : "text-xs text-slate-600 leading-relaxed"}>
           I have read and agree to the{" "}
-          <a href="/terms" target="_blank" rel="noopener noreferrer" className={link}>Terms &amp; Conditions</a> and{" "}
-          <a href="/privacy" target="_blank" rel="noopener noreferrer" className={link}>Privacy Policy</a>.
+          <button type="button" onClick={(e) => { e.preventDefault(); setDoc("terms"); }} className={link}>Terms &amp; Conditions</button> and{" "}
+          <button type="button" onClick={(e) => { e.preventDefault(); setDoc("privacy"); }} className={link}>Privacy Policy</button>.
           {minor ? " My parent or guardian will also confirm." : ""}
         </span>
       </label>
+      <LegalAgreeModal
+        open={doc !== null}
+        initial={doc ?? "terms"}
+        onClose={() => setDoc(null)}
+        onAgree={() => setAgreed(true)}
+      />
     </>
   );
 }

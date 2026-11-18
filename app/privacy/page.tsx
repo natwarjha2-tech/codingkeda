@@ -8,9 +8,14 @@ export const metadata: Metadata = {
   description: "What personal data CodingKida collects from students and parents, why, and how to delete it.",
 };
 
-export default function PrivacyPage() {
+export default async function PrivacyPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  const embed = (await searchParams).embed === "1";
   return (
-    <LegalPage title="Privacy Policy" effective={LEGAL.privacyEffective}>
+    <LegalPage title="Privacy Policy" effective={LEGAL.privacyEffective} embed={embed}>
       <p>
         This policy explains how <b>{LEGAL.companyName}</b> (CodingKida, we, us) collects, uses, shares and protects personal data when
         you use the CodingKida website, mobile app and desktop app. CodingKida is a learning platform used by children, so we collect
