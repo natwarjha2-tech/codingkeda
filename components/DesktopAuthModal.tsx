@@ -119,6 +119,9 @@ export default function DesktopAuthModal({ isOpen, onClose }: DesktopAuthModalPr
   const [parentName, setParentName] = useState("");
   const [parentEmail, setParentEmail] = useState("");
   const [parentPhone, setParentPhone] = useState("");
+  const [studentClass, setStudentClass] = useState("");
+  const [school, setSchool] = useState("");
+  const [agreed, setAgreed] = useState(false);
   const [notice, setNotice] = useState("");
   const [signupField, setSignupField] = useState<SignupField>(null);
   const [signupStatus, setSignupStatus] = useState(0);
@@ -179,7 +182,7 @@ export default function DesktopAuthModal({ isOpen, onClose }: DesktopAuthModalPr
     setSignupError(""); setSignupField(null); setSignupStatus(0);
     const checked = checkSignup({
       name: signupName, email: signupEmail, mobile: signupMobile, password: signupPassword,
-      dob: signupDob, parentName, parentEmail, parentPhone,
+      dob: signupDob, studentClass, school, agreed, parentName, parentEmail, parentPhone,
     });
     if ("error" in checked) return reportSignup(checked.error, checked.field);
     setSignupLoading(true);
@@ -284,7 +287,7 @@ export default function DesktopAuthModal({ isOpen, onClose }: DesktopAuthModalPr
                 <div className="relative z-20 -mt-6 bg-white rounded-2xl shadow-lg border border-slate-100 px-6 py-4 flex items-center justify-between w-full max-w-sm">
                 {[
                   { icon: <BookOpen size={16} className="text-purple-500" />, value: "10+", label: "Courses" },
-                  { icon: <TrendingUp size={16} className="text-yellow-500" />, value: "Free", label: "To Start" },
+                  { icon: <TrendingUp size={16} className="text-yellow-500" />, value: "3 months", label: "Access per plan" },
                 ].map((s) => (
                   <div key={s.label} className="text-center">
                     <div className="flex items-center justify-center gap-1 mb-1">{s.icon}<span className="text-lg font-extrabold text-slate-900">{s.value}</span></div>
@@ -366,8 +369,8 @@ export default function DesktopAuthModal({ isOpen, onClose }: DesktopAuthModalPr
                     <motion.div key="signup" initial={{ opacity: 0, rotateY: 90 }} animate={{ opacity: 1, rotateY: 0 }} exit={{ opacity: 0, rotateY: -90 }} transition={{ duration: 0.4, ease: "easeInOut" }}>
                       <div className="bg-white rounded-2xl p-8 lg:p-10 shadow-xl border border-slate-100">
                         <div className="text-center mb-6">
-                          <h2 className="text-2xl font-extrabold text-slate-900 mb-1">Start learning free 🚀</h2>
-                          <p className="text-slate-500 text-sm">Join 5,00,000+ learners today</p>
+                          <h2 className="text-2xl font-extrabold text-slate-900 mb-1">Create your account 🚀</h2>
+                          <p className="text-slate-500 text-sm">It takes about a minute.</p>
                         </div>
 
                         <form className="space-y-4" onSubmit={handleSignup} noValidate>
@@ -407,22 +410,23 @@ export default function DesktopAuthModal({ isOpen, onClose }: DesktopAuthModalPr
                           <SignupExtraFields
                             badField={signupField}
                             dob={signupDob} setDob={(v) => { setSignupDob(v); clearSignupProblem("dob"); }}
+                            studentClass={studentClass} setStudentClass={(v) => { setStudentClass(v); clearSignupProblem("studentClass"); }}
+                            school={school} setSchool={(v) => { setSchool(v); clearSignupProblem("school"); }}
+                            agreed={agreed} setAgreed={(v) => { setAgreed(v); clearSignupProblem("terms"); }}
                             parentName={parentName} setParentName={(v) => { setParentName(v); clearSignupProblem("parentName"); }}
                             parentEmail={parentEmail} setParentEmail={(v) => { setParentEmail(v); clearSignupProblem("parentEmail"); }}
                             parentPhone={parentPhone} setParentPhone={(v) => { setParentPhone(v); clearSignupProblem("parentPhone"); }}
                           />
-                          {(signupField === "dob" || signupField === "parentName" || signupField === "parentEmail" || signupField === "parentPhone") && fieldMsg(signupField)}
+                          {(signupField === "dob" || signupField === "studentClass" || signupField === "school" || signupField === "terms"
+                            || signupField === "parentName" || signupField === "parentEmail" || signupField === "parentPhone") && fieldMsg(signupField)}
                           {signupError && !signupField && (
                             <div id="signup-error-box" role="alert" className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-xl">⚠️ {signupError}</div>
                           )}
                           <motion.button type="submit" disabled={signupLoading}
                             whileHover={!signupLoading ? { scale: 1.02 } : {}} whileTap={!signupLoading ? { scale: 0.97 } : {}}
                             className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-white text-sm transition-all duration-200 disabled:opacity-50 bg-purple-600 hover:bg-purple-700 shadow-lg shadow-purple-200">
-                            {signupLoading ? <><motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}><Loader2 size={16} /></motion.div> Creating account...</> : "Create Free Account"}
+                            {signupLoading ? <><motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}><Loader2 size={16} /></motion.div> Creating account...</> : "Create Account"}
                           </motion.button>
-                          <p className="text-xs text-slate-400 text-center">
-                            By signing up, you agree to our{" "}<a href="/terms" target="_blank" rel="noopener noreferrer" className="text-purple-600 hover:underline">Terms</a> and{" "}<a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-purple-600 hover:underline">Privacy Policy</a>
-                          </p>
                         </form>
 
                         <p className="text-center text-slate-500 text-sm mt-5">

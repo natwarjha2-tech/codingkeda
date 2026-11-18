@@ -14,6 +14,10 @@ export interface SignupInput {
   mobile?: string; // only some forms ask for it
   password: string;
   dob: string;
+  studentClass: string;
+  school: string;
+  /** The "I agree to the Terms & Privacy Policy" box (unticked by default). */
+  agreed: boolean;
   parentName: string;
   parentEmail: string;
   parentPhone: string;
@@ -21,7 +25,11 @@ export interface SignupInput {
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-type Body = { name: string; email: string; password: string; dob: string; parentName?: string; parentEmail?: string; parentPhone?: string };
+type Body = {
+  name: string; email: string; password: string; dob: string;
+  studentClass: string; school: string; acceptedTerms: true;
+  parentName?: string; parentEmail?: string; parentPhone?: string;
+};
 
 export function checkSignup(f: SignupInput): { error: string; field: SignupField } | { body: Body } {
   const fail = (error: string, field: SignupField = fieldFromMessage(error)) => ({ error, field });
@@ -43,6 +51,8 @@ export function checkSignup(f: SignupInput): { error: string; field: SignupField
   if (pw) return fail(`${pw} ${PASSWORD_HINT}`, "password");
   const dobProblem = dobError(f.dob);
   if (dobProblem) return fail(dobProblem, "dob");
+  if (!f.studentClass.trim()) return fail("Select your class.", "studentClass");
+  if (f.school.trim().length < 2) return fail("Enter your school name.", "school");
 
   const minor = isMinorDob(f.dob) === true;
   if (minor) {
@@ -55,12 +65,16 @@ export function checkSignup(f: SignupInput): { error: string; field: SignupField
       return fail("Enter your parent or guardian's 10-digit phone number.", "parentPhone");
     }
   }
+  if (!f.agreed) return fail("Please read and accept the Terms & Conditions and Privacy Policy.", "terms");
   return {
     body: {
       name: cleanName(f.name),
       email: f.email.trim(),
       password: f.password,
       dob: f.dob,
+      studentClass: f.studentClass.trim(),
+      school: f.school.replace(/\s+/g, " ").trim(),
+      acceptedTerms: true,
       ...(minor ? { parentName: cleanName(f.parentName), parentEmail: f.parentEmail.trim(), parentPhone: f.parentPhone.trim() } : {}),
     },
   };

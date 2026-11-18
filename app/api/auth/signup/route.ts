@@ -28,6 +28,10 @@ const signupSchema = z.object({
   parentName: z.string().max(100).optional(),
   parentEmail: z.string().max(255).optional(),
   parentPhone: z.string().max(30).optional(),
+  // Added later; optional so older app versions keep working. New apps require them.
+  studentClass: z.string().max(40).optional(),
+  school: z.string().max(150).optional(),
+  acceptedTerms: z.boolean().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -41,7 +45,20 @@ export async function POST(req: NextRequest) {
 
     const result = await parseBody(req, signupSchema);
     if (result.error) return result.error;
-    const { name, email, password, device, dob, parentName, parentEmail, parentPhone } = result.data;
+    const { name, email, password, device, dob, parentName, parentEmail, parentPhone, studentClass, school, acceptedTerms } = result.data;
+
+    // New apps send acceptedTerms (the student ticked "I agree"). If it is sent it must be true.
+    if (acceptedTerms === false) {
+      return apiError(400, "Please read and accept the Terms & Conditions and Privacy Policy.");
+    }
+    const classClean = (studentClass ?? "").trim();
+    const schoolClean = (school ?? "").replace(/\s+/g, " ").trim();
+    if (school !== undefined && schoolClean.length < 2) {
+      return apiError(400, "Enter your school name.");
+    }
+    if (studentClass !== undefined && !classClean) {
+      return apiError(400, "Select your class.");
+    }
 
     // Real name (no email addresses, digits or placeholders). Empty is still allowed for older apps.
     const cleanedName = cleanName(name);
@@ -87,7 +104,7 @@ export async function POST(req: NextRequest) {
     // Under 18 = verify right away. A failure here must not undo the sign-up:
     // the student is then asked for these details on the first screen instead.
     let consent: Awaited<ReturnType<typeof getConsentState>> | undefined;
-    if (dobRaw) {
+    if (dobRaw || classClean || schoolClean) {
       try {
         await prisma.student.create({
           data: {
@@ -95,12 +112,17 @@ export async function POST(req: NextRequest) {
             name: user.name,
             email: user.email,
             enrolledCourses: 0,
-            studentDob: dobRaw,
+            // The name given at sign-up is the student's name (shown in the profile).
+            studentName: user.name || null,
+            studentDob: dobRaw || null,
+            studentGrade: classClean || null,
+            studentSchool: schoolClean || null,
             parentName: cleanName(parentName) || null,
             parentEmail: parentEmailClean || null,
             parentContact: parentPhoneClean || null,
           },
         });
+        if (acceptedTerms) logger.info("auth-signup", "terms_accepted", { userId: user.id });
         if (minor) await requireConsentNow(user.id);
         consent = await getConsentState(user.id);
       } catch (err) {

@@ -38,12 +38,16 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
   const [parentName, setParentName] = useState("");
   const [parentEmail, setParentEmail] = useState("");
   const [parentPhone, setParentPhone] = useState("");
+  const [studentClass, setStudentClass] = useState("");
+  const [school, setSchool] = useState("");
+  const [agreed, setAgreed] = useState(false);
   const [notice, setNotice] = useState("");
   const [signupField, setSignupField] = useState<SignupField>(null);
 
   const clearSignup = () => {
     setSignupName(""); setSignupEmail(""); setSignupMobile(""); setSignupPassword(""); setSignupError(""); setSignupField(null);
     setSignupDob(""); setParentName(""); setParentEmail(""); setParentPhone("");
+    setStudentClass(""); setSchool(""); setAgreed(false);
   };
 
   const resetState = () => {
@@ -80,7 +84,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
     setSignupField(null);
     const checked = checkSignup({
       name: signupName, email: signupEmail, mobile: signupMobile, password: signupPassword,
-      dob: signupDob, parentName, parentEmail, parentPhone,
+      dob: signupDob, studentClass, school, agreed, parentName, parentEmail, parentPhone,
     });
     if ("error" in checked) return report(checked.error, checked.field);
     setSignupLoading(true);
@@ -168,8 +172,8 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
           </div>
         ) : (
           <div>
-            <h2 className="text-xl font-extrabold text-white mb-1">Start learning free 🚀</h2>
-            <p className="text-slate-400 text-sm mb-5">Join 5,00,000+ learners today</p>
+            <h2 className="text-xl font-extrabold text-white mb-1">Create your account 🚀</h2>
+            <p className="text-slate-400 text-sm mb-5">It takes about a minute.</p>
 
             <form className="space-y-3.5" onSubmit={handleSignup} noValidate>
               <div>
@@ -208,6 +212,9 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
                 dark
                 badField={signupField}
                 dob={signupDob} setDob={setSignupDob}
+                studentClass={studentClass} setStudentClass={setStudentClass}
+                school={school} setSchool={setSchool}
+                agreed={agreed} setAgreed={setAgreed}
                 parentName={parentName} setParentName={setParentName}
                 parentEmail={parentEmail} setParentEmail={setParentEmail}
                 parentPhone={parentPhone} setParentPhone={setParentPhone}
@@ -223,7 +230,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
               )}
               <button type="submit" disabled={signupLoading}
                 className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-white text-sm bg-purple-600 hover:bg-purple-700 disabled:opacity-60">
-                {signupLoading ? <><Loader2 size={15} className="animate-spin" /> Creating...</> : "Create Free Account"}
+                {signupLoading ? <><Loader2 size={15} className="animate-spin" /> Creating...</> : "Create Account"}
               </button>
             </form>
 
