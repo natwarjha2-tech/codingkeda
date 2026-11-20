@@ -115,11 +115,11 @@ export async function recalculateAndAwardCoins(
     let badgeTitle: string | null = null;
 
     if (rank === 1) {
-      badgeType = "super-master"; badgeTitle = "Super Master";
+      badgeType = "super-master"; badgeTitle = "Quiz Gold";
     } else if (rank === 2) {
-      badgeType = "master"; badgeTitle = "Master";
+      badgeType = "master"; badgeTitle = "Quiz Silver";
     } else if (rank >= 3 && rank <= 10) {
-      badgeType = "pro"; badgeTitle = "Pro";
+      badgeType = "pro"; badgeTitle = "Quiz Bronze";
     }
 
     // ── LIVE BADGE SYNC ──

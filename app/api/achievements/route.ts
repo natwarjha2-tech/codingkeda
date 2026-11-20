@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
+import { medalLabel } from "@/app/lib/medals";
 
 /**
  * GET /api/achievements
@@ -109,7 +110,8 @@ export async function GET(req: NextRequest) {
 
       return {
         id: a.id,
-        title: a.title,
+        // New medal names (Quiz Gold / Silver / Bronze), also for badges saved with the old names.
+        title: medalLabel(a.badgeType) !== a.badgeType ? medalLabel(a.badgeType) : a.title,
         badgeType: a.badgeType,
         lessonTitle: lesson?.title || "Unknown Lesson",
         moduleTitle: lesson?.module?.title || "",

@@ -725,3 +725,30 @@ export async function notifyLiveClassScheduled(opts: {
     idempotencyKey: `live_class_scheduled:${opts.classId}:${opts.userId}`,
   });
 }
+
+/**
+ * Notify: coding medal (lesson exercise or weekly challenge), same style as the
+ * quiz achievement notification. One per student per problem/week.
+ */
+export async function notifyCodingMedal(opts: {
+  userId: string;
+  key: string; // e.g. "exercise:<id>" or "weekly:<week>"
+  medalLabel: string;
+  medalIcon: string;
+  coins: number;
+  problemTitle: string;
+  where?: string | null;
+}) {
+  const where = opts.where ? `\n${opts.where}` : "";
+  return createNotification({
+    userId: opts.userId,
+    type: "achievement",
+    category: "achievement",
+    priority: "NORMAL",
+    title: `${opts.medalIcon} ${opts.medalLabel} unlocked!`,
+    body: `You solved "${opts.problemTitle}" and earned the ${opts.medalLabel} badge${opts.coins > 0 ? ` and ${opts.coins} coins` : ""}!${where}`,
+    metadata: { badgeType: opts.medalLabel, coins: opts.coins, problemTitle: opts.problemTitle },
+    action: { type: "deeplink", target: "/achievements" },
+    idempotencyKey: `coding-medal:${opts.userId}:${opts.key}`,
+  });
+}

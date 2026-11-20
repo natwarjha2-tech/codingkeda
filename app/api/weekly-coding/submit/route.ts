@@ -5,7 +5,8 @@ import { apiSuccess, apiError } from "@/app/lib/response";
 import { createRateLimiter } from "@/app/lib/rate-limit";
 import { logger } from "@/app/lib/logger";
 import { executeCode, isExecutionAvailable, VALID_LANGUAGE_IDS, MAX_SOURCE_CODE_SIZE } from "@/app/lib/code-runner";
-import { notifyCoinsEarned } from "@/app/lib/notification";
+import { notifyCodingMedal } from "@/app/lib/notification";
+import { XP_REWARDS } from "@/app/services/xp.service";
 import { currentWeek, weeklyExercise, awardWeekly } from "@/app/services/weekly-coding.service";
 
 const MAX_TESTS = 20;
@@ -70,16 +71,22 @@ export async function POST(req: NextRequest) {
     const allPassed = passedCount === tests.length;
 
     let coinsAwarded = 0;
+    let rank: number | null = null;
+    let medal: { key: string; label: string; icon: string } | null = null;
     if (allPassed) {
       const courseId = ex.lesson?.module?.courseId ?? null;
-      coinsAwarded = await awardWeekly(user!.userId, week.key, ex.title, courseId);
-      if (coinsAwarded > 0) {
-        notifyCoinsEarned({
-          userId: user!.userId, coins: coinsAwarded, reason: "Weekly Coding Challenge",
-          idempotencyKey: `weekly-code:${week.key}`,
+      const r = await awardWeekly(user!.userId, week.key, ex.title, courseId);
+      if (r) {
+        coinsAwarded = r.coins;
+        rank = r.rank;
+        medal = r.medal;
+        notifyCodingMedal({
+          userId: user!.userId, key: `weekly:${week.key}`, medalLabel: r.medal.label, medalIcon: r.medal.icon,
+          coins: r.coins, problemTitle: ex.title, where: "Weekly Coding Challenge",
         }).catch(() => {});
       }
     }
+    const xpEarned = coinsAwarded > 0 ? XP_REWARDS.weekly : 0;
 
     return apiSuccess({
       passed: allPassed,
@@ -87,9 +94,12 @@ export async function POST(req: NextRequest) {
       passed_tests: passedCount,
       results,
       coinsAwarded,
+      rank,
+      medal,
+      xpEarned,
       message: allPassed
         ? coinsAwarded > 0
-          ? `All ${tests.length} tests passed! +${coinsAwarded} coins 🎉`
+          ? `All ${tests.length} tests passed! ${medal ? `${medal.icon} ${medal.label} · ` : ""}+${coinsAwarded} coins · +${xpEarned} XP 🎉`
           : `All ${tests.length} tests passed! You already got this week's coins.`
         : `${passedCount}/${tests.length} tests passed. Try again!`,
     });

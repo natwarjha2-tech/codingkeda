@@ -5,14 +5,16 @@
  *    — this covers the C / Java / Python / DSA courses) and have test cases.
  *  - The pick is fixed for the week (Monday to Sunday, India time), so every
  *    student gets the same question and it changes every Monday.
- *  - Passing every test case gives 10 coins, once per week.
+ *  - Passing every test case gives a medal + coins (15 / 10 / 5 by solve order) and 50 XP, once per week.
  *  - The reward is stored as a CoinTransaction with reason "WeeklyCode:<week> …",
  *    which is also what the weekly leaderboard reads. No new tables.
  */
 import { createHash } from "crypto";
 import { prisma } from "@/app/lib/prisma";
+import { weeklyMedal } from "@/app/lib/medals";
 
-export const WEEKLY_CODE_COINS = 10;
+/** Coins for the first solver (shown as "up to 15 coins"); see awardWeekly for the medals. */
+export const WEEKLY_CODE_COINS = 15;
 const LANGS = ["c", "cpp", "java", "python"];
 const IST_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -65,34 +67,46 @@ export async function weeklyExercise(weekKey: string) {
 export async function solvedThisWeek(userId: string, weekKey: string) {
   const row = await prisma.coinTransaction.findFirst({
     where: { userId, type: "EARNED", reason: { startsWith: reasonPrefix(weekKey) } },
-    select: { createdAt: true, coins: true },
+    select: { createdAt: true, coins: true, reason: true },
   });
   return row;
 }
 
-/** Give the weekly reward once. Returns the coins given (0 if already given). */
+/**
+ * Give the weekly reward once, by solve order:
+ * 1st 🏆 Weekly Champion 15 coins · 2nd–3rd 🎖️ Weekly Finalist 10 · everyone else ✅ Weekly Solver 5.
+ * Returns null if this student already got it this week.
+ */
 export async function awardWeekly(userId: string, weekKey: string, exerciseTitle: string, courseId: string | null) {
-  // Serialise per student + week so two quick submits can't both pay.
+  // Serialise per week so two students can't get the same rank, and one
+  // student's two quick submits can't both pay.
   return prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${userId}:${weekKey}`}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`weekly-code:${weekKey}`}))`;
     const already = await tx.coinTransaction.findFirst({
       where: { userId, type: "EARNED", reason: { startsWith: reasonPrefix(weekKey) } },
       select: { id: true },
     });
-    if (already) return 0;
+    if (already) return null;
+    const before = await tx.coinTransaction.findMany({
+      where: { type: "EARNED", reason: { startsWith: reasonPrefix(weekKey) } },
+      distinct: ["userId"],
+      select: { userId: true },
+    });
+    const rank = before.length + 1;
+    const medal = weeklyMedal(rank);
     await tx.userCoins.upsert({
       where: { userId },
-      update: { totalCoins: { increment: WEEKLY_CODE_COINS } },
-      create: { userId, totalCoins: WEEKLY_CODE_COINS },
+      update: { totalCoins: { increment: medal.coins } },
+      create: { userId, totalCoins: medal.coins },
     });
     await tx.coinTransaction.create({
       data: {
-        userId, type: "EARNED", coins: WEEKLY_CODE_COINS,
-        reason: `${reasonPrefix(weekKey)} — Weekly Coding Challenge — ${exerciseTitle}`,
+        userId, type: "EARNED", coins: medal.coins,
+        reason: `${reasonPrefix(weekKey)} — Rank #${rank} — ${medal.label} — Weekly Coding Challenge — ${exerciseTitle}`,
         ...(courseId ? { courseId } : {}),
       },
     });
-    return WEEKLY_CODE_COINS;
+    return { rank, coins: medal.coins, medal: { key: medal.key, label: medal.label, icon: medal.icon } };
   });
 }
 

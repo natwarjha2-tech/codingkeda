@@ -12,6 +12,8 @@ import {
   LANGUAGE_NAMES,
   MAX_SOURCE_CODE_SIZE,
 } from "@/app/lib/code-runner";
+import { awardSolveCoins } from "@/app/services/exercise-coins.service";
+import { XP_REWARDS } from "@/app/services/xp.service";
 
 /**
  * POST /api/code/submit
@@ -186,12 +188,32 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    // 9. Coins for the first solve (server checked every test, so this is trusted).
+    //    Never fail the submission because of the reward.
+    let reward: Awaited<ReturnType<typeof awardSolveCoins>> | null = null;
+    if (allPassed) {
+      try {
+        reward = await awardSolveCoins({
+          userId: user!.userId, problemId: exerciseId, problemTitle: exercise.title,
+          qualityTag: "solved", lessonId: exercise.lessonId, courseId,
+        });
+      } catch (err) {
+        logger.error("code-submit", "reward_failed", { error: err instanceof Error ? err.message : "Unknown" });
+      }
+    }
+
     return apiSuccess({
       passed: allPassed,
       total_tests: testCases.length,
       passed_tests: passedCount,
       results,
       submission_id: submission.id,
+      coinsAwarded: reward?.coinsAwarded ?? 0,
+      rank: reward?.rank ?? null,
+      alreadyRewarded: reward?.alreadyRanked ?? false,
+      medal: reward?.medal ?? null,
+      // XP for the first solve (it counts once per exercise).
+      xpEarned: reward && !reward.alreadyRanked ? XP_REWARDS.exercise : 0,
       time: totalTime > 0 ? (totalTime / 1000).toFixed(3) + "s" : null,
       memory: maxMemory > 0 ? Math.round(maxMemory / 1024) + " MB" : null,
       message: allPassed ? `All ${testCases.length} test cases passed! 🎉` : `${passedCount}/${testCases.length} test cases passed.`,

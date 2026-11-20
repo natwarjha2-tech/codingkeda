@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
-import { notifyLeaderboardWinner } from "@/app/lib/notification";
+import { awardSolveCoins } from "@/app/services/exercise-coins.service";
 import { logger } from "@/app/lib/logger";
 
 /**
@@ -70,7 +70,9 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * POST — Record submission and award ranking coins
+ * POST — Record a solve and award ranking coins (first solve only).
+ * Logic is shared with /api/code/submit (awardSolveCoins), which pays lesson
+ * exercises after the server checked every test.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -80,114 +82,16 @@ export async function POST(req: NextRequest) {
     const { problemId, problemTitle, qualityTag, lessonId, courseId } = await req.json();
     if (!problemId) return apiError(400, "problemId is required.");
 
-    // Check if user already has a leaderboard entry for this problem
-    const existing = await prisma.coinTransaction.findFirst({
-      where: {
-        userId: user!.userId,
-        reason: { contains: `CodingLB:${problemId}` },
-        type: "EARNED",
-      },
+    const r = await awardSolveCoins({
+      userId: user!.userId, problemId: String(problemId), problemTitle, qualityTag, lessonId, courseId,
     });
-
-    if (existing) {
-      return apiSuccess({ alreadyRanked: true, message: "Already ranked for this problem." });
-    }
-
-    // Count how many users submitted before this user (determines rank)
-    const previousSubmissions = await prisma.coinTransaction.count({
-      where: {
-        reason: { contains: `CodingLB:${problemId}` },
-        type: "EARNED",
-      },
-    });
-
-    const rank = previousSubmissions + 1;
-
-    // Determine coins based on rank
-    let coins = 0;
-    if (rank <= 20) coins = 20;
-    else if (rank <= 50) coins = 10;
-
-    // Resolve Course · Module · Lesson from the lessonId (when this is a lesson
-    // exercise) so the coin transaction + notification show the same hierarchy
-    // as quizzes. `lessonId`/`courseId` are stored on the transaction so the
-    // /api/coins route can build the structure the apps already render.
-    let courseTitle: string | null = null;
-    let moduleTitle: string | null = null;
-    let lessonTitle: string | null = null;
-    let resolvedCourseId: string | null = courseId || null;
-    if (lessonId) {
-      const lesson = await prisma.lesson.findUnique({
-        where: { id: lessonId },
-        select: {
-          title: true,
-          module: { select: { title: true, courseId: true, course: { select: { title: true } } } },
-        },
-      });
-      if (lesson) {
-        lessonTitle = lesson.title;
-        moduleTitle = lesson.module?.title ?? null;
-        courseTitle = lesson.module?.course?.title ?? null;
-        resolvedCourseId = resolvedCourseId || lesson.module?.courseId || null;
-      }
-    }
-
-    // Record leaderboard entry + award coins
-    if (coins > 0) {
-      const reason = `CodingLB:${problemId} — Rank #${rank} — ${problemTitle || "Problem"} (${qualityTag || "solved"})`;
-
-      await prisma.$transaction([
-        prisma.userCoins.upsert({
-          where: { userId: user!.userId },
-          update: { totalCoins: { increment: coins } },
-          create: { userId: user!.userId, totalCoins: coins },
-        }),
-        prisma.coinTransaction.create({
-          data: {
-            userId: user!.userId,
-            type: "EARNED",
-            coins,
-            reason,
-            ...(lessonId ? { lessonId } : {}),
-            ...(resolvedCourseId ? { courseId: resolvedCourseId } : {}),
-          },
-        }),
-      ]);
-    } else {
-      // Still record entry (no coins, rank > 50)
-      await prisma.coinTransaction.create({
-        data: {
-          userId: user!.userId,
-          type: "EARNED",
-          coins: 0,
-          reason: `CodingLB:${problemId} — Rank #${rank} — ${problemTitle || "Problem"}`,
-          ...(lessonId ? { lessonId } : {}),
-          ...(resolvedCourseId ? { courseId: resolvedCourseId } : {}),
-        },
-      });
-    }
-
-    // Notification: leaderboard rank (non-blocking, idempotent, only for rank <= 50)
-    if (coins > 0) {
-      notifyLeaderboardWinner({
-        userId: user!.userId,
-        problemId,
-        problemTitle: problemTitle || "Coding Problem",
-        rank,
-        coinsAwarded: coins,
-        courseTitle,
-        moduleTitle,
-        lessonTitle,
-      }).catch(() => {});
-    }
+    if (r.alreadyRanked) return apiSuccess({ alreadyRanked: true, message: "Already ranked for this problem." });
 
     return apiSuccess({
-      rank,
-      coinsAwarded: coins,
+      rank: r.rank,
+      coinsAwarded: r.coinsAwarded,
       qualityTag: qualityTag || "green",
-      message: coins > 0
-        ? `Rank #${rank}! +${coins} coins earned!`
-        : `Rank #${rank} — keep practicing!`,
+      message: r.coinsAwarded > 0 ? `Rank #${r.rank}! +${r.coinsAwarded} coins earned!` : `Rank #${r.rank} — keep practicing!`,
     });
   } catch (err) {
     logger.error("coding-leaderboard", "post_error", { error: err instanceof Error ? err.message : "Unknown" });

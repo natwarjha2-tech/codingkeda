@@ -223,7 +223,8 @@ export function aggregateStudentProgress(
 
   const overallQuizAccuracy = totalQuizAttempted > 0 ? (totalQuizCorrect / totalQuizAttempted) * 100 : 0;
   const overallExerciseRate = totalExTotal > 0 ? (totalExPassed / totalExTotal) * 100 : 0;
-  const overallScore = (overallQuizAccuracy * 0.7) + (overallExerciseRate * 0.3);
+  // Quizzes and coding exercises count equally.
+  const overallScore = (overallQuizAccuracy * 0.5) + (overallExerciseRate * 0.5);
 
   return {
     overallRating: scoreToRating(overallScore),
