@@ -134,12 +134,22 @@ export function aggregateStudentProgress(
     exerciseByLesson[ex.lessonId].total++;
     exerciseIdToLesson[ex.id] = ex.lessonId;
   }
+  // Count each exercise once (many submissions of the same exercise must not
+  // push "passed" above "total").
+  const exAttempted = new Set<string>();
+  const exPassed = new Set<string>();
   for (const sub of exerciseSubmissions) {
     const lid = exerciseIdToLesson[sub.exerciseId];
     if (!lid) continue;
     if (!exerciseByLesson[lid]) exerciseByLesson[lid] = { total: 0, attempted: 0, passed: 0 };
-    exerciseByLesson[lid].attempted++;
-    if (sub.passed) exerciseByLesson[lid].passed++;
+    if (!exAttempted.has(sub.exerciseId)) {
+      exAttempted.add(sub.exerciseId);
+      exerciseByLesson[lid].attempted++;
+    }
+    if (sub.passed && !exPassed.has(sub.exerciseId)) {
+      exPassed.add(sub.exerciseId);
+      exerciseByLesson[lid].passed++;
+    }
   }
 
   // Achievements: group by lessonId

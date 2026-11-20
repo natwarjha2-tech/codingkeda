@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { extractUser } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
+import { courseLeaderboard } from "@/app/services/leaderboard.service";
 
 /**
  * GET /api/leaderboard?courseId=xxx&lessonId=yyy
@@ -18,6 +19,12 @@ export async function GET(req: NextRequest) {
 
     const currentUser = extractUser(req);
     const currentUserId = currentUser?.userId || null;
+
+    // Course board (no lessonId): every enrolled student ranked by learning score,
+    // the same score shown in Student Progress. Lesson boards use the quiz ranking below.
+    if (courseId && !lessonId) {
+      return apiSuccess(await courseLeaderboard(courseId, currentUserId));
+    }
 
     // Build query filter
     const whereClause: Record<string, string | undefined> = {};
