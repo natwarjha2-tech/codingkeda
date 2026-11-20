@@ -23,10 +23,67 @@ import { notifyAchievement, notifyBadgeLost } from "@/app/lib/notification";
  * - Rank 11+: No coins
  */
 
+/** Minimum quiz score (%) needed to be ranked and win a medal or coins. */
+export const QUIZ_PASS_PERCENT = 60;
+
+const BADGE_BY_RANK = (rank: number): { type: string; title: string } | null =>
+  rank === 1 ? { type: "super-master", title: "Quiz Gold" }
+  : rank === 2 ? { type: "master", title: "Quiz Silver" }
+  : rank >= 3 && rank <= 10 ? { type: "pro", title: "Quiz Bronze" }
+  : null;
+const BADGE_STRENGTH: Record<string, number> = { "super-master": 1, master: 2, pro: 3 };
+
 export interface LeaderboardResult {
   rank: number | null;
   coinsAwarded: number;
   badge: string | null;
+}
+
+/**
+ * Re-sync the quiz badge of every student in this lesson EXCEPT `skipUserId`,
+ * using the order in `rankedUserIds` (best first, pass mark already applied).
+ * Badges only change here; coins already paid are never taken back.
+ */
+async function syncOtherBadges(skipUserId: string, lessonId: string, courseId: string, rankedUserIds: string[]) {
+  const existing = await prisma.achievement.findMany({
+    where: { lessonId },
+    select: { userId: true, badgeType: true, title: true },
+  });
+  const existingByUser = new Map(existing.map((a) => [a.userId, a]));
+  const ids = new Set<string>([...rankedUserIds.slice(0, 10), ...existing.map((a) => a.userId)]);
+  ids.delete(skipUserId);
+
+  for (const uid of ids) {
+    const idx = rankedUserIds.indexOf(uid);
+    const want = idx === -1 ? null : BADGE_BY_RANK(idx + 1);
+    const prev = existingByUser.get(uid);
+    if ((prev?.badgeType ?? null) === (want?.type ?? null)) continue; // already correct
+
+    if (want) {
+      await prisma.achievement.deleteMany({ where: { userId: uid, lessonId, badgeType: { not: want.type } } });
+      await prisma.achievement.upsert({
+        where: { userId_lessonId_badgeType: { userId: uid, lessonId, badgeType: want.type } },
+        update: { title: want.title, courseId },
+        create: { userId: uid, title: want.title, badgeType: want.type, lessonId, courseId },
+      });
+    } else {
+      await prisma.achievement.deleteMany({ where: { userId: uid, lessonId } });
+    }
+
+    const prevStrength = prev ? (BADGE_STRENGTH[prev.badgeType] ?? 99) : 99;
+    const newStrength = want ? BADGE_STRENGTH[want.type] : 99;
+    if (prev && newStrength > prevStrength) {
+      notifyBadgeLost({
+        userId: uid,
+        lessonId,
+        oldBadge: prev.title,
+        newBadge: want?.title || "None",
+        newRank: idx === -1 ? 11 : idx + 1,
+      }).catch(() => {});
+    } else if (want && newStrength < prevStrength) {
+      notifyAchievement({ userId: uid, title: want.title, badgeType: want.type, lessonId, courseId }).catch(() => {});
+    }
+  }
 }
 
 /**
@@ -74,6 +131,10 @@ export async function recalculateAndAwardCoins(
       return true;
     });
 
+    // Questions in the lesson quiz. The score is out of ALL questions, so
+    // answering one question correctly out of ten is 10%, not 100%.
+    const questionCount = await prisma.quiz.count({ where: { lessonId } });
+
     // Group by user — aggregate ONLY first-attempt scores
     const userScores: Record<string, { total: number; correct: number; totalTime: number; earliestSubmit: Date }> = {};
     for (const a of firstAttempts) {
@@ -92,11 +153,13 @@ export async function recalculateAndAwardCoins(
     const ranked = Object.entries(userScores)
       .map(([uid, data]) => ({
         userId: uid,
-        score: Math.round((data.correct / data.total) * 100),
+        score: Math.round((data.correct / Math.max(data.total, questionCount)) * 100),
         correctCount: data.correct,
         totalTime: data.totalTime,
         earliestSubmit: data.earliestSubmit,
       }))
+      // Only students who score at least the pass mark can win a medal.
+      .filter((e) => e.score >= QUIZ_PASS_PERCENT)
       .sort((a, b) => {
         if (b.score !== a.score) return b.score - a.score;
         if (b.correctCount !== a.correctCount) return b.correctCount - a.correctCount;
@@ -105,8 +168,17 @@ export async function recalculateAndAwardCoins(
       });
 
     // Find user's rank
+    // ── KEEP EVERYONE ELSE'S BADGE CURRENT ──
+    // When a new student takes first place, the student who held it moves down.
+    // Fix their badge now (not only when they next open the quiz).
+    await syncOtherBadges(userId, lessonId, courseId, ranked.map((e) => e.userId));
+
     const userIndex = ranked.findIndex((e) => e.userId === userId);
-    if (userIndex === -1) return { rank: null, coinsAwarded: 0, badge: null };
+    if (userIndex === -1) {
+      // Below the pass mark: no rank, no medal, no coins.
+      await prisma.achievement.deleteMany({ where: { userId, lessonId } });
+      return { rank: null, coinsAwarded: 0, badge: null };
+    }
 
     const rank = userIndex + 1;
 

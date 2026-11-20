@@ -40,6 +40,28 @@ export function weeklyMedal(rank: number): MedalInfo {
   return MEDALS["weekly-solver"];
 }
 
+/**
+ * Turns a stored coin reason into text a student can read.
+ * "CodingLB:<id> — Rank #1 — Coding Gold — Two Sum" → "🥇 Coding Gold · Rank #1 · Two Sum".
+ * Other reasons (quiz, referral, coupon...) are returned unchanged.
+ */
+export function friendlyCoinReason(reason: string): string {
+  const isLb = reason.startsWith("CodingLB:");
+  const isWeekly = reason.startsWith("WeeklyCode:");
+  if (isLb || isWeekly) {
+    const parts = reason.split(" — ");
+    const rank = Number(/Rank #(\d+)/.exec(reason)?.[1] ?? 0);
+    const found = Object.values(MEDALS).find((m) => reason.includes(m.label));
+    const medal = found ?? (isWeekly ? MEDALS["weekly-solver"] : rank ? codingMedal(rank) : null);
+    const last = parts.length > 1 ? parts[parts.length - 1] : "";
+    const title = last.startsWith("Rank #") || (medal && last === medal.label) ? "" : last;
+    const head = medal ? `${medal.icon} ${medal.label}` : isWeekly ? "Weekly Challenge" : "Coding Exercise";
+    return [head, rank ? `Rank #${rank}` : "", title].filter(Boolean).join(" · ");
+  }
+  if (reason.startsWith("Coding:")) return `Code Arena · ${reason.slice(7).trim()}`;
+  return reason;
+}
+
 export function medalLabel(key: string): string {
   return (MEDALS as Record<string, MedalInfo>)[key]?.label ?? key;
 }

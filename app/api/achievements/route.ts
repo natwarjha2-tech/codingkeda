@@ -3,6 +3,7 @@ import { prisma } from "@/app/lib/prisma";
 import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { medalLabel } from "@/app/lib/medals";
+import { getCodingMedals } from "@/app/services/coding-medals.service";
 
 /**
  * GET /api/achievements
@@ -30,8 +31,34 @@ export async function GET(req: NextRequest) {
       where: { userId: user!.userId },
     });
 
+    // Opt-in (?include=coding, used by the mobile app): also list coding and
+    // weekly-challenge medals. Off by default so the desktop app is unchanged.
+    const includeCoding = req.nextUrl.searchParams.get("include") === "coding" && !isPaginated;
+    const codingItems = includeCoding
+      ? (await getCodingMedals(user!.userId)).badges.map((b, i) => ({
+          id: `coding-${i}-${b.earnedAt}`,
+          title: `${b.label}`,
+          badgeType: b.key,
+          lessonTitle: b.title,
+          moduleTitle: "",
+          courseTitle: b.kind === "weekly" ? "Weekly Challenge" : "Coding Exercise",
+          instructor: "CodingKida Team",
+          institute: "",
+          adminName: "CodingKida",
+          studentName: "",
+          rank: b.rank,
+          coins: b.coins,
+          earnedAt: b.earnedAt,
+          founderName: "CodingKida Team",
+        }))
+      : [];
+
     if (totalCount === 0) {
-      return apiSuccess({ achievements: [], totalCount: 0, ...(isPaginated && { page, limit, totalPages: 0 }) });
+      return apiSuccess({
+        achievements: codingItems,
+        totalCount: codingItems.length,
+        ...(isPaginated && { page, limit, totalPages: 0 }),
+      });
     }
 
     // Fetch achievements with optional pagination
@@ -127,9 +154,15 @@ export async function GET(req: NextRequest) {
       };
     });
 
+    const allItems = codingItems.length
+      ? [...certificateData, ...codingItems].sort(
+          (a, b) => new Date(b.earnedAt).getTime() - new Date(a.earnedAt).getTime()
+        )
+      : certificateData;
+
     return apiSuccess({
-      achievements: certificateData,
-      totalCount,
+      achievements: allItems,
+      totalCount: totalCount + codingItems.length,
       ...(isPaginated && { page, limit, totalPages: Math.ceil(totalCount / limit) }),
     });
   } catch {

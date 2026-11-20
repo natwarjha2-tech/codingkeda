@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
+import { friendlyCoinReason } from "@/app/lib/medals";
 
 /**
  * GET /api/coins
@@ -71,7 +72,7 @@ export async function GET(req: NextRequest) {
         id: t.id,
         type: t.type,
         coins: t.coins,
-        reason: t.reason,
+        reason: friendlyCoinReason(t.reason),
         createdAt: t.createdAt,
         courseTitle,
         moduleTitle: lesson?.module?.title || null,
