@@ -49,7 +49,7 @@ export async function getPublicLiveClasses(): Promise<PublicLiveClass[]> {
         instructorName: r.instructorName ?? "",
         scheduledAt: r.scheduledAt ? r.scheduledAt.toISOString() : null,
         durationMinutes: r.durationMinutes ?? null,
-        status: r.status === "live" ? "live" : "scheduled",
+        status: (r.status === "live" ? "live" : "scheduled") as PublicLiveClass["status"],
         courseId: r.courseId,
         courseTitle: title.get(r.courseId) ?? "",
       }))
