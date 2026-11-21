@@ -11,9 +11,14 @@ import { useAuthModal } from "@/context/AuthModalContext";
 import DesktopAuthModal from "@/components/DesktopAuthModal";
 import AdminAuthModal from "@/components/AdminAuthModal";
 
+// Header links from the website blueprint. Tutorials, playground and the weekly
+// challenge live inside Free Learning (and the footer).
 const links = [
-  { label: "Home",    scrollId: "hero" },
-  { label: "Courses", scrollId: "pricing" },
+  { label: "Courses",       href: "/courses" },
+  { label: "Free Learning", href: "/free-learning" },
+  { label: "Live Classes",  href: "/live-classes" },
+  { label: "For Schools",   href: "/for-schools" },
+  { label: "Pricing",       href: "/pricing" },
 ];
 
 export default function Navbar() {
@@ -104,16 +109,6 @@ export default function Navbar() {
   // super-admins wrongly saw the student menu.
   const isAdmin = userRole === "admin" || userRole === "super-admin";
 
-  const scrollTo = (id: string) => {
-    setOpen(false);
-    if (pathname === "/") {
-      setTimeout(() => {
-        document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
-      }, 50);
-    } else {
-      router.push(`/#${id}`);
-    }
-  };
 
   return (
     <nav className={`fixed top-0 w-full z-50 border-b border-white/8 transition-all duration-300 ${scrolled ? "bg-[#0f0f1a]/98" : "bg-[#0f0f1a]/85"} backdrop-blur-xl ${hidden ? "-translate-y-full" : "translate-y-0"}`}>
@@ -159,23 +154,22 @@ export default function Navbar() {
         </Link>
 
         {/* Search Bar - near logo */}
-        <div className="hidden md:flex ml-2">
+        <div className="hidden xl:flex ml-2">
           <SearchBar placeholder="Search for courses..." className="max-w-xs w-64" />
         </div>
 
         {/* Nav links - centered */}
-        <div className="hidden md:flex items-center gap-6 absolute left-1/2 -translate-x-1/2">
+        <div className="hidden md:flex items-center gap-4 lg:gap-6 ml-4 lg:ml-8">
           {links.map((l) => (
-            <button key={l.label}
-              onClick={() => scrollTo(l.scrollId)}
-              className="text-slate-400 hover:text-white text-sm font-medium transition-colors cursor-pointer whitespace-nowrap"
+            <Link key={l.label} href={l.href}
+              className={`text-sm font-medium transition-colors whitespace-nowrap ${pathname === l.href ? "text-white" : "text-slate-400 hover:text-white"}`}
             >
               {l.label}
-            </button>
+            </Link>
           ))}
           <Link href="/download"
-            className="text-slate-400 hover:text-white text-sm font-medium transition-colors whitespace-nowrap flex items-center gap-1.5">
-            <span>⬇</span> Download App
+            className="hidden lg:flex text-slate-400 hover:text-white text-sm font-medium transition-colors whitespace-nowrap items-center gap-1.5">
+            <span>⬇</span> App
           </Link>
         </div>
 
@@ -252,7 +246,13 @@ export default function Navbar() {
                 )}
               </div>
             ) : (
-              <div className="relative" ref={dropdownRef}>
+              <div className="relative flex items-center gap-2" ref={dropdownRef}>
+                <Link
+                  href="/login?mode=signup"
+                  className="hidden lg:inline-flex text-xs font-bold text-[#1E1B4B] bg-[#FFD84D] hover:brightness-105 px-4 py-3 rounded-xl whitespace-nowrap"
+                >
+                  Get Started
+                </Link>
                 <button
                   onClick={() => setLoginDropdown(!loginDropdown)}
                   className="relative flex items-center gap-1.5 text-xs font-bold text-white px-5 py-3 rounded-xl whitespace-nowrap transition-all duration-300 hover:scale-105 hover:shadow-[0_0_20px_rgba(124,58,237,0.5)] bg-purple-600 hover:bg-purple-700"
@@ -260,7 +260,7 @@ export default function Navbar() {
                     boxShadow: "0 4px 15px rgba(124,58,237,0.35)",
                   }}
                 >
-                  Login/Register <ChevronDown size={15} className={`transition-transform ${loginDropdown ? "rotate-180" : ""}`} />
+                  Login <ChevronDown size={15} className={`transition-transform ${loginDropdown ? "rotate-180" : ""}`} />
                 </button>
                 {loginDropdown && (
                   <div className="absolute right-0 mt-2 w-48 bg-[#16213e] border border-white/10 rounded-xl shadow-xl overflow-hidden z-50">
@@ -291,10 +291,10 @@ export default function Navbar() {
             </div>
 
             {links.map((l) => (
-              <button key={l.label} onClick={() => scrollTo(l.scrollId)}
-                className="text-slate-300 text-sm font-medium text-left cursor-pointer">
+              <Link key={l.label} href={l.href} onClick={() => setOpen(false)}
+                className="text-slate-300 text-sm font-medium text-left">
                 {l.label}
-              </button>
+              </Link>
             ))}
             <Link href="/download" onClick={() => setOpen(false)}
               className="text-slate-300 text-sm font-medium text-left flex items-center gap-2">

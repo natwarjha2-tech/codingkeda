@@ -1,63 +1,70 @@
+import { Suspense } from "react";
+import { Nunito } from "next/font/google";
 import Navbar from "@/components/Navbar";
-import Hero from "@/components/Hero";
-import CoursesSection from "@/components/CoursesSection";
-import HowItWorks from "@/components/HowItWorks";
-import Pricing from "@/components/Pricing";
 import Footer from "@/components/Footer";
 import BrandText from "@/components/BrandText";
 import ScrollToHash from "@/components/ScrollToHash";
 import DemoVideo from "@/components/DemoVideo";
-import Link from "next/link";
-import { ArrowRight, Cpu, BookOpen, Monitor, Users } from "lucide-react";
+import HomeHero from "@/components/home/HomeHero";
+import ClassPicker from "@/components/home/ClassPicker";
+import HomeCourses from "@/components/home/HomeCourses";
+import LearnLoop from "@/components/home/LearnLoop";
+import KidsPricing from "@/components/home/KidsPricing";
+import ParentsSection from "@/components/home/ParentsSection";
+import HomeFaq from "@/components/home/HomeFaq";
+import AppBand from "@/components/home/AppBand";
+import FreeZone from "@/components/home/FreeZone";
+import PlayArea from "@/components/home/PlayArea";
+import LiveAndSchools from "@/components/home/LiveAndSchools";
+import { getHomeCourses } from "@/app/services/home.service";
+import { connection } from "next/server";
+
+// Rounded, friendly font for the kids' home page only (the rest of the site keeps Inter).
+const nunito = Nunito({ subsets: ["latin"], weight: ["400", "600", "700", "800", "900"], display: "swap" });
+
+async function HeroWithCount() {
+  await connection();
+  const courses = await getHomeCourses();
+  return <HomeHero courseCount={courses.length} />;
+}
+
+function CoursesFallback() {
+  return (
+    <section id="courses" className="px-5 py-16">
+      <div className="max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        {[0, 1, 2].map((i) => <div key={i} className="h-72 rounded-[28px] bg-[#F3F0FF] animate-pulse" />)}
+      </div>
+    </section>
+  );
+}
 
 export default function Home() {
   return (
-    <main>
+    <main className={`${nunito.className} bg-[#FFFBF5] text-[#1E1B4B]`}>
       <Navbar />
-
       <ScrollToHash />
-      {/* 1. Hero */}
-      <Hero />
 
-      {/* 2. Learning Flow */}
-      <HowItWorks />
+      <Suspense fallback={<HomeHero courseCount={0} />}>
+        <HeroWithCount />
+      </Suspense>
 
-      {/* 3. Demo Video */}
+      <PlayArea />
+
+      <ClassPicker />
+
+      <Suspense fallback={<CoursesFallback />}>
+        <HomeCourses />
+      </Suspense>
+
+      <FreeZone />
+
+      <LearnLoop />
       <DemoVideo />
-
-      {/* 6. Why CodingKida */}
-      <section className="max-w-7xl mx-auto px-6 py-20">
-        <div className="text-center mb-12">
-          <h2 className="text-3xl md:text-4xl font-extrabold mb-3">Why <span className="font-extrabold">Coding<span style={{color:"#ef4444"}}>K</span><span style={{color:"#f59e0b"}}>i</span><span style={{color:"#22c55e"}}>d</span>a</span>?</h2>
-          <p className="text-slate-400">What makes us different from other platforms</p>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {[
-            { icon: <BookOpen size={28} className="text-purple-400" />, title: "Structured Roadmap", desc: "Clear learning path from beginner to job-ready. No confusion, no overwhelm." },
-            { icon: <Cpu size={28} className="text-orange-400" />, title: "AI Doubt Support", desc: "Get instant answers to your coding doubts 24/7 with our built-in AI assistant." },
-            { icon: <Monitor size={28} className="text-green-400" />, title: "Desktop + Offline", desc: "Download our desktop app and learn even without internet. Learn anywhere, anytime." },
-            { icon: <Users size={28} className="text-blue-400" />, title: "Community Learning", desc: "Learn together with fellow students. Ask doubts, share projects, grow together." },
-          ].map((item) => (
-            <div key={item.title} className="bg-[#16213e] border border-white/8 rounded-2xl p-7 hover:-translate-y-1 transition-transform">
-              <div className="mb-4">{item.icon}</div>
-              <h4 className="font-bold text-white mb-2">{item.title}</h4>
-              <p className="text-slate-400 text-sm">{item.desc}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* 7. Pricing */}
-      <Pricing />
-
-      {/* 9. CTA Banner */}
-      <section className="bg-gradient-to-r from-purple-600 to-orange-500 py-20 px-6 text-center">
-        <h2 className="text-3xl md:text-4xl font-extrabold text-white mb-3">Learn Today, Build Tomorrow</h2>
-        <p className="text-white/85 mb-8">Build the future. Start learning today — first 7 days completely free.</p>
-        <Link href="/signup" className="inline-flex items-center gap-2 bg-white text-purple-600 font-bold px-8 py-4 rounded-xl hover:-translate-y-0.5 hover:shadow-xl transition-all">
-          Start Learning Today <ArrowRight size={18} />
-        </Link>
-      </section>
+      <LiveAndSchools />
+      <KidsPricing />
+      <ParentsSection />
+      <HomeFaq />
+      <AppBand />
 
       <BrandText />
       <Footer />

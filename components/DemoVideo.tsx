@@ -51,13 +51,13 @@ export default function DemoVideo() {
   return (
     <>
       {/* The section with id="demo-video" so "Watch Demo" button scrolls here */}
-      <section id="demo-video" className="py-20 px-6 bg-gradient-to-br from-[#1a0533] via-[#0f0f1a] to-[#001a33]">
+      <section id="demo-video" className="py-20 px-6 bg-gradient-to-br from-[#E0F2FE] via-[#F5F3FF] to-[#FFE4E6]">
         <div className="max-w-4xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 bg-purple-500/15 border border-purple-500/30 text-purple-300 px-4 py-1.5 rounded-full text-sm font-semibold mb-6">
-            🎬 Platform Demo
+          <div className="inline-flex items-center gap-2 bg-white border-2 border-[#C4B5FD] text-[#6D28D9] px-4 py-1.5 rounded-full text-sm font-extrabold mb-6">
+            🎬 Platform demo
           </div>
-          <h2 className="text-3xl md:text-4xl font-extrabold text-white mb-3">See How <span>Coding<span style={{color:"#ef4444"}}>K</span><span style={{color:"#f59e0b"}}>i</span><span style={{color:"#22c55e"}}>d</span>a</span> Works</h2>
-          <p className="text-slate-400 mb-10 max-w-lg mx-auto">Watch a quick walkthrough of our platform — how courses, AI mentors, and coding practice work together.</p>
+          <h2 className="text-3xl md:text-5xl font-black text-[#1E1B4B] mb-3">See how <span>Coding<span style={{color:"#ef4444"}}>K</span><span style={{color:"#f59e0b"}}>i</span><span style={{color:"#22c55e"}}>d</span>a</span> works</h2>
+          <p className="text-[#4B5563] text-lg mb-10 max-w-lg mx-auto">Watch a quick walkthrough: courses, quizzes, the AI helper and coding practice.</p>
 
           {/* Play Button */}
           <button
@@ -68,7 +68,7 @@ export default function DemoVideo() {
             {/* Pulse ring */}
             <span className="absolute inset-0 rounded-full border-2 border-purple-400 animate-ping opacity-30" />
           </button>
-          <p className="text-slate-500 text-sm mt-4">Click to watch demo (~15 min)</p>
+          <p className="text-[#6B7280] text-sm mt-4 font-semibold">Click to watch the demo (~15 min)</p>
         </div>
       </section>
 

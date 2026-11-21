@@ -9,14 +9,21 @@ import { getToken } from "@/services/auth";
 import SearchBar from "@/components/SearchBar";
 import { useAuthRedirect } from "@/hooks/useAuthRedirect";
 import MobileBackButton from "@/components/MobileBackButton";
+import StudentHub from "@/components/site/StudentHub";
+import { PLAN_PRICE, PLAN_LIST_PRICE, PLAN_OFF_PERCENT, ACCESS_DAYS, rupees } from "@/app/lib/pricing";
+
+// Plan cards below show the same prices the server charges.
+const PRICE = rupees(PLAN_PRICE);
+const ORIGINAL = rupees(PLAN_LIST_PRICE);
+const ACCESS_TEXT = `${Math.round(ACCESS_DAYS / 30)} months access`;
 
 const COURSES = [
   {
     key: "ZenZ Package",
     name: "ZenZ", tag: "For Class 4–8", emoji: "🌟",
     desc: "A fun, beginner-friendly coding journey designed for young learners.",
-    features: ["Scratch & Python basics", "Build games & animations", "Live mentor support", "Certificate on completion", "Lifetime access", "Mobile-friendly content"],
-    price: "₹499", original: "₹2,499",
+    features: ["Scratch & Python basics", "Build games & animations", "Live mentor support", "Certificate on completion", ACCESS_TEXT, "Mobile-friendly content"],
+    price: PRICE, original: ORIGINAL,
     glow: "rgba(168,85,247,0.35)",
     border: "rgba(168,85,247,0.3)",
   },
@@ -24,8 +31,8 @@ const COURSES = [
     key: "ZenAlpha Package",
     name: "ZenAlpha", tag: "For Class 9–12", emoji: "⚡",
     desc: "Advanced coding curriculum for high schoolers ready to go deep.",
-    features: ["DSA & real-world projects", "Web & App development", "Career-ready skills", "Industry certificate", "Lifetime access", "1-on-1 doubt sessions"],
-    price: "₹599", original: "₹2,999",
+    features: ["DSA & real-world projects", "Web & App development", "Career-ready skills", "Industry certificate", ACCESS_TEXT, "1-on-1 doubt sessions"],
+    price: PRICE, original: ORIGINAL,
     glow: "rgba(99,102,241,0.35)",
     border: "rgba(99,102,241,0.3)",
   },
@@ -63,6 +70,9 @@ export default function Dashboard() {
 
           {/* Stays until the profile / parent is verified */}
           <ProfileVerification variant="banner" />
+
+          {/* Access, progress, live classes, app, next step, support */}
+          <StudentHub />
 
           {/* Header */}
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
@@ -116,7 +126,7 @@ export default function Dashboard() {
                     <div className="text-right">
                       <p className="text-lg font-extrabold text-white">{course.price}</p>
                       <p className="text-xs text-slate-500 line-through">{course.original}</p>
-                      <span className="text-[10px] font-bold text-green-400">80% OFF</span>
+                      <span className="text-[10px] font-bold text-green-400">{PLAN_OFF_PERCENT}% OFF</span>
                     </div>
                   </div>
 

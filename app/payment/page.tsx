@@ -181,7 +181,12 @@ function PaymentContent() {
           if (fromApp) document.title = "Payment successful – CodingKida";
           // Phone app: show the success screen briefly, then go back to the app.
           if (toMobileApp) setTimeout(() => { window.location.href = mobileReturnUrl; }, 1500);
-          if (!fromApp) setTimeout(() => router.replace("/dashboard"), 2500);
+          // Website: show the verified status (access is granted only by the server webhook).
+          if (!fromApp) {
+            const q = new URLSearchParams({ order: response.razorpay_order_id || orderData.orderId });
+            if (courseIdParam) q.set("courseId", courseIdParam);
+            setTimeout(() => router.replace(`/payment/success?${q.toString()}`), 1500);
+          }
         },
         prefill: {
           name: orderData.userName,
@@ -199,6 +204,15 @@ function PaymentContent() {
       };
 
       const razorpay = new window.Razorpay(razorpayOptions);
+      // Website only: a failed payment opens the "Payment failed" page (apps keep their own flow).
+      if (!fromApp && typeof razorpay.on === "function") {
+        razorpay.on("payment.failed", () => {
+          setPaying(false);
+          const q = new URLSearchParams({ order: orderData.orderId });
+          if (courseIdParam) q.set("courseId", courseIdParam);
+          router.push(`/payment/failed?${q.toString()}`);
+        });
+      }
       razorpay.open();
     } catch (error) {
       setPaying(false);

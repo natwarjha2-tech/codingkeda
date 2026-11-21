@@ -33,16 +33,16 @@ export default function Footer() {
         </div>
 
         {[
-          { title: "Courses", links: ["C Programming", "Java Development", "Python", "Web Programming", "DSA & Algorithms"] },
-          { title: "Company", links: ["About Us", "Careers", "Blog", "Press", "Contact"] },
-          { title: "Support", links: ["Help Center", "Privacy Policy", "Terms of Service", "Refund Policy"] },
+          { title: "Learn", links: [["All courses", "/courses"], ["Free learning", "/free-learning"], ["Live classes", "/live-classes"], ["Free tutorials", "/learn"], ["Code playground", "/playground"], ["Weekly challenge", "/weekly-challenge"], ["Pricing", "/pricing"]] },
+          { title: "CodingKida", links: [["About us", "/about"], ["For schools", "/for-schools"], ["For parents", "/#parents"], ["Verify a certificate", "/verify"], ["Download the app", "/download"]] },
+          { title: "Help", links: [["FAQ", "/faq"], ["Support", "/support"], ["Contact us", "/contact"], ["Privacy Policy", legalLinks["Privacy Policy"]], ["Terms of Service", legalLinks["Terms of Service"]], ["Refund Policy", "/refund-policy"], ["Delete account", "/delete-account"]] },
         ].map((col) => (
           <div key={col.title}>
             <h5 className="text-white font-bold text-sm mb-4">{col.title}</h5>
             <ul className="space-y-2.5">
-              {col.links.map((l) => (
-                <li key={l}>
-                  <a href={legalLinks[l] ?? "#"} className="text-slate-400 hover:text-white text-sm transition-colors">{l}</a>
+              {col.links.map(([label, href]) => (
+                <li key={label}>
+                  <Link href={href} className="text-slate-400 hover:text-white text-sm transition-colors">{label}</Link>
                 </li>
               ))}
             </ul>
@@ -50,7 +50,7 @@ export default function Footer() {
         ))}
       </div>
       <div className="border-t border-white/8 pt-6 text-center text-slate-500 text-xs">
-        © 2025 CodingKida (www.codingkida.com). All rights reserved. Made with ❤️ in India.
+        © {new Date().getFullYear()} CodingKida (www.codingkida.com). All rights reserved. Made with ❤️ in India.
       </div>
     </footer>
   );

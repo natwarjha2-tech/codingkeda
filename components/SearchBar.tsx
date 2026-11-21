@@ -86,6 +86,14 @@ export default function SearchBar({
           onChange={handleChange}
           onFocus={() => { setFocused(true); setShowSuggestions(true); }}
           onBlur={() => setFocused(false)}
+          onKeyDown={(e) => {
+            // Enter searches the real course list.
+            if (e.key === "Enter" && value.trim()) {
+              setShowSuggestions(false);
+              router.push(`/courses?q=${encodeURIComponent(value.trim())}`);
+            }
+          }}
+          enterKeyHint="search"
           placeholder={placeholder}
           className="bg-transparent outline-none text-sm text-white placeholder:text-slate-500 w-full"
         />
