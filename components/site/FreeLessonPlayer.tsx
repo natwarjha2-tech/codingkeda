@@ -1,35 +1,71 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import HlsPlayer from "@/components/learn/HlsPlayer";
 
 /**
  * Plays a free sample lesson. Uses the existing GET /api/lessons/[id]/play,
- * which returns a signed MP4 link for free lessons without login.
+ * which returns signed video links for free lessons without login.
+ *
+ * Source order: the original uploaded MP4 first, then any quality MP4s. If a
+ * source errors or does not start within 15 s, the next one is tried. If none
+ * work, a clear message replaces the endless spinner.
  */
+const STALL_MS = 15_000;
+
 export default function FreeLessonPlayer({ lessonId, nextHref, nextTitle }: { lessonId: string; nextHref: string | null; nextTitle: string | null }) {
-  const [url, setUrl] = useState<string | null>(null);
-  const [state, setState] = useState<"loading" | "ready" | "locked" | "error">("loading");
+  const [sources, setSources] = useState<string[]>([]);
+  const [index, setIndex] = useState(0);
+  const [state, setState] = useState<"loading" | "ready" | "playing" | "locked" | "error">("loading");
   const [ended, setEnded] = useState(false);
+  // HLS through CloudFront first; the MP4 chain below is only the fallback.
+  const [mode, setMode] = useState<"hls" | "mp4">("hls");
   const videoRef = useRef<HTMLVideoElement>(null);
+  const stallTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/lessons/${encodeURIComponent(lessonId)}/play`)
+    fetch(`/api/lessons/${encodeURIComponent(lessonId)}/play`, { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
         if (cancelled) return;
         const l = d?.lesson;
         if (!d?.success || !l) return setState("error");
         if (l.locked) return setState("locked");
-        const q = l.qualityUrls && typeof l.qualityUrls === "object" ? (l.qualityUrls["480p"] || l.qualityUrls["720p"] || Object.values(l.qualityUrls)[0]) : null;
-        const src = (q as string | null) || l.videoUrl || null;
-        if (!src) return setState("error");
-        setUrl(src);
+        const q: Record<string, string> = l.qualityUrls && typeof l.qualityUrls === "object" ? l.qualityUrls : {};
+        const list = [l.videoUrl, q["720p"], q["480p"], q["360p"], ...Object.values(q)]
+          .filter((u): u is string => typeof u === "string" && u.length > 0);
+        const unique = Array.from(new Set(list));
+        if (!unique.length) return setState("error");
+        setSources(unique);
+        setIndex(0);
         setState("ready");
       })
       .catch(() => !cancelled && setState("error"));
     return () => { cancelled = true; };
   }, [lessonId]);
+
+  const clearStall = () => { if (stallTimer.current) { clearTimeout(stallTimer.current); stallTimer.current = null; } };
+
+  // Move to the next source, or give up with a clear message.
+  const tryNext = useCallback(() => {
+    clearStall();
+    setIndex((i) => {
+      if (i + 1 < sources.length) return i + 1;
+      setState("error");
+      return i;
+    });
+  }, [sources.length]);
+
+  // Each time a source is loaded, give it 15 s to become playable.
+  useEffect(() => {
+    if (mode !== "mp4" || state !== "ready" || !sources[index]) return;
+    clearStall();
+    stallTimer.current = setTimeout(tryNext, STALL_MS);
+    return clearStall;
+  }, [mode, state, index, sources, tryNext]);
+
+  const src = sources[index];
 
   return (
     <div>
@@ -38,8 +74,9 @@ export default function FreeLessonPlayer({ lessonId, nextHref, nextTitle }: { le
         {state === "error" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-white">
             <div className="text-5xl">📺</div>
-            <p className="font-black">This video could not load right now.</p>
-            <p className="text-white/70">Please try again in a minute, or watch it in the CodingKida app.</p>
+            <p className="font-black text-lg">This video plays best in the CodingKida app.</p>
+            <p className="text-white/70">The free lesson is also free in the app, no payment needed.</p>
+            <Link href="/download" className="rounded-xl bg-[#FFD84D] px-5 py-2 font-black text-[#7C2D12]">Get the free app</Link>
           </div>
         )}
         {state === "locked" && (
@@ -49,13 +86,27 @@ export default function FreeLessonPlayer({ lessonId, nextHref, nextTitle }: { le
             <Link href="/pricing" className="rounded-xl bg-[#FFD84D] px-5 py-2 font-black text-[#7C2D12]">See plans</Link>
           </div>
         )}
-        {state === "ready" && url && (
+        {(state === "ready" || state === "playing") && mode === "hls" && (
+          <HlsPlayer
+            lessonId={lessonId}
+            onPlaying={() => setState("playing")}
+            onEnded={() => setEnded(true)}
+            onFail={() => setMode("mp4")}
+          />
+        )}
+        {(state === "ready" || state === "playing") && mode === "mp4" && src && (
           <video
+            key={src}
             ref={videoRef}
-            src={url}
+            src={src}
             controls
             playsInline
+            preload="metadata"
             controlsList="nodownload"
+            onLoadedData={clearStall}
+            onCanPlay={clearStall}
+            onPlaying={() => { clearStall(); setState("playing"); }}
+            onError={tryNext}
             onEnded={() => setEnded(true)}
             className="w-full h-full object-contain bg-black"
           />

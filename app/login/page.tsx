@@ -156,10 +156,10 @@ function LoginForm() {
       // Students under 18 whose parent isn't verified yet (deadline passed): finish that first.
       if (await consentBlocked(data.token)) { router.replace("/parent-consent"); return; }
       if (redirect) { router.replace(decodeURIComponent(redirect)); }
-      else if (flow === "free") { localStorage.removeItem("isNewUser"); router.replace("/dashboard"); }
+      else if (flow === "free") { localStorage.removeItem("isNewUser"); router.replace("/my/dashboard"); }
       else if (flow === "survey") { localStorage.removeItem("isNewUser"); router.replace("/recommendation"); }
       else if (isNewUser && !surveyDone) { localStorage.removeItem("isNewUser"); router.replace("/"); setTimeout(() => { document.getElementById("survey")?.scrollIntoView({ behavior: "smooth" }); }, 400); }
-      else { router.replace("/dashboard"); }
+      else { router.replace("/my/dashboard"); }
     } catch (err) { setError(err instanceof Error ? err.message : "Something went wrong!"); }
     finally { setLoading(false); }
   };

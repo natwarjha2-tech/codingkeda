@@ -212,6 +212,10 @@ export default function Navbar() {
                           className="flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors">
                           <User size={15} className="text-purple-400" /> My Dashboard
                         </Link>
+                        <Link href="/my/dashboard" onClick={() => setProfileDropdown(false)}
+                          className="flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors">
+                          <BookOpen size={15} className="text-purple-400" /> My Classroom
+                        </Link>
                         <div className="h-px bg-white/8" />
                         <Link href="/profile" onClick={() => setProfileDropdown(false)}
                           className="flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors">
@@ -220,13 +224,17 @@ export default function Navbar() {
                       </>
                     ) : (
                       <>
-                        <Link href="/my-courses" onClick={() => setProfileDropdown(false)}
+                        <Link href="/my/dashboard" onClick={() => setProfileDropdown(false)}
+                          className="flex items-center gap-3 px-4 py-3 text-sm font-semibold text-white hover:bg-white/5 transition-colors">
+                          <User size={15} className="text-purple-400" /> My Classroom
+                        </Link>
+                        <Link href="/my/courses" onClick={() => setProfileDropdown(false)}
                           className="flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors">
                           <BookOpen size={15} className="text-purple-400" /> My Courses
                         </Link>
                         <Link href="/dashboard" onClick={() => setProfileDropdown(false)}
                           className="flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors">
-                          <User size={15} className="text-purple-400" /> Dashboard
+                          <Settings size={15} className="text-slate-400" /> Plans &amp; Offers
                         </Link>
                         <div className="h-px bg-white/8" />
                         <Link href="/profile" onClick={() => setProfileDropdown(false)}
@@ -302,7 +310,11 @@ export default function Navbar() {
             </Link>
             {loggedIn && (
               <>
-                <Link href="/my-courses" onClick={() => setOpen(false)}
+                <Link href="/my/dashboard" onClick={() => setOpen(false)}
+                  className="text-white text-sm font-semibold text-left cursor-pointer flex items-center gap-2">
+                  <User size={14} className="text-purple-400" /> My Classroom
+                </Link>
+                <Link href="/my/courses" onClick={() => setOpen(false)}
                   className="text-slate-300 text-sm font-medium text-left cursor-pointer flex items-center gap-2">
                   <BookOpen size={14} className="text-purple-400" /> My Courses
                 </Link>

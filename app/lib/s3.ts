@@ -245,6 +245,35 @@ export function getCloudFrontSignedCookies(
   };
 }
 
+/**
+ * Same wildcard authorization as getCloudFrontSignedCookies, but as a URL QUERY
+ * STRING ("Policy=…&Signature=…&Key-Pair-Id=…") instead of cookies. Browsers
+ * cannot attach cookies to another domain from JavaScript, so the website
+ * appends this query to every segment URL of a playlist it rewrites. CloudFront
+ * accepts a custom-policy signed URL for any object under the prefix.
+ * Returns null when CloudFront is not configured.
+ */
+export function getCloudFrontSignedQuery(resourcePrefix: string, expiresIn = 3600): string | null {
+  const c = getCloudFrontSignedCookies(resourcePrefix, expiresIn);
+  if (!c) return null;
+  return `Policy=${c["CloudFront-Policy"]}&Signature=${c["CloudFront-Signature"]}&Key-Pair-Id=${c["CloudFront-Key-Pair-Id"]}`;
+}
+
+/** Base https URL of the CloudFront distribution (no trailing slash), or "" when not set. */
+export function cloudFrontBase(): string {
+  return CF_DOMAIN ? `https://${CF_DOMAIN}` : "";
+}
+
+/** Read a small text object (e.g. an .m3u8 playlist) straight from S3. */
+export async function readS3Text(key: string): Promise<string | null> {
+  try {
+    const res = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+    return res.Body ? await res.Body.transformToString("utf-8") : null;
+  } catch {
+    return null;
+  }
+}
+
 // Unsigned CloudFront URL for the HLS master playlist of a media item. The
 // bytes are authorized by the signed cookies above, so this URL stays stable
 // (cacheable). Falls back to the S3 public URL when CF isn't configured.

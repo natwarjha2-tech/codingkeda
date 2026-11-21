@@ -11,7 +11,13 @@ import Razorpay from "razorpay";
 const RAZORPAY_KEY_ID = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "";
 const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || "";
 
-const razorpay = new Razorpay({ key_id: RAZORPAY_KEY_ID, key_secret: RAZORPAY_KEY_SECRET });
+// Created on the first request (not at import time), so `next build` works
+// even when the payment keys are not set in the build environment.
+let razorpayClient: Razorpay | null = null;
+function getRazorpay(): Razorpay {
+  if (!razorpayClient) razorpayClient = new Razorpay({ key_id: RAZORPAY_KEY_ID, key_secret: RAZORPAY_KEY_SECRET });
+  return razorpayClient;
+}
 
 /**
  * POST /api/payment/create-order
@@ -84,7 +90,7 @@ export async function POST(req: NextRequest) {
 
     // Razorpay order for the FINAL amount.
     const amountInPaisa = Math.round(price.finalPrice * 100);
-    const razorpayOrder = await razorpay.orders.create({
+    const razorpayOrder = await getRazorpay().orders.create({
       amount: amountInPaisa,
       currency: "INR",
       receipt: `order_${user!.userId.slice(0, 8)}_${Date.now()}`,
