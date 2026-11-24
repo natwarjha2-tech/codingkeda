@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api } from "../api";
+import { apiCached } from "../api";
 import { EmptyState, Loading, PageHeader, fmtDate } from "@/components/my/ui";
 
 type A = { id: string; title: string; badgeType: string; courseTitle?: string; moduleTitle?: string; lessonTitle?: string; score?: number; rank?: number; studentName?: string; instructor?: string; earnedAt: string };
@@ -11,7 +11,7 @@ const meta = (b: string) =>
 
 export default function AchievementsPage() {
   const [list, setList] = useState<A[] | null>(null);
-  useEffect(() => { api("/api/achievements").then((d) => setList(d.achievements || [])).catch(() => setList([])); }, []);
+  useEffect(() => { apiCached("/api/achievements", (d) => setList(d.achievements || [])).catch(() => setList([])); }, []);
 
   return (
     <div className="pt-2">

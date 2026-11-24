@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Calendar, Clock, Play, Users, Video } from "lucide-react";
-import { api, ApiError } from "../api";
+import { apiCached, ApiError } from "../api";
 
 type LiveClass = {
   id: string; title: string; status: string; scheduledAt: string | null;
@@ -37,8 +37,7 @@ export default function LivePage() {
 
   useEffect(() => {
     const load = () =>
-      api("/api/live/classes/enrolled")
-        .then((d) => setClasses(d.classes || []))
+      apiCached("/api/live/classes/enrolled", (d) => setClasses(d.classes || []))
         .catch((e) => { if (e instanceof ApiError && e.status === 503) setOff(true); setClasses([]); });
     load();
     const t = setInterval(load, 30_000);
@@ -48,7 +47,7 @@ export default function LivePage() {
 
   useEffect(() => {
     if (tab !== "recordings" || recs) return;
-    api("/api/live/classes/recordings/mine").then((d) => setRecs(d.courses || [])).catch(() => setRecs([]));
+    apiCached("/api/live/classes/recordings/mine", (d) => setRecs(d.courses || [])).catch(() => setRecs([]));
   }, [tab, recs]);
 
   return (

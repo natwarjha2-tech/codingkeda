@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { Play, Send } from "lucide-react";
 import Link from "next/link";
-import { api } from "@/app/my/api";
+import { api, apiCached } from "@/app/my/api";
 import MonacoEditor from "./MonacoEditor";
 import CodoHelp from "./CodoHelp";
 import { Card, Empty } from "./QuizTab";
@@ -26,8 +26,7 @@ export default function ExerciseTab({ lessonId, courseId, onCoins }: { lessonId:
 
   useEffect(() => {
     setItems(null);
-    api(`/api/exercise?lessonId=${encodeURIComponent(lessonId)}`)
-      .then((d) => setItems(d.exercises || []))
+    apiCached(`/api/exercise?lessonId=${encodeURIComponent(lessonId)}`, (d) => setItems(d.exercises || []), { skipIfFresh: true })
       .catch(() => setItems([]));
   }, [lessonId]);
 

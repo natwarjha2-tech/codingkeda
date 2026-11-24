@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Search } from "lucide-react";
-import { api } from "../api";
+import { apiCached } from "../api";
 import { subjectTheme } from "../ui";
 
 /**
@@ -112,9 +112,8 @@ export default function MyCourses() {
   useEffect(() => { if (qParam) setQ(qParam); }, [qParam]);
 
   useEffect(() => {
-    api("/api/courses").then((d) => setCourses(d.courses || [])).catch(() => setCourses([]));
-    api("/api/student/dashboard")
-      .then((d) => setEnrolled(new Set<string>((d.enrolledCourses || []).map((c: { id: string }) => c.id))))
+    apiCached("/api/courses", (d) => setCourses(d.courses || [])).catch(() => setCourses([]));
+    apiCached("/api/student/dashboard", (d) => setEnrolled(new Set<string>((d.enrolledCourses || []).map((c: { id: string }) => c.id))))
       .catch(() => {});
   }, []);
 

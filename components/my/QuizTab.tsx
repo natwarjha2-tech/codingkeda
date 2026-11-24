@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { api } from "@/app/my/api";
+import { api, apiCached } from "@/app/my/api";
 import CodoHelp from "./CodoHelp";
 
 type Quiz = { id: string; question: string; options: string[] };
@@ -27,8 +27,7 @@ export default function QuizTab({ lessonId, courseId, onCoins }: { lessonId: str
 
   useEffect(() => {
     setQuizzes(null); setIdx(0); setSel(null); setResults({}); setMsg(""); setReward("");
-    api(`/api/quiz?lessonId=${encodeURIComponent(lessonId)}`)
-      .then((d) => { setQuizzes(d.quizzes || []); setAttempted(!!d.attempted); started.current = Date.now(); })
+    apiCached(`/api/quiz?lessonId=${encodeURIComponent(lessonId)}`, (d) => { setQuizzes(d.quizzes || []); setAttempted(!!d.attempted); started.current = Date.now(); }, { skipIfFresh: true })
       .catch(() => setQuizzes([]));
   }, [lessonId]);
 

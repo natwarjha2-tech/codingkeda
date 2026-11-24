@@ -73,6 +73,8 @@ export default function HlsPlayer({
   const [pos, setPos] = useState({ top: 12, left: 12 });
   const failRef = useRef(onFail);
   failRef.current = onFail;
+  const autoPlayRef = useRef(autoPlay);
+  autoPlayRef.current = autoPlay;
 
   // Quality (like the apps): Auto by default + every rendition in the stream.
   const [levels, setLevels] = useState<Level[]>([]);
@@ -152,6 +154,10 @@ export default function HlsPlayer({
               .filter((l: Level) => (seen.has(l.label) ? false : (seen.add(l.label), true)));
             setLevels(list);
             setChosen(-1);
+            // Start playing as soon as the stream is ready (the student already
+            // clicked the lesson). If the browser blocks autoplay, the normal
+            // play button still works.
+            if (autoPlayRef.current) video.play().catch(() => {});
           });
           hls.on(Hls.Events.LEVEL_SWITCHED, (_e: unknown, data: any) => setPlayingLevel(data?.level ?? -1));
           hlsRef.current = hls;
@@ -161,6 +167,7 @@ export default function HlsPlayer({
           // Native HLS (iPhone Safari). Cannot send the auth header, so this
           // only works for free lessons; paid lessons report failure.
           video.src = url;
+          if (autoPlayRef.current) video.play().catch(() => {});
         } else {
           fail("hls unsupported");
         }
@@ -223,17 +230,32 @@ export default function HlsPlayer({
     </>
   );
 
-  // Outside the player (lesson page engagement bar): a pill + dropdown, nothing on the video.
+  // Outside the player (lesson page bar): a single gear icon, like YouTube/the mobile app.
+  // Quality only — speed is already in the video's own ⋮ menu. Auto (adaptive,
+  // follows the network) is the default and shows no resolution. Opens upward.
+  const chosenLabel = chosen === -1 ? "Auto" : labelFor(chosen) || "Auto";
   const slotUi = settingsSlot && createPortal(
     <span className="relative inline-flex">
-      <button onClick={() => setMenu(menu ? null : "main")} title="Quality & speed"
-        className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-[13px] font-bold text-cyan-200 transition hover:-translate-y-0.5 hover:bg-cyan-500/20">
-        <Settings2 size={15} /> {qualityText || "Auto"}{speed !== 1 ? ` · ${speed}x` : ""}
+      <button onClick={() => setMenu(menu ? null : "quality")} title={`Video quality: ${chosenLabel}`} aria-label="Video quality"
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition hover:-translate-y-0.5 ${menu ? "border-cyan-300 bg-cyan-500/25 text-white" : "border-cyan-400/30 bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/20"}`}>
+        <Settings2 size={16} className={`transition-transform duration-300 ${menu ? "rotate-90" : ""}`} />
+        {chosen !== -1 && <span className="absolute -right-1 -top-1 rounded-md bg-cyan-500 px-1 text-[9px] font-black leading-[14px] text-[#05202a]">{chosenLabel.replace("p", "")}</span>}
       </button>
       {menu && (
         <>
           <span className="fixed inset-0 z-40" onClick={() => setMenu(null)} />
-          <span className="absolute left-0 top-full z-50 mt-1.5 block min-w-48 overflow-hidden rounded-xl border border-white/15 bg-[#1a1a2e] py-1 text-white shadow-2xl">{menuBody}</span>
+          <span className="absolute bottom-full left-1/2 z-50 mb-2 block w-44 -translate-x-1/2 overflow-hidden rounded-xl border border-white/15 bg-[#1a1a2e] py-1 text-white shadow-2xl">
+            <span className="block border-b border-white/10 px-4 py-2 text-[11px] font-bold uppercase tracking-wide text-white/50">Quality</span>
+            <button className={row} onClick={() => pickQuality(-1)}>
+              <span>Auto <span className="text-[11px] text-white/40">· best for your network</span></span>{chosen === -1 && <span className="text-cyan-300">✓</span>}
+            </button>
+            {levels.map((l) => (
+              <button key={l.index} className={row} onClick={() => pickQuality(l.index)}>
+                <span>{l.label}</span>{chosen === l.index && <span className="text-cyan-300">✓</span>}
+              </button>
+            ))}
+            {levels.length === 0 && <span className="block px-4 py-2 text-xs text-white/50">Only Auto is available.</span>}
+          </span>
         </>
       )}
     </span>,

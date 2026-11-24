@@ -6,7 +6,7 @@ import {
   ArrowLeft, Bot, ChevronDown, ChevronUp, Code2, FileText, FlaskConical, History, Laptop, Lightbulb, Menu,
   Moon, MoreVertical, Network, Play, Plus, Send, Sparkles, Sun, Terminal, X,
 } from "lucide-react";
-import { api } from "../api";
+import { api, apiCached } from "../api";
 import { useMy } from "../MyContext";
 import MonacoEditor, { type EditorHandle } from "@/components/my/MonacoEditor";
 import { CODING_LANGUAGES, getDefaultStarter, langOf } from "@/components/my/monaco";
@@ -109,8 +109,7 @@ function CodeEditor() {
 
   /* ── load ── */
   useEffect(() => {
-    api("/api/coding-problems")
-      .then((d) => { setProblems(d.problems || []); setCategories(d.categories || CATEGORIES); })
+    apiCached("/api/coding-problems", (d) => { setProblems(d.problems || []); setCategories(d.categories || CATEGORIES); })
       .catch(() => setProblems([]));
   }, []);
   useEffect(() => { setMyProblems(getMyProblems(who)); }, [who]);

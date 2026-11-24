@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { api } from "../api";
+import { apiCached } from "../api";
 import { PageHeader, Panel } from "@/components/my/ui";
 
 const FAQS = [
@@ -19,7 +19,7 @@ export default function HelpPage() {
   const [open, setOpen] = useState<number | null>(null);
 
   useEffect(() => {
-    api("/api/app-config").then((d) => {
+    apiCached("/api/app-config", (d) => {
       const n = String(d.supportWhatsapp || "").replace(/[^0-9]/g, "");
       if (n.length >= 6) setWa(n);
       if (/.+@.+\..+/.test(d.supportEmail || "")) setEmail(d.supportEmail);

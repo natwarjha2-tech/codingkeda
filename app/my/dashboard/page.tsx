@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Play } from "lucide-react";
-import { api } from "../api";
+import { apiCached, apiOnce } from "../api";
 import { useMy } from "../MyContext";
 import { subjectTheme } from "../ui";
 import VerifyBanner from "@/components/my/VerifyBanner";
@@ -40,15 +40,15 @@ export default function MyDashboard() {
 
   useEffect(() => {
     try { setLocal(JSON.parse(localStorage.getItem("ck_last_lesson") || "null")); } catch { /* ignore */ }
-    api("/api/student/dashboard").then(async (d) => {
+    apiCached("/api/student/dashboard", async (d) => {
       const list: Enrolled[] = d.enrolledCourses || [];
       setEnrolled(list); setCompletedVideos(d.completedVideos || 0); setLastWatched(d.lastWatched || null);
-      const s = await Promise.all(list.map((c) => api(`/api/weekly-streak?courseId=${encodeURIComponent(c.id)}`).catch(() => ({}))));
+      const s = await Promise.all(list.map((c) => apiOnce(`/api/weekly-streak?courseId=${encodeURIComponent(c.id)}`).catch(() => ({}))));
       setStreak({ done: s.reduce((a, x) => a + (x.completedCount || 0), 0), total: s.reduce((a, x) => a + (x.totalStreaks || 0), 0) });
     }).catch(() => setEnrolled([]));
-    api("/api/achievements").then((d) => setAchCount(d.totalCount ?? (d.achievements || []).length)).catch(() => {});
-    api("/api/xp").then((d) => d?.xp && setXp(d.xp)).catch(() => {});
-    api("/api/courses").then((d) => setCourses(d.courses || [])).catch(() => setCourses([]));
+    apiCached("/api/achievements", (d) => setAchCount(d.totalCount ?? (d.achievements || []).length)).catch(() => {});
+    apiCached("/api/xp", (d) => { if (d?.xp) setXp(d.xp); }).catch(() => {});
+    apiCached("/api/courses", (d) => setCourses(d.courses || [])).catch(() => setCourses([]));
   }, []);
 
   // Continue Learning target: last opened lesson (this browser) → last completed lesson (server) → first course.

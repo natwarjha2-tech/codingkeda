@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api } from "../api";
+import { apiCached } from "../api";
 import { EmptyState, Loading, PageHeader, fmtDate } from "@/components/my/ui";
 import CertificateViewer from "@/components/my/CertificateViewer";
 
@@ -10,7 +10,7 @@ type Cert = { code: string; courseId?: string; courseTitle: string; studentName?
 export default function CertificatesPage() {
   const [list, setList] = useState<Cert[] | null>(null);
   const [open, setOpen] = useState<Cert | null>(null);
-  useEffect(() => { api("/api/certificates").then((d) => setList(d.certificates || [])).catch(() => setList([])); }, []);
+  useEffect(() => { apiCached("/api/certificates", (d) => setList(d.certificates || [])).catch(() => setList([])); }, []);
 
   return (
     <div className="w-full pt-2">

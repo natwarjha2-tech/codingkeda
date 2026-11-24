@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Camera, GraduationCap, KeyRound, Lock, LogOut, ShieldAlert, Users, UserX } from "lucide-react";
-import { api } from "../api";
+import { api, apiCached } from "../api";
 import { logoutUser } from "@/services/auth";
 import { Bar, btn } from "@/components/my/ui";
 import DeleteAccountModal from "@/components/my/DeleteAccountModal";
@@ -45,12 +45,12 @@ export default function ProfilePage() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    api("/api/student").then((d) => setS(d.student)).catch(() => {});
-    api("/api/student/avatar").then((d) => setAvatar(d.avatarUrl || null)).catch(() => {});
-    api("/api/xp").then((d) => d?.xp && setXp(d.xp)).catch(() => {});
-    api("/api/student/dashboard").then((d) => setCourses((d.enrolledCourses || []).length)).catch(() => {});
-    api("/api/coins").then((d) => setCoins(d.totalCoins || 0)).catch(() => {});
-    api("/api/achievements").then((d) => setBadges(d.totalCount ?? (d.achievements || []).length)).catch(() => {});
+    apiCached("/api/student", (d) => setS(d.student)).catch(() => {});
+    apiCached("/api/student/avatar", (d) => setAvatar(d.avatarUrl || null)).catch(() => {});
+    apiCached("/api/xp", (d) => { if (d?.xp) setXp(d.xp); }).catch(() => {});
+    apiCached("/api/student/dashboard", (d) => setCourses((d.enrolledCourses || []).length)).catch(() => {});
+    apiCached("/api/coins", (d) => setCoins(d.totalCoins || 0)).catch(() => {});
+    apiCached("/api/achievements", (d) => setBadges(d.totalCount ?? (d.achievements || []).length)).catch(() => {});
   }, []);
   useEffect(() => { setMsg(null); setPwdMsg(null); }, [tab]);
 

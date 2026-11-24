@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api } from "../api";
+import { apiCached } from "../api";
 import { Bar, EmptyState, Loading, PageHeader } from "@/components/my/ui";
 
 type C = {
@@ -29,7 +29,7 @@ export default function EnrolledPage() {
   const [list, setList] = useState<C[] | null>(null);
   const [last, setLast] = useState<Last | null>(null);
   useEffect(() => {
-    api("/api/student/dashboard").then((d) => setList(d.enrolledCourses || [])).catch(() => setList([]));
+    apiCached("/api/student/dashboard", (d) => setList(d.enrolledCourses || [])).catch(() => setList([]));
     try { setLast(JSON.parse(localStorage.getItem("ck_last_lesson") || "null")); } catch { /* ignore */ }
   }, []);
   const avg = list?.length ? Math.round(list.reduce((s, c) => s + (c.progressPercent || 0), 0) / list.length) : 0;

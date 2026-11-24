@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ChevronDown } from "lucide-react";
-import { api, durationToSeconds } from "../api";
+import { apiCached, durationToSeconds } from "../api";
 import { EmptyState, Loading, PageHeader } from "@/components/my/ui";
 
 /** 29:11 or 1:05:30 — same format as the desktop app. */
@@ -32,7 +32,7 @@ export default function CompletedPage() {
   const [total, setTotal] = useState(0);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   useEffect(() => {
-    api("/api/student/progress").then((d) => { setList(d.courses || []); setTotal(d.totalLessonsCompleted || 0); }).catch(() => setList([]));
+    apiCached("/api/student/progress", (d) => { setList(d.courses || []); setTotal(d.totalLessonsCompleted || 0); }).catch(() => setList([]));
   }, []);
   const withProgress = (list || []).filter((c) => c.lessonsCompleted > 0);
 

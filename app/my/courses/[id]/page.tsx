@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { BookOpen, Check, CheckCircle2, ChevronDown, Clock, Globe, LayoutList, Lock, MessageCircle, Play, PlayCircle, Signal, Star, Video } from "lucide-react";
-import { api, durationToSeconds } from "../../api";
+import { api, apiCached, durationToSeconds } from "../../api";
 import { subjectLogo, subjectTheme } from "../../ui";
 import { useMy } from "../../MyContext";
 import { downloadPdf, getOffline, offlineKey } from "../../offline";
@@ -57,14 +57,13 @@ export default function CourseDetail() {
   const [matDl, setMatDl] = useState<Record<string, "busy" | "done">>({});
 
   useEffect(() => {
-    api(`/api/courses/${encodeURIComponent(id)}?signed=true`)
-      .then((d) => {
+    apiCached(`/api/courses/${encodeURIComponent(id)}?signed=true`, (d) => {
         const c: Course = d.course;
         setCourse(c);
         // Remember the last opened module per course (desktop ck_last_mod_<id>).
         const saved = parseInt(localStorage.getItem(`ck_last_mod_${id}`) || "0", 10);
         setOpenMod(Number.isFinite(saved) && saved < (c?.modules?.length || 0) ? saved : 0);
-      })
+      }, { skipIfFresh: true })
       .catch((e) => setError(e.message || "Could not load this course."));
   }, [id]);
 

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { api } from "../api";
+import { apiCached } from "../api";
 import { useMy } from "../MyContext";
 import { PageHeader, Panel } from "@/components/my/ui";
 
@@ -11,7 +11,7 @@ export default function ReferralPage() {
   const [r, setR] = useState<Ref | null>(null);
   const [toast, setToast] = useState("");
 
-  useEffect(() => { api("/api/referral").then(setR).catch(() => {}); }, []);
+  useEffect(() => { apiCached("/api/referral", setR).catch(() => {}); }, []);
   const flash = (t: string) => { setToast(t); setTimeout(() => setToast(""), 3000); };
 
   const copy = () => {

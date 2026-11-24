@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Bell, Trash2, X } from "lucide-react";
-import { api } from "@/app/my/api";
+import { api, apiCached } from "@/app/my/api";
 
 /* ───────────── Modal shell ───────────── */
 export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
@@ -30,7 +30,7 @@ type Ach = { id: string; title: string; badgeType?: string | null };
 
 export function CoinsModal({ onClose }: { onClose: () => void }) {
   const [data, setData] = useState<{ totalCoins: number; transactions: Tx[]; achievements: Ach[] } | null>(null);
-  useEffect(() => { api("/api/coins").then(setData).catch(() => setData({ totalCoins: 0, transactions: [], achievements: [] })); }, []);
+  useEffect(() => { apiCached("/api/coins", setData).catch(() => setData({ totalCoins: 0, transactions: [], achievements: [] })); }, []);
   return (
     <Modal title="My Coins" onClose={onClose}>
       {!data ? <div className="text-white/50">Loading…</div> : (
@@ -162,14 +162,13 @@ export function LeaderboardModal({ onClose }: { onClose: () => void }) {
   const [board, setBoard] = useState<Board | null>(null);
 
   useEffect(() => {
-    api("/api/student/dashboard")
-      .then((d) => { const c = d.enrolledCourses || []; setCourses(c); if (c[0]) setCourseId(c[0].id); })
+    apiCached("/api/student/dashboard", (d) => { const c = d.enrolledCourses || []; setCourses(c); if (c[0]) setCourseId((p: string) => p || c[0].id); })
       .catch(() => setCourses([]));
   }, []);
   useEffect(() => {
     if (!courseId) return;
     setBoard(null);
-    api(`/api/leaderboard?courseId=${encodeURIComponent(courseId)}`).then(setBoard).catch(() => setBoard({ leaderboard: [], currentUserRank: null, totalStudents: 0 }));
+    apiCached(`/api/leaderboard?courseId=${encodeURIComponent(courseId)}`, setBoard).catch(() => setBoard({ leaderboard: [], currentUserRank: null, totalStudents: 0 }));
   }, [courseId]);
 
   return (

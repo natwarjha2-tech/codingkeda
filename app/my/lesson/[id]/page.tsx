@@ -9,7 +9,7 @@ import { LessonBoardModal } from "@/components/my/Panels";
 import StreakTab, { type Streak } from "@/components/my/StreakTab";
 import HomeworkTab, { type Homework } from "@/components/my/HomeworkTab";
 import PdfViewer from "@/components/my/PdfViewer";
-import { api, durationToSeconds, prettyDuration } from "../../api";
+import { api, apiCached, apiOnce, durationToSeconds, prettyDuration } from "../../api";
 import { useMy } from "../../MyContext";
 import HlsPlayer from "@/components/learn/HlsPlayer";
 import QuizTab from "@/components/my/QuizTab";
@@ -23,6 +23,28 @@ type Material = { id: string; title: string; fileUrl: string };
 type Module = { id: string; title: string; lessons: Lesson[]; materials?: Material[] };
 type Course = { id: string; title: string; modules: Module[]; isEnrolled: boolean; completedLessons: string[] };
 type Play = { id: string; title: string; notes?: string; videoUrl: string; hlsStatus: string; isFree: boolean; locked: boolean; qualityUrls?: Record<string, string> };
+
+const TINT: Record<string, { idle: string; on: string }> = {
+  violet: { idle: "border-violet-400/30 bg-violet-500/10 text-violet-200 hover:bg-violet-500/20", on: "border-violet-300 bg-violet-500/30 text-white" },
+  pink: { idle: "border-pink-400/30 bg-gradient-to-br from-violet-600/30 to-pink-500/30 text-pink-100 hover:from-violet-600/50 hover:to-pink-500/50", on: "border-pink-300 bg-pink-500/40 text-white" },
+  emerald: { idle: "border-emerald-400/30 bg-emerald-500/10 text-emerald-200", on: "border-emerald-300 bg-emerald-500 text-white" },
+  amber: { idle: "border-amber-400/35 bg-amber-400/10 text-amber-300 hover:bg-amber-400/20", on: "border-amber-300 bg-amber-400/30 text-white" },
+  red: { idle: "border-red-500/40 bg-red-600/15 text-red-400 hover:bg-red-600/30 hover:text-red-300", on: "border-red-400 bg-red-600 text-white" },
+};
+
+/** Round icon button with a hover label above it (professional players use icons + tooltips). */
+function IconBtn({ label, tint, active, onClick, href, external, disabled, children }: {
+  label: string; tint: keyof typeof TINT; active?: boolean; onClick?: () => void; href?: string; external?: boolean; disabled?: boolean; children: React.ReactNode;
+}) {
+  const cls = `group relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50 ${active ? TINT[tint].on : TINT[tint].idle}`;
+  const tip = <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-black/90 px-2.5 py-1 text-[11px] font-semibold text-white opacity-0 shadow-lg transition group-hover:opacity-100">{label}</span>;
+  if (href) {
+    return external
+      ? <a href={href} target="_blank" rel="noopener noreferrer" aria-label={label} className={cls}>{children}{tip}</a>
+      : <Link href={href} aria-label={label} className={cls}>{children}{tip}</Link>;
+  }
+  return <button onClick={onClick} disabled={disabled} aria-label={label} className={cls}>{children}{tip}</button>;
+}
 
 /** Engagement-bar pill: compact, single line, gentle lift on hover. */
 const pill = "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-[13px] font-bold transition hover:-translate-y-0.5";
@@ -97,15 +119,14 @@ function LessonInner() {
   // Course (modules, playlist, progress)
   useEffect(() => {
     if (!courseId) { setError("This lesson link is missing its course. Open it from your course page."); return; }
-    api(`/api/courses/${encodeURIComponent(courseId)}?signed=true`)
-      .then((d) => { setCourse(d.course); setDone(new Set(d.course?.completedLessons || [])); })
+    apiCached(`/api/courses/${encodeURIComponent(courseId)}?signed=true`, (d) => { setCourse(d.course); setDone(new Set(d.course?.completedLessons || [])); }, { skipIfFresh: true })
       .catch((e) => setError(e.message || "Could not load the course."));
   }, [courseId]);
 
   // This lesson (signed on demand)
   useEffect(() => {
     setPlay(null); setHlsFailed(false); setEnded(false); setTab("ppt"); setVisited(new Set(["ppt"])); marked.current = false;
-    api(`/api/lessons/${encodeURIComponent(lessonId)}/play`)
+    apiOnce(`/api/lessons/${encodeURIComponent(lessonId)}/play`)
       .then((d) => setPlay(d.lesson))
       .catch((e) => setError(e.message || "Could not load the lesson."));
   }, [lessonId]);
@@ -202,7 +223,7 @@ function LessonInner() {
       </Center>
     );
   } else if (hlsOk) {
-    videoArea = <HlsPlayer key={lessonId} lessonId={lessonId} onTimeUpdate={onTime} onEnded={() => setEnded(true)} onFail={() => setHlsFailed(true)} onQualityChange={setQuality} settingsSlot={settingsSlot} />;
+    videoArea = <HlsPlayer key={lessonId} lessonId={lessonId} onTimeUpdate={onTime} onEnded={() => setEnded(true)} onFail={() => setHlsFailed(true)} onQualityChange={setQuality} settingsSlot={settingsSlot} autoPlay />;
   } else if (mp4) {
     videoArea = <Mp4Player original={mp4} qualities={play?.qualityUrls || {}} onTime={onTime} onEnded={() => setEnded(true)} slot={settingsSlot} />;
   } else {
@@ -235,47 +256,40 @@ function LessonInner() {
 
           {/* Engagement bar — one line: reactions · views · quality | Save · Download · Leaderboard · Subscribe · Next */}
           <div className="relative z-10 mt-3 flex flex-wrap items-center gap-1.5 rounded-2xl border border-white/[0.07] bg-gradient-to-r from-[#1a1530] via-[#161626] to-[#1a1530] p-1.5 xl:flex-nowrap">
-            <button onClick={() => sendReaction("like")} title="I like this lesson"
-              className={`${pill} ${react.userReaction === "like" ? "border-emerald-400 bg-emerald-500/25 text-emerald-200 shadow-[0_0_12px_rgba(16,185,129,0.35)]" : "border-emerald-400/25 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"}`}>
-              <ThumbsUp size={15} className={react.userReaction === "like" ? "fill-emerald-300/40" : ""} /> {react.likes}
-            </button>
-            <button onClick={() => sendReaction("dislike")} title="Not for me"
-              className={`${pill} ${react.userReaction === "dislike" ? "border-rose-400 bg-rose-500/25 text-rose-200" : "border-rose-400/25 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20"}`}>
-              <ThumbsDown size={15} /> {react.dislikes}
-            </button>
-            <span title={`${react.views} views`} className={`${pill} cursor-default border-sky-400/20 bg-sky-500/10 text-sky-300 hover:translate-y-0`}>
-              <Eye size={15} /> {react.views}
+            {/* Like | Dislike in ONE split pill (YouTube style) */}
+            <span className="inline-flex shrink-0 overflow-hidden rounded-full border border-white/10 bg-white/[0.05]">
+              <button onClick={() => sendReaction("like")} title="I like this lesson" aria-label="Like"
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 text-[13px] font-bold transition ${react.userReaction === "like" ? "bg-emerald-500/25 text-emerald-200" : "text-white/80 hover:bg-white/10"}`}>
+                <ThumbsUp size={16} className={react.userReaction === "like" ? "fill-emerald-300/50 text-emerald-300" : ""} /> {react.likes}
+              </button>
+              <span className="my-1.5 w-px bg-white/15" />
+              <button onClick={() => sendReaction("dislike")} title="Not for me" aria-label="Dislike"
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-bold transition ${react.userReaction === "dislike" ? "bg-rose-500/25 text-rose-200" : "text-white/80 hover:bg-white/10"}`}>
+                <ThumbsDown size={16} className={react.userReaction === "dislike" ? "fill-rose-300/50 text-rose-300" : ""} />{react.dislikes ? ` ${react.dislikes}` : ""}
+              </button>
             </span>
-            {/* Quality & speed (portal from the player) — not on the video */}
-            <span ref={setSettingsSlot} className="inline-flex shrink-0" />
+            <span className="inline-flex shrink-0 items-center gap-1.5 px-2 text-[13px] font-semibold text-white/55"><Eye size={15} /> {react.views} views</span>
 
             <span className="min-w-2 flex-1" />
 
-            <button onClick={() => setSaved(toggleSaved(who, { lessonId, courseId, title: lesson?.title || play?.title || "Lesson", courseTitle: course?.title || "" }))}
-              title={saved ? "Saved to your Watchlist" : "Save to Watchlist"}
-              className={`${pill} ${saved ? "border-violet-400 bg-violet-500/25 text-violet-100" : "border-violet-400/30 bg-violet-500/10 text-violet-200 hover:bg-violet-500/20"}`}>
-              {saved ? <BookmarkCheck size={15} className="fill-violet-300/40" /> : <Bookmark size={15} />} {saved ? "Saved" : "Save"}
-            </button>
+            {/* Icon actions — label shows on hover, like YouTube/Udemy */}
+            <span ref={setSettingsSlot} className="inline-flex shrink-0" />
+            <IconBtn label={saved ? "Saved to Watchlist" : "Save to Watchlist"} active={saved} tint="violet"
+              onClick={() => setSaved(toggleSaved(who, { lessonId, courseId, title: lesson?.title || play?.title || "Lesson", courseTitle: course?.title || "" }))}>
+              {saved ? <BookmarkCheck size={17} className="fill-violet-300/50" /> : <Bookmark size={17} />}
+            </IconBtn>
             {dl.state === "done" ? (
-              <Link href="/my/downloads" title="Saved in this browser for offline watching"
-                className={`${pill} border-emerald-400/40 bg-emerald-500 text-white shadow-[0_3px_12px_rgba(16,185,129,0.4)] hover:bg-emerald-400`}>
-                <CheckCircle2 size={15} /> Downloaded
-              </Link>
+              <IconBtn label="Downloaded — open Downloads" active tint="emerald" href="/my/downloads"><CheckCircle2 size={17} /></IconBtn>
             ) : (
-              <button onClick={downloadVideo} disabled={dl.state === "busy" || !hlsOk}
-                title={hlsOk ? `Save this lesson in this browser for ${EXPIRY_DAYS} days (${quality || "Auto → smallest"} quality)` : "This video can't be downloaded yet"}
-                className={`${pill} border-transparent bg-gradient-to-r from-violet-600 to-pink-500 text-white shadow-[0_3px_12px_rgba(168,85,247,0.4)] disabled:cursor-not-allowed disabled:opacity-60`}>
-                <Download size={15} /> {dl.state === "busy" ? `${dl.pct}%` : "Download"}
-              </button>
+              <IconBtn label={dl.state === "busy" ? `Downloading ${dl.pct}%` : hlsOk ? `Download for offline (${EXPIRY_DAYS} days)` : "Can't download this video yet"}
+                tint="pink" onClick={downloadVideo} disabled={dl.state === "busy" || !hlsOk}>
+                {dl.state === "busy" ? <span className="text-[10px] font-black">{dl.pct}%</span> : <Download size={17} />}
+              </IconBtn>
             )}
-            <button onClick={() => setBoardOpen(true)} title="Lesson leaderboard"
-              className={`${pill} border-amber-400/40 bg-gradient-to-r from-amber-400/20 to-orange-500/20 text-amber-200 hover:from-amber-400/30 hover:to-orange-500/30`}>
-              <Trophy size={15} className="text-amber-300" /> Leaderboard
-            </button>
-            <a href="https://youtube.com/@codingkida4u" target="_blank" rel="noopener noreferrer" title="Subscribe on YouTube"
-              className={`${pill} border-transparent bg-gradient-to-r from-red-600 to-rose-500 text-white shadow-[0_3px_12px_rgba(239,68,68,0.4)]`}>
-              <PlayCircle size={15} /> Subscribe
-            </a>
+            <IconBtn label="Lesson leaderboard" tint="amber" onClick={() => setBoardOpen(true)}><Trophy size={17} /></IconBtn>
+            <IconBtn label="Subscribe on YouTube" tint="red" href="https://youtube.com/@codingkida4u" external>
+              <svg viewBox="0 0 24 24" fill="currentColor" className="h-[17px] w-[17px]"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2 31 31 0 0 0 0 12a31 31 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1A31 31 0 0 0 24 12a31 31 0 0 0-.5-5.8zM9.75 15.5v-7l6.5 3.5-6.5 3.5z" /></svg>
+            </IconBtn>
             {(ended || (nextLesson && done.has(lessonId))) && nextLesson && (
               <button onClick={goNext} title={`Next lesson: ${nextLesson.title}`}
                 className={`${pill} border-transparent bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-[0_3px_12px_rgba(16,185,129,0.45)]`}>
@@ -359,7 +373,7 @@ function LessonInner() {
   );
 }
 
-/** MP4 player with the apps' quality menu (Auto = original upload) and speed; keeps position when switching. */
+/** MP4 player with a quality menu (Auto = original upload). Speed comes from the video's own ⋮ menu and is kept when switching quality. */
 function Mp4Player({ original, qualities, onTime, onEnded, slot }: { original: string; qualities: Record<string, string>; onTime: (c: number, d: number) => void; onEnded: () => void; slot: HTMLElement | null }) {
   // Highest first: 1080p, 720p, 480p, 360p…
   const keys = Object.keys(qualities).sort((a, b) => (parseInt(b, 10) || 0) - (parseInt(a, 10) || 0));
@@ -380,19 +394,19 @@ function Mp4Player({ original, qualities, onTime, onEnded, slot }: { original: s
     <div className="relative h-full w-full bg-black">
       {slot && createPortal(
         <span className="relative inline-flex">
-          <button onClick={() => setOpen((o) => !o)} title="Quality & speed" className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-[13px] font-bold text-cyan-200 transition hover:-translate-y-0.5 hover:bg-cyan-500/20">
-            <Settings2 size={15} /> {q === "auto" ? "Auto" : q}{speed !== 1 ? ` · ${speed}x` : ""}
+          <button onClick={() => setOpen((o) => !o)} title={`Video quality: ${q === "auto" ? "Auto" : q}`} aria-label="Video quality"
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition hover:-translate-y-0.5 ${open ? "border-cyan-300 bg-cyan-500/25 text-white" : "border-cyan-400/30 bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/20"}`}>
+            <Settings2 size={16} className={`transition-transform duration-300 ${open ? "rotate-90" : ""}`} />
+            {q !== "auto" && <span className="absolute -right-1 -top-1 rounded-md bg-cyan-500 px-1 text-[9px] font-black leading-[14px] text-[#05202a]">{q.replace("p", "")}</span>}
           </button>
           {open && (
             <>
               <span className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-              <span className="absolute left-0 top-full z-50 mt-1.5 block min-w-44 overflow-hidden rounded-xl border border-white/15 bg-[#1a1a2e] py-1 text-white shadow-2xl">
-                <span className="block px-4 pb-1 pt-2 text-[11px] font-bold uppercase text-white/50">Quality</span>
-                {["auto", ...keys].map((k) => <button key={k} className={row} onClick={() => pick(k)}><span>{k === "auto" ? "Auto" : k}</span>{q === k && <span className="text-violet-300">✓</span>}</button>)}
-                <span className="block px-4 pb-1 pt-2 text-[11px] font-bold uppercase text-white/50">Speed</span>
-                {[0.5, 0.75, 1, 1.25, 1.5, 2].map((s) => (
-                  <button key={s} className={row} onClick={() => { setSpeed(s); if (ref.current) ref.current.playbackRate = s; setOpen(false); }}>
-                    <span>{s === 1 ? "Normal" : `${s}x`}</span>{speed === s && <span className="text-violet-300">✓</span>}
+              <span className="absolute bottom-full left-1/2 z-50 mb-2 block w-44 -translate-x-1/2 overflow-hidden rounded-xl border border-white/15 bg-[#1a1a2e] py-1 text-white shadow-2xl">
+                <span className="block border-b border-white/10 px-4 py-2 text-[11px] font-bold uppercase tracking-wide text-white/50">Quality</span>
+                {["auto", ...keys].map((k) => (
+                  <button key={k} className={row} onClick={() => pick(k)}>
+                    <span>{k === "auto" ? <>Auto <span className="text-[11px] text-white/40">· best for your network</span></> : k}</span>{q === k && <span className="text-cyan-300">✓</span>}
                   </button>
                 ))}
               </span>
@@ -402,7 +416,8 @@ function Mp4Player({ original, qualities, onTime, onEnded, slot }: { original: s
         slot,
       )}
       <video
-        key={src} ref={ref} src={src} controls playsInline controlsList="nodownload" onContextMenu={(e) => e.preventDefault()}
+        key={src} ref={ref} src={src} controls playsInline autoPlay controlsList="nodownload" onContextMenu={(e) => e.preventDefault()}
+        onRateChange={(e) => setSpeed(e.currentTarget.playbackRate)}
         onLoadedMetadata={(e) => {
           const v = e.currentTarget;
           v.playbackRate = speed;

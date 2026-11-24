@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { BarChart3, Bookmark, BookOpen, Code2, Download, Globe, Gift, GraduationCap, Home, Info, Receipt, Star, Store, LogOut, Menu, RefreshCw, Trophy, User, Video, X } from "lucide-react";
 import { CoinsModal, LeaderboardModal, NotificationBell } from "@/components/my/Panels";
 import { getToken, logoutUser } from "@/services/auth";
-import { api } from "./api";
+import { apiCached, cacheClearUser, cacheDetectUserChange, cachePrefetchAll, cacheSet, tokenTag } from "./api";
 import { MyContext, type MyUser } from "./MyContext";
 import { useLearningTime } from "./useLearningTime";
 
@@ -51,36 +51,50 @@ export default function MyLayout({ children }: { children: React.ReactNode }) {
   const [xp, setXp] = useState<{ level: number; title: string; xp: number; progressPct: number } | null>(null);
 
   const refreshCoins = useCallback(() => {
-    api("/api/coins").then((d) => setCoins(Number(d?.totalCoins) || 0)).catch(() => {});
+    // After a reward the coins entry was just invalidated, so this fetches fresh.
+    apiCached("/api/coins", (d) => setCoins(Number(d?.totalCoins) || 0)).catch(() => {});
   }, []);
 
   useEffect(() => {
-    if (!getToken()) {
+    const token = getToken();
+    if (!token) {
       router.replace(`/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`);
       return;
     }
-    api("/api/student")
-      .then((d) => {
-        const s = d?.student;
-        const u = { id: s?.id || "", name: s?.studentName || s?.name || "Learner", email: s?.email || "" };
-        setUser(u);
-        // Remembered so offline Downloads still know whose lessons to show.
-        try { localStorage.setItem("ck_my_user", JSON.stringify(u)); } catch { /* ignore */ }
-        setReady(true);
+    let prefetched = false;
+    // Cached profile → classroom opens instantly; the fresh copy follows silently.
+    apiCached("/api/student", (d) => {
+      const s = d?.student;
+      if (!s?.id) return;
+      const u = { id: s.id, name: s.studentName || s.name || "Learner", email: s.email || "" };
+      setUser(u);
+      // Remembered for offline Downloads + as the cache owner (tied to this login token).
+      try { localStorage.setItem("ck_my_user", JSON.stringify({ ...u, t: tokenTag(token) })); } catch { /* ignore */ }
+      cacheDetectUserChange(u.id);
+      setReady(true);
+      if (!prefetched) {
+        prefetched = true;
+        // The profile is only stored once the owner is known — store it now, then warm every screen.
+        cacheSet("/api/student", d);
         refreshCoins();
-      })
-      .catch(() => {
-        // Offline / server unreachable: fall back to the last signed-in student on this device.
-        try { const u = JSON.parse(localStorage.getItem("ck_my_user") || "null"); if (u?.id) setUser(u); } catch { /* ignore */ }
-        setReady(true);
-      });
+        cachePrefetchAll();
+      }
+    }).catch(() => {
+      // Offline / server unreachable: fall back to the last signed-in student on this device.
+      try { const u = JSON.parse(localStorage.getItem("ck_my_user") || "null"); if (u?.id) setUser(u); } catch { /* ignore */ }
+      setReady(true);
+    });
   }, [router, refreshCoins]);
 
   useEffect(() => { setOpen(false); setMenu(false); setDrop(null); }, [pathname]);
-  useEffect(() => { if (user?.id) api("/api/xp").then((d) => d?.xp && setXp(d.xp)).catch(() => {}); }, [user?.id, pathname]);
+  useEffect(() => { if (user?.id) apiCached("/api/xp", (d) => { if (d?.xp) setXp(d.xp); }).catch(() => {}); }, [user?.id, pathname]);
+
+  // Refresh button (desktop refreshAllData): clear this student's cache, then reload fresh.
+  const refreshAll = () => { cacheClearUser(); window.location.reload(); };
   useLearningTime(user?.id || "", pathname);
 
   const logout = () => {
+    cacheClearUser();
     logoutUser();
     localStorage.removeItem("ck_token");
     localStorage.removeItem("user");
@@ -191,7 +205,7 @@ export default function MyLayout({ children }: { children: React.ReactNode }) {
               <button onClick={() => setPanel("board")} title="Leaderboard" className={iconBtn + " hover:bg-amber-400/15"}>
                 <Trophy size={16} className="text-amber-400" />
               </button>
-              <button onClick={() => window.location.reload()} title="Refresh" className={iconBtn + " hidden hover:bg-emerald-400/15 sm:flex"}>
+              <button onClick={refreshAll} title="Refresh" className={iconBtn + " hidden hover:bg-emerald-400/15 sm:flex"}>
                 <RefreshCw size={15} className="text-emerald-300" />
               </button>
 

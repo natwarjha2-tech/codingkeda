@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { api } from "../api";
+import { api, apiCached, cacheRemove } from "../api";
 import { useMy } from "../MyContext";
 import { PageHeader, Panel, Stars } from "@/components/my/ui";
 
@@ -25,7 +25,7 @@ export default function RatePage() {
   const me = (user?.email || "").split("@")[0].toLowerCase();
 
   const load = useCallback(() => {
-    api("/api/feedback/lesson?lessonId=app_rating").then((x: Data) => {
+    apiCached("/api/feedback/lesson?lessonId=app_rating", (x: Data) => {
       setD(x);
       const mine = (x.reviews || []).find((r) => r.studentName?.toLowerCase() === me);
       if (mine) { setStars((s) => s || mine.rating); setText((t) => t || mine.feedback || ""); }
@@ -40,6 +40,7 @@ export default function RatePage() {
     try {
       await api("/api/feedback", { method: "POST", json: { rating: stars, feedback: text, lessonId: "app_rating", lessonTitle: "App Rating" } });
       setMsg({ ok: true, text: "🎉 Thank you for your feedback!" });
+      cacheRemove("/api/feedback/lesson?lessonId=app_rating"); // the new review must show at once
       load();
     } catch (e) { setMsg({ ok: false, text: e instanceof Error ? e.message : "Could not submit." }); }
     finally { setBusy(false); }

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api } from "../api";
+import { apiCached } from "../api";
 import { PageHeader } from "@/components/my/ui";
 
 const parseCount = (v: unknown) => {
@@ -20,7 +20,7 @@ export default function AboutPage() {
   const [email, setEmail] = useState("support@codingkida.com");
 
   useEffect(() => {
-    api("/api/courses").then((d) => {
+    apiCached("/api/courses", (d) => {
       const list = d.courses || [];
       if (list.length) {
         setCourses(`${list.length}+`);
@@ -28,10 +28,10 @@ export default function AboutPage() {
         if (total > 0) setStudents(fmt(total));
       }
     }).catch(() => {});
-    api("/api/feedback/lesson?lessonId=app_rating").then((d) => {
+    apiCached("/api/feedback/lesson?lessonId=app_rating", (d) => {
       if (d.avgRating > 0) setRating({ v: Number(d.avgRating).toFixed(1), sub: `Based on ${d.totalReviews} review${d.totalReviews === 1 ? "" : "s"}` });
     }).catch(() => {});
-    api("/api/app-config").then((d) => /.+@.+\..+/.test(d.supportEmail || "") && setEmail(d.supportEmail)).catch(() => {});
+    apiCached("/api/app-config", (d) => { if (/.+@.+\..+/.test(d.supportEmail || "")) setEmail(d.supportEmail); }).catch(() => {});
   }, []);
 
   const stats = [

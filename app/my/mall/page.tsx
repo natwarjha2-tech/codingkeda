@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "../api";
+import { api, apiCached } from "../api";
 import { useMy } from "../MyContext";
 import { Loading, PageHeader, fmtDateTime } from "@/components/my/ui";
 
@@ -29,9 +29,9 @@ export default function MallPage() {
   const hist = useRef<HTMLDivElement>(null);
 
   const load = useCallback(() => {
-    api("/api/mall").then((d) => setMall({ balance: d.balance || 0, offers: d.offers || [] })).catch(() => setMall({ balance: 0, offers: [] }));
-    api("/api/discount").then((d) => setDiscounts(d.discounts || [])).catch(() => {});
-    api("/api/coins").then((d) => setSpent((d.transactions || []).filter((t: Tx) => t.type === "SPENT"))).catch(() => {});
+    apiCached("/api/mall", (d) => setMall({ balance: d.balance || 0, offers: d.offers || [] })).catch(() => setMall({ balance: 0, offers: [] }));
+    apiCached("/api/discount", (d) => setDiscounts(d.discounts || [])).catch(() => {});
+    apiCached("/api/coins", (d) => setSpent((d.transactions || []).filter((t: Tx) => t.type === "SPENT"))).catch(() => {});
   }, []);
   useEffect(load, [load]);
 

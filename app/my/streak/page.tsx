@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { api } from "../api";
+import { apiOnce } from "../api";
 import { EmptyState, Loading, PageHeader } from "@/components/my/ui";
 
 type S = { weekNumber: number; title: string; completed: boolean; courseTitle: string };
@@ -11,9 +11,9 @@ export default function StreakPage() {
   useEffect(() => {
     (async () => {
       try {
-        const d = await api("/api/student/dashboard");
+        const d = await apiOnce("/api/student/dashboard");
         const all = await Promise.all((d.enrolledCourses || []).map(async (c: { id: string; title: string }) => {
-          const r = await api(`/api/weekly-streak?courseId=${encodeURIComponent(c.id)}`).catch(() => ({ streaks: [] }));
+          const r = await apiOnce(`/api/weekly-streak?courseId=${encodeURIComponent(c.id)}`).catch(() => ({ streaks: [] }));
           return (r.streaks || []).map((s: { weekNumber: number; title: string; completed: boolean }) => ({ ...s, courseTitle: c.title }));
         }));
         setList(all.flat());

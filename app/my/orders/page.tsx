@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Search } from "lucide-react";
-import { api } from "../api";
+import { apiCached } from "../api";
 import { EmptyState, Kpi, Loading, PageHeader, fmtDateTime } from "@/components/my/ui";
 
 type Order = { id: string; courseId?: string | null; courseTitle: string; amount: number; status: string; createdAt: string };
@@ -15,7 +15,7 @@ export default function OrdersPage() {
   const [sort, setSort] = useState<"latest" | "oldest">("latest");
   const [page, setPage] = useState(1);
 
-  useEffect(() => { api("/api/student/orders").then((d) => setData({ orders: d.orders || [], totalSpent: d.totalSpent || 0 })).catch(() => setData({ orders: [], totalSpent: 0 })); }, []);
+  useEffect(() => { apiCached("/api/student/orders", (d) => setData({ orders: d.orders || [], totalSpent: d.totalSpent || 0 })).catch(() => setData({ orders: [], totalSpent: 0 })); }, []);
 
   const num = useMemo(() => {
     const m = new Map<string, number>();
