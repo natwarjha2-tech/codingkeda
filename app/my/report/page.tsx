@@ -48,7 +48,7 @@ export default function ReportPage() {
     if (r && r.minutes > 0) { activeDays30++; if (d >= monday) { weekMins += r.minutes; weekActive++; } }
   }
 
-  if (!dash) return <div className="mx-auto max-w-6xl pt-2"><PageHeader icon="📊" title="My Report" sub="Your learning journey at a glance 🚀" /><Loading text="Loading your report..." /></div>;
+  if (!dash) return <div className="w-full pt-2"><PageHeader icon="📊" title="My Report" sub="Your learning journey at a glance 🚀" /><Loading text="Loading your report..." /></div>;
 
   const courses = dash.enrolledCourses || [];
   const totalCompleted = courses.reduce((s, c) => s + (c.completedLessons || 0), 0);
@@ -68,7 +68,7 @@ export default function ReportPage() {
   const months = [2, 1, 0].map((back) => new Date(today.getFullYear(), today.getMonth() - back, 1));
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5 pt-2">
+    <div className="w-full space-y-5 pt-2">
       <PageHeader icon="📊" title={<><span>My </span><span className="bg-gradient-to-r from-violet-400 to-pink-500 bg-clip-text text-transparent">Report</span></>} sub="Your learning journey at a glance 🚀"
         right={<>
           <a href={`https://wa.me/?text=${encodeURIComponent(reportText())}`} target="_blank" rel="noopener noreferrer" className={`${btn} border border-emerald-400/30 bg-emerald-400/5 text-emerald-400`}>💬 WhatsApp</a>

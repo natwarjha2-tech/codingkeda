@@ -58,10 +58,10 @@ export default function MallPage() {
   };
 
   const header = <PageHeader icon="🏬" title="CodingKida Mall" sub="Turn your learning into rewards" />;
-  if (!mall) return <div className="mx-auto max-w-5xl pt-2">{header}<Loading text="Loading offers..." /></div>;
+  if (!mall) return <div className="w-full pt-2">{header}<Loading text="Loading offers..." /></div>;
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 pt-2">
+    <div className="w-full space-y-6 pt-2">
       {header}
       <section className="relative flex flex-wrap items-center justify-between gap-4 overflow-hidden rounded-3xl border border-amber-400/25 bg-gradient-to-r from-amber-500/15 to-orange-500/5 p-6">
         <div className="flex items-center gap-4">

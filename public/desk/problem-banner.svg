@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 225" width="400" height="225">
+  <defs>
+    <linearGradient id="psBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#10b981"/>
+      <stop offset="1" stop-color="#059669"/>
+    </linearGradient>
+    <radialGradient id="psGlow" cx="0.5" cy="0.25" r="0.7">
+      <stop offset="0" stop-color="#a7f3d0" stop-opacity="0.4"/>
+      <stop offset="1" stop-color="#059669" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="400" height="225" fill="url(#psBg)"/>
+  <rect width="400" height="225" fill="url(#psGlow)"/>
+  <g transform="translate(200,92)">
+    <path d="M0,-46 C24,-46 42,-28 42,-6 C42,10 30,20 24,32 L-24,32 C-30,20 -42,10 -42,-6 C-42,-28 -24,-46 0,-46 Z" fill="#ffffff" fill-opacity="0.16" stroke="#ffffff" stroke-opacity="0.85" stroke-width="3"/>
+    <rect x="-18" y="34" width="36" height="10" rx="4" fill="#ffffff" fill-opacity="0.85"/>
+    <rect x="-13" y="46" width="26" height="8" rx="4" fill="#ffffff" fill-opacity="0.6"/>
+    <g stroke="#fde68a" stroke-width="4" stroke-linecap="round">
+      <line x1="0" y1="-58" x2="0" y2="-70"/>
+      <line x1="42" y1="-40" x2="52" y2="-50"/>
+      <line x1="-42" y1="-40" x2="-52" y2="-50"/>
+    </g>
+  </g>
+  <text x="200" y="208" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="800" fill="#ffffff" text-anchor="middle" letter-spacing="1">PROBLEM SOLVING</text>
+</svg>

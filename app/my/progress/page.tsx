@@ -28,15 +28,15 @@ export default function ProgressPage() {
   useEffect(load, []);
 
   const header = <PageHeader icon="🎓" title="Student Progress" sub="Track your learning journey and performance" />;
-  if (err) return <div className="mx-auto max-w-5xl pt-2">{header}<div className="text-center text-slate-400">{err} <button onClick={load} className="text-violet-300 underline">Retry</button></div></div>;
-  if (!d) return <div className="mx-auto max-w-5xl pt-2">{header}<Loading text="Loading progress data..." /></div>;
+  if (err) return <div className="w-full pt-2">{header}<div className="text-center text-slate-400">{err} <button onClick={load} className="text-violet-300 underline">Retry</button></div></div>;
+  if (!d) return <div className="w-full pt-2">{header}<Loading text="Loading progress data..." /></div>;
 
   const score = d.overallScore || 0;
   const lessonPct = d.totalLessons ? Math.round((d.totalLessonsCompleted / d.totalLessons) * 100) : 0;
   const q = d.ratingBreakdown?.quiz, e = d.ratingBreakdown?.exercise;
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5 pt-2">
+    <div className="w-full space-y-5 pt-2">
       {header}
       <section className="rounded-3xl border border-violet-400/20 bg-gradient-to-br from-[#2e1a4a]/60 to-[#161626] p-6">
         <div className="grid items-center gap-6 md:grid-cols-[1fr_1px_1.2fr]">

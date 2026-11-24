@@ -45,9 +45,9 @@ export default function OrdersPage() {
         </select>
       </>} />
   );
-  if (!data) return <div className="mx-auto max-w-4xl pt-2">{header}<Loading text="Loading orders..." /></div>;
+  if (!data) return <div className="w-full pt-2">{header}<Loading text="Loading orders..." /></div>;
   if (data.orders.length === 0) {
-    return <div className="mx-auto max-w-4xl pt-2">{header}<EmptyState icon="🛍️" title="No orders yet" text="Your purchased courses will appear here." action={<Link href="/my/courses" className="rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-500 px-5 py-2.5 text-sm font-semibold">Explore Courses</Link>} /></div>;
+    return <div className="w-full pt-2">{header}<EmptyState icon="🛍️" title="No orders yet" text="Your purchased courses will appear here." action={<Link href="/my/courses" className="rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-500 px-5 py-2.5 text-sm font-semibold">Explore Courses</Link>} /></div>;
   }
 
   const success = data.orders.filter((o) => o.status === "success").length;
@@ -56,7 +56,7 @@ export default function OrdersPage() {
   const show = filtered.slice((cur - 1) * PER, cur * PER);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-5 pt-2">
+    <div className="w-full space-y-5 pt-2">
       {header}
       <div className="grid grid-cols-3 gap-3">
         <Kpi icon="🛍️" color="#22c55e" label="Purchased" value={success} sub="Total orders" />

@@ -25,7 +25,7 @@ export default function ReferralPage() {
   const newUser = r?.rewardNewUser ?? 50, referrer = r?.rewardReferrer ?? 50;
 
   return (
-    <div className="mx-auto max-w-4xl space-y-5 pt-2">
+    <div className="mx-auto max-w-6xl space-y-5 pt-2">
       <PageHeader icon="🎁" title="Refer & Earn" sub={`Invite friends and earn ${referrer} coins for every successful referral`} />
       <section className="rounded-3xl border border-amber-400/25 bg-gradient-to-br from-amber-500/15 to-fuchsia-500/10 p-6 text-center">
         <div className="text-sm font-semibold text-amber-200/80">Your Referral Code</div>

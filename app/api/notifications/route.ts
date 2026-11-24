@@ -29,7 +29,9 @@ export async function POST(req: NextRequest) {
     const { error, user } = requireAuth(req);
     if (error) return error;
 
-    const body = await req.json();
+    // Empty / invalid body (e.g. a request aborted mid-flight) → 400, not a 500 crash.
+    let body: { action?: string; after?: string; limit?: number; id?: string };
+    try { body = (await req.json()) ?? {}; } catch { return apiError(400, "A JSON body with an action is required."); }
     const action = body.action;
 
     if (!action) return apiError(400, "action is required.");

@@ -75,26 +75,82 @@ export function CoinsModal({ onClose }: { onClose: () => void }) {
 type Entry = { rank: number; name: string; score: number; isCurrentUser: boolean; [k: string]: unknown };
 type Board = { leaderboard: Entry[]; currentUserRank: { rank: number; score: number; totalStudents: number } | null; totalStudents: number };
 
+const AVATAR_BG = ["from-violet-500 to-fuchsia-500", "from-sky-500 to-cyan-400", "from-emerald-500 to-teal-400", "from-amber-400 to-orange-500", "from-pink-500 to-rose-500", "from-indigo-500 to-blue-500"];
+const avatarBg = (name: string) => AVATAR_BG[[...name].reduce((s, c) => s + c.charCodeAt(0), 0) % AVATAR_BG.length];
+function Avatar({ name, size = "h-9 w-9 text-sm", ring = "" }: { name: string; size?: string; ring?: string }) {
+  return <span className={`flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br font-extrabold text-white ${avatarBg(name)} ${size} ${ring}`}>{(name || "?").trim().charAt(0).toUpperCase()}</span>;
+}
+
+/** Kid-friendly board: podium for the top 3, a "your rank" card, then everyone else. */
 function BoardList({ board, unit = "%" }: { board: Board | null; unit?: string }) {
-  if (!board) return <div className="text-white/50">Loading…</div>;
-  if (board.leaderboard.length === 0) return <div className="py-6 text-center text-sm text-white/50">No one is on the board yet. Be the first!</div>;
-  const medal = (r: number) => (r === 1 ? "🥇" : r === 2 ? "🥈" : r === 3 ? "🥉" : `#${r}`);
+  if (!board) return <div className="py-10 text-center text-white/50">⏳ Loading…</div>;
+  if (board.leaderboard.length === 0) {
+    return (
+      <div className="py-10 text-center">
+        <div className="text-5xl">🏁</div>
+        <div className="mt-2 font-extrabold">No one is on the board yet</div>
+        <div className="text-sm text-white/50">Finish a quiz and be the first champion!</div>
+      </div>
+    );
+  }
+  const list = board.leaderboard;
+  const top = [list.find((e) => e.rank === 2), list.find((e) => e.rank === 1), list.find((e) => e.rank === 3)];
+  const rest = list.filter((e) => e.rank > 3);
+  const podium: Record<number, { h: string; bg: string; crown: string; ring: string }> = {
+    1: { h: "h-24", bg: "from-amber-400/40 to-amber-500/10 border-amber-300/50", crown: "👑", ring: "ring-4 ring-amber-300" },
+    2: { h: "h-16", bg: "from-slate-300/30 to-slate-400/5 border-slate-300/40", crown: "🥈", ring: "ring-4 ring-slate-300" },
+    3: { h: "h-12", bg: "from-orange-400/30 to-orange-500/5 border-orange-300/40", crown: "🥉", ring: "ring-4 ring-orange-300" },
+  };
+  const me = board.currentUserRank;
+  const beatPct = me && me.totalStudents > 1 ? Math.round(((me.totalStudents - me.rank) / (me.totalStudents - 1)) * 100) : 100;
+
   return (
     <div>
-      {board.currentUserRank && (
-        <div className="mb-3 rounded-xl border border-violet-400/30 bg-violet-500/15 p-3 text-center text-sm">
-          Your rank <b className="text-lg text-violet-200">#{board.currentUserRank.rank}</b> of {board.currentUserRank.totalStudents} · score {board.currentUserRank.score}{unit}
+      {/* Podium */}
+      <div className="mb-4 grid grid-cols-3 items-end gap-2 rounded-2xl bg-gradient-to-b from-violet-600/20 to-transparent px-2 pt-4">
+        {top.map((e, i) => {
+          if (!e) return <div key={i} />;
+          const p = podium[e.rank];
+          return (
+            <div key={e.rank} className="flex flex-col items-center text-center">
+              <span className="text-xl">{p.crown}</span>
+              <Avatar name={e.name} size={e.rank === 1 ? "h-14 w-14 text-xl" : "h-11 w-11 text-base"} ring={p.ring} />
+              <div className={`mt-1.5 w-full truncate text-xs font-extrabold ${e.isCurrentUser ? "text-violet-200" : ""}`}>{e.isCurrentUser ? "You 🎉" : e.name}</div>
+              <div className="text-xs font-bold text-amber-300">{e.score}{unit}</div>
+              <div className={`mt-1.5 flex w-full items-start justify-center rounded-t-xl border bg-gradient-to-b pt-1 text-lg font-black text-white/80 ${p.h} ${p.bg}`}>{e.rank}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Your rank */}
+      {me && (
+        <div className="mb-4 flex items-center gap-3 rounded-2xl border border-violet-400/40 bg-gradient-to-r from-violet-600/30 to-fuchsia-600/20 p-3">
+          <span className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-xl bg-white/10">
+            <span className="text-[9px] font-bold uppercase text-violet-200">Rank</span>
+            <span className="text-lg font-black leading-none">#{me.rank}</span>
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-extrabold">{me.rank === 1 ? "You're the champion! 🏆" : me.rank <= 3 ? "You're on the podium! 🌟" : "Keep going, you're climbing! 🚀"}</div>
+            <div className="text-xs text-violet-100/80">Ahead of {beatPct}% of {me.totalStudents} students · score {me.score}{unit}</div>
+            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-gradient-to-r from-amber-400 to-pink-500" style={{ width: `${Math.max(5, beatPct)}%` }} /></div>
+          </div>
         </div>
       )}
-      <ul className="space-y-1.5">
-        {board.leaderboard.map((e) => (
-          <li key={e.rank} className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm ${e.isCurrentUser ? "border border-violet-400/40 bg-violet-500/20" : "bg-white/5"}`}>
-            <span className="w-9 text-center font-extrabold">{medal(e.rank)}</span>
-            <span className="flex-1 truncate font-semibold">{e.name}{e.isCurrentUser ? " (You)" : ""}</span>
-            <span className="font-bold text-amber-300">{e.score}{unit}</span>
-          </li>
-        ))}
-      </ul>
+
+      {/* Everyone else */}
+      {rest.length > 0 && (
+        <ul className="space-y-1.5">
+          {rest.map((e) => (
+            <li key={e.rank} className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition ${e.isCurrentUser ? "border border-violet-400/50 bg-violet-500/20" : "bg-white/[0.04] hover:bg-white/[0.07]"}`}>
+              <span className="w-7 text-center text-xs font-extrabold text-white/50">#{e.rank}</span>
+              <Avatar name={e.name} size="h-8 w-8 text-xs" />
+              <span className="flex-1 truncate font-semibold">{e.name}{e.isCurrentUser ? " (You)" : ""}</span>
+              <span className="rounded-full bg-amber-400/10 px-2.5 py-0.5 text-xs font-bold text-amber-300">{e.score}{unit}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -121,9 +177,15 @@ export function LeaderboardModal({ onClose }: { onClose: () => void }) {
       {courses && courses.length === 0 && <div className="py-6 text-center text-sm text-white/50">Enrol in a course to join its leaderboard.</div>}
       {courses && courses.length > 0 && (
         <>
-          <select value={courseId} onChange={(e) => setCourseId(e.target.value)} className="mb-3 w-full rounded-xl border border-white/15 bg-[#1a1a2e] px-3 py-2.5 text-sm font-semibold">
-            {courses.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
-          </select>
+          {/* Course chips — one tap to switch (easier than a dropdown) */}
+          <div className="-mx-1 mb-4 flex gap-2 overflow-x-auto px-1 pb-1">
+            {courses.map((c) => (
+              <button key={c.id} onClick={() => setCourseId(c.id)}
+                className={`shrink-0 rounded-full border px-3.5 py-1.5 text-xs font-bold transition ${courseId === c.id ? "border-amber-300 bg-gradient-to-r from-amber-400 to-orange-500 text-[#431407] shadow-[0_3px_12px_rgba(245,158,11,0.4)]" : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10"}`}>
+                {c.title}
+              </button>
+            ))}
+          </div>
           <BoardList board={board} />
         </>
       )}
@@ -144,7 +206,7 @@ export function LessonBoardModal({ lessonId, onClose }: { lessonId: string; onCl
     <Modal title="🏆 Lesson Leaderboard" onClose={onClose}>
       <div className="mb-3 flex gap-2">
         {(["quiz", "exercise"] as const).map((t) => (
-          <button key={t} onClick={() => setType(t)} className={`rounded-full border px-4 py-1.5 text-xs font-bold ${type === t ? "border-violet-400 bg-violet-500/25" : "border-white/10 bg-white/5 text-white/60"}`}>
+          <button key={t} onClick={() => setType(t)} className={`flex-1 rounded-full border px-4 py-2 text-sm font-bold transition ${type === t ? "border-amber-300 bg-gradient-to-r from-amber-400 to-orange-500 text-[#431407] shadow-[0_3px_12px_rgba(245,158,11,0.4)]" : "border-white/10 bg-white/5 text-white/60 hover:bg-white/10"}`}>
             {t === "quiz" ? "📝 Quiz" : "💻 Coding"}
           </button>
         ))}

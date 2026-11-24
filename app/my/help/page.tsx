@@ -30,7 +30,7 @@ export default function HelpPage() {
   const mailUrl = `mailto:${email}?subject=${encodeURIComponent("Help Request")}&body=${encodeURIComponent("Hi CodingKida Support,\n\nI need help with:\n\n[Describe your issue here]\n\nThank you")}`;
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5 pt-2">
+    <div className="w-full space-y-5 pt-2">
       <PageHeader icon="💖" title="24/7 Help & Support" sub="We're always here for you — anytime, anywhere"
         right={<span className="flex items-center gap-1.5 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-3 py-1 text-xs font-semibold text-emerald-300"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> We&apos;re here</span>} />
       <div className="grid gap-5 md:grid-cols-2">
@@ -59,11 +59,17 @@ export default function HelpPage() {
         ))}
       </div>
       <Panel title="Contact Us" icon="📞">
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-3">
           {wa && <a href={waUrl} target="_blank" rel="noopener noreferrer" className="rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-4 hover:bg-emerald-400/10"><div className="font-bold">💬 WhatsApp</div><div className="text-xs text-slate-400">Chat with our team</div><div className="mt-1 font-semibold text-emerald-400">{pretty(wa)}</div><div className="mt-1 text-xs text-emerald-300">Open WhatsApp →</div></a>}
           <a href={mailUrl} className="rounded-xl border border-pink-400/20 bg-pink-400/5 p-4 hover:bg-pink-400/10"><div className="font-bold">✉️ Email Support</div><div className="text-xs text-slate-400">We&apos;ll get back to you</div><div className="mt-1 font-semibold text-pink-300">{email}</div><div className="mt-1 text-xs text-pink-300">Contact Support →</div></a>
+          {/* Available 24/7 — same third card as the desktop app */}
+          <div className="rounded-xl border border-violet-400/25 bg-violet-500/[0.07] p-4">
+            <div className="font-bold text-violet-200">🕐 Available 24/7</div>
+            <div className="text-xs text-slate-400">Monday – Sunday</div>
+            {wa ? <a href={`tel:+${wa}`} className="mt-1 block font-semibold text-violet-300 hover:text-white">{pretty(wa)}</a> : <div className="mt-1 font-semibold text-violet-300">Always here for you</div>}
+            <div className="mt-1 text-xs text-violet-300/80">We reply as fast as we can 💜</div>
+          </div>
         </div>
-        <div className="mt-3 text-center text-xs text-slate-500">🕐 Available 24/7 — Monday – Sunday</div>
       </Panel>
     </div>
   );

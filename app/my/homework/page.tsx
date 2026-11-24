@@ -30,7 +30,7 @@ export default function HomeworkPage() {
   }, []);
 
   return (
-    <div className="mx-auto max-w-4xl pt-2">
+    <div className="w-full pt-2">
       <PageHeader icon="📝" title="Homework" sub="Practice set by your teachers, lesson by lesson" />
       {!groups ? <Loading /> : groups.length === 0 ? (
         <EmptyState icon="📝" title="No homework right now" text="When your teacher adds homework to a lesson, it will show up here." />

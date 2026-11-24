@@ -23,7 +23,7 @@ export default function StreakPage() {
   const passed = list?.filter((s) => s.completed).length || 0;
 
   return (
-    <div className="mx-auto max-w-3xl pt-2">
+    <div className="w-full pt-2">
       <PageHeader icon="🔥" title="Weekly Streak History" sub="Weekly challenges you have passed and the ones still waiting" back="/my/dashboard"
         right={list && <span className="rounded-xl border border-orange-400/25 bg-orange-400/10 px-3 py-1.5 text-sm font-bold text-orange-300">🔥 {passed}/{list.length} passed</span>} />
       {!list ? <Loading /> : list.length === 0 ? <EmptyState icon="🔥" title="No weekly challenges created yet." text="Complete lessons to unlock!" /> : (

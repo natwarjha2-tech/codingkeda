@@ -13,7 +13,7 @@ export default function CertificatesPage() {
   useEffect(() => { api("/api/certificates").then((d) => setList(d.certificates || [])).catch(() => setList([])); }, []);
 
   return (
-    <div className="mx-auto max-w-4xl pt-2">
+    <div className="w-full pt-2">
       <PageHeader icon="📜" title="My Certificates" sub="Pass a course's final test to earn its certificate." />
       {!list ? <Loading /> : list.length === 0 ? (
         <EmptyState icon="📜" title="No certificates yet" text="Finish all lessons of a course, then pass its Final Test to get your certificate."

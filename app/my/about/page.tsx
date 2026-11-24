@@ -48,7 +48,7 @@ export default function AboutPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-4xl space-y-5 pt-2">
+    <div className="mx-auto max-w-6xl space-y-5 pt-2">
       <PageHeader icon="ℹ️" title="About" sub="Learn. Code. Grow." />
       <section className="relative overflow-hidden rounded-3xl border border-violet-400/15 bg-[#12121f]/90 p-8 text-center">
         <div className="pointer-events-none absolute left-1/2 top-0 h-56 w-56 -translate-x-1/2 rounded-full bg-violet-600/15 blur-3xl" />

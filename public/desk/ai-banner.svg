@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 225" width="400" height="225">
+  <defs>
+    <linearGradient id="aiBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ec4899"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <radialGradient id="aiGlow" cx="0.5" cy="0.3" r="0.7">
+      <stop offset="0" stop-color="#fbcfe8" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#8b5cf6" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="400" height="225" fill="url(#aiBg)"/>
+  <rect width="400" height="225" fill="url(#aiGlow)"/>
+  <g transform="translate(200,100)">
+    <g stroke="#ffffff" stroke-opacity="0.7" stroke-width="2" fill="none">
+      <line x1="0" y1="-42" x2="-38" y2="-10"/>
+      <line x1="0" y1="-42" x2="38" y2="-10"/>
+      <line x1="-38" y1="-10" x2="0" y2="26"/>
+      <line x1="38" y1="-10" x2="0" y2="26"/>
+      <line x1="-38" y1="-10" x2="38" y2="-10"/>
+      <line x1="0" y1="-42" x2="0" y2="26"/>
+    </g>
+    <g fill="#ffffff">
+      <circle cx="0" cy="-42" r="9"/>
+      <circle cx="-38" cy="-10" r="8"/>
+      <circle cx="38" cy="-10" r="8"/>
+      <circle cx="0" cy="26" r="9"/>
+    </g>
+  </g>
+  <text x="200" y="200" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="800" fill="#ffffff" text-anchor="middle" letter-spacing="3">AI</text>
+</svg>

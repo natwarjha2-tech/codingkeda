@@ -41,6 +41,7 @@ export default function Navbar() {
 
   const { openAuthModal } = useAuthModal();
   const [desktopAuthOpen, setDesktopAuthOpen] = useState(false);
+  const [authSignup, setAuthSignup] = useState(false);
   const [adminAuthOpen, setAdminAuthOpen] = useState(false);
 
   useEffect(() => {
@@ -255,12 +256,12 @@ export default function Navbar() {
               </div>
             ) : (
               <div className="relative flex items-center gap-2" ref={dropdownRef}>
-                <Link
-                  href="/login?mode=signup"
+                <button
+                  onClick={() => { setLoginDropdown(false); setAuthSignup(true); setDesktopAuthOpen(true); }}
                   className="hidden lg:inline-flex text-xs font-bold text-[#1E1B4B] bg-[#FFD84D] hover:brightness-105 px-4 py-3 rounded-xl whitespace-nowrap"
                 >
                   Get Started
-                </Link>
+                </button>
                 <button
                   onClick={() => setLoginDropdown(!loginDropdown)}
                   className="relative flex items-center gap-1.5 text-xs font-bold text-white px-5 py-3 rounded-xl whitespace-nowrap transition-all duration-300 hover:scale-105 hover:shadow-[0_0_20px_rgba(124,58,237,0.5)] bg-purple-600 hover:bg-purple-700"
@@ -271,8 +272,8 @@ export default function Navbar() {
                   Login <ChevronDown size={15} className={`transition-transform ${loginDropdown ? "rotate-180" : ""}`} />
                 </button>
                 {loginDropdown && (
-                  <div className="absolute right-0 mt-2 w-48 bg-[#16213e] border border-white/10 rounded-xl shadow-xl overflow-hidden z-50">
-                    <button onClick={() => { setLoginDropdown(false); setDesktopAuthOpen(true); }}
+                  <div className="absolute right-0 top-full mt-2 w-48 bg-[#16213e] border border-white/10 rounded-xl shadow-xl overflow-hidden z-50">
+                    <button onClick={() => { setLoginDropdown(false); setAuthSignup(false); setDesktopAuthOpen(true); }}
                       className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/5 hover:text-white transition-colors text-left">
                       <User size={16} className="text-purple-400" /> Student Login
                     </button>
@@ -353,7 +354,7 @@ export default function Navbar() {
         document.body
       )}
       {/* Desktop Auth Modal */}
-      <DesktopAuthModal isOpen={desktopAuthOpen} onClose={() => setDesktopAuthOpen(false)} />
+      <DesktopAuthModal isOpen={desktopAuthOpen} startInSignup={authSignup} onClose={() => setDesktopAuthOpen(false)} />
       {/* Admin Auth Modal */}
       <AdminAuthModal isOpen={adminAuthOpen} onClose={() => setAdminAuthOpen(false)} />
     </nav>

@@ -14,18 +14,18 @@ export default function AchievementsPage() {
   useEffect(() => { api("/api/achievements").then((d) => setList(d.achievements || [])).catch(() => setList([])); }, []);
 
   return (
-    <div className="mx-auto max-w-4xl pt-2">
+    <div className="pt-2">
       <PageHeader icon="🏆" title="My Achievements" sub="Celebrate what you've earned and keep leveling up." back="/my/dashboard"
         right={list && <span className="rounded-xl border border-amber-400/25 bg-amber-400/10 px-3 py-1.5 text-sm font-bold text-amber-300">🏆 {list.length} Badge{list.length !== 1 ? "s" : ""} Earned</span>} />
       {!list ? <Loading /> : list.length === 0 ? (
         <EmptyState icon="🏆" title="Your trophy shelf is empty" text="Complete quizzes and climb the leaderboard to earn your first achievement!"
           action={<Link href="/my/courses" className="rounded-xl bg-gradient-to-r from-purple-500 to-indigo-500 px-5 py-2.5 text-sm font-bold">Start Learning →</Link>} />
       ) : (
-        <div className="space-y-4">
+        <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
           {list.map((a) => {
             const m = meta(a.badgeType);
             return (
-              <div key={a.id} className="relative overflow-hidden rounded-3xl border bg-[#161626]/75 p-6" style={{ borderColor: `${m.color}35` }}>
+              <div key={a.id} className="relative overflow-hidden rounded-[22px] border bg-[#161626]/75 p-6 transition hover:-translate-y-0.5" style={{ borderColor: `${m.color}35` }}>
                 <div className="pointer-events-none absolute -right-8 -top-12 h-44 w-44 rounded-full blur-3xl" style={{ background: `${m.color}18` }} />
                 <div className="relative flex gap-5">
                   <div className="flex h-[72px] w-[72px] shrink-0 items-center justify-center rounded-2xl border text-4xl" style={{ background: `${m.color}12`, borderColor: `${m.color}35` }}>{m.icon}</div>

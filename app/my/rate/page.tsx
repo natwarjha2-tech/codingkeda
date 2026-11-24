@@ -56,7 +56,7 @@ export default function RatePage() {
   const m = META[stars];
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5 pt-2">
+    <div className="mx-auto max-w-6xl space-y-5 pt-2">
       <PageHeader icon="⭐" title="Rate CodingKida" sub="Your feedback helps us make learning better" />
       <div className="grid gap-5 md:grid-cols-2">
         <div className="space-y-4">

@@ -2,7 +2,8 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Bookmark, BookmarkCheck, CheckCircle2, Download, Eye, FileText, Lock, PlayCircle, ThumbsDown, ThumbsUp, Trophy } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Bookmark, BookmarkCheck, CheckCircle2, ChevronRight, Download, Eye, FileText, Lock, PlayCircle, Settings2, ThumbsDown, ThumbsUp, Trophy } from "lucide-react";
 import { isSaved, toggleSaved } from "../../watchlist";
 import { LessonBoardModal } from "@/components/my/Panels";
 import StreakTab, { type Streak } from "@/components/my/StreakTab";
@@ -15,12 +16,16 @@ import QuizTab from "@/components/my/QuizTab";
 import ExerciseTab from "@/components/my/ExerciseTab";
 import RateTab from "@/components/my/RateTab";
 import AskTab from "@/components/my/AskTab";
+import { EXPIRY_DAYS, downloadLessonHls, downloadPdf, getOffline, offlineKey } from "../../offline";
 
 type Lesson = { id: string; title: string; duration?: string | null; isFree: boolean; hasVideo?: boolean };
 type Material = { id: string; title: string; fileUrl: string };
 type Module = { id: string; title: string; lessons: Lesson[]; materials?: Material[] };
 type Course = { id: string; title: string; modules: Module[]; isEnrolled: boolean; completedLessons: string[] };
 type Play = { id: string; title: string; notes?: string; videoUrl: string; hlsStatus: string; isFree: boolean; locked: boolean; qualityUrls?: Record<string, string> };
+
+/** Engagement-bar pill: compact, single line, gentle lift on hover. */
+const pill = "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-[13px] font-bold transition hover:-translate-y-0.5";
 
 const TABS = [
   { key: "ppt", label: "📄 PPT" },
@@ -61,6 +66,12 @@ function LessonInner() {
   const [streak, setStreak] = useState<Streak | null>(null);
   const [homework, setHomework] = useState<Homework[]>([]);
   const [pdfOpen, setPdfOpen] = useState(false);
+  const [dl, setDl] = useState<{ state: "idle" | "busy" | "done"; pct: number }>({ state: "idle", pct: 0 });
+  const [pdfDl, setPdfDl] = useState<"idle" | "busy" | "done">("idle");
+  const [quality, setQuality] = useState<string | null>(null);
+  const [settingsSlot, setSettingsSlot] = useState<HTMLSpanElement | null>(null);
+  const [topSlot, setTopSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => { setTopSlot(document.getElementById("my-topbar-slot")); }, []);
   const who = user?.email || "";
 
   // Views, like/dislike counts and the weekly streak for this lesson.
@@ -109,7 +120,7 @@ function LessonInner() {
   // Remember where the student stopped (used by "Continue Learning").
   useEffect(() => {
     if (course && lesson) {
-      try { localStorage.setItem("ck_last_lesson", JSON.stringify({ courseId: course.id, lessonId: lesson.id })); } catch { /* ignore */ }
+      try { localStorage.setItem("ck_last_lesson", JSON.stringify({ courseId: course.id, lessonId: lesson.id, lessonTitle: lesson.title })); } catch { /* ignore */ }
     }
   }, [course, lesson]);
 
@@ -125,6 +136,45 @@ function LessonInner() {
       .then(() => { setDone((s) => new Set(s).add(lessonId)); refreshCoins(); })
       .catch(() => { marked.current = false; });
   }, [lessonId, refreshCoins]);
+
+  // Offline download (browser storage, 30 days — same as the desktop app).
+  const uid = user?.id || "";
+  useEffect(() => {
+    setDl({ state: "idle", pct: 0 }); setPdfDl("idle"); setQuality(null);
+    if (!uid) return;
+    getOffline(offlineKey(uid, lessonId, "hls")).then((it) => it && it.expiresAt > Date.now() && setDl({ state: "done", pct: 100 })).catch(() => {});
+  }, [uid, lessonId]);
+  useEffect(() => {
+    if (!uid || !mod) return;
+    getOffline(offlineKey(uid, `ppt_${mod.id}`, "pdf")).then((it) => it && it.expiresAt > Date.now() && setPdfDl("done")).catch(() => {});
+  }, [uid, mod]);
+
+  const downloadVideo = async () => {
+    if (!uid) { alert("Please log in to download."); return; }
+    setDl({ state: "busy", pct: 0 });
+    try {
+      await downloadLessonHls({
+        userId: uid, lessonId, courseId, title: lesson?.title || play?.title || "Lesson",
+        courseTitle: course?.title || "", moduleTitle: mod?.title || "", quality,
+        onProgress: (pct) => setDl({ state: "busy", pct }),
+      });
+      setDl({ state: "done", pct: 100 });
+    } catch (e) {
+      setDl({ state: "idle", pct: 0 });
+      alert(`Download failed: ${e instanceof Error ? e.message : "Please try again."}`);
+    }
+  };
+  const downloadNotes = async () => {
+    if (!uid || !notesUrl || !mod) return;
+    setPdfDl("busy");
+    try {
+      await downloadPdf({ userId: uid, id: `ppt_${mod.id}`, courseId, url: notesUrl, title: `${mod.title} — PPT`, courseTitle: course?.title || "", moduleTitle: mod.title });
+      setPdfDl("done");
+    } catch (e) {
+      setPdfDl("idle");
+      alert(e instanceof Error ? e.message : "Download failed.");
+    }
+  };
 
   const pick = (k: TabKey) => { setTab(k); setVisited((v) => new Set(v).add(k)); };
   const goNext = () => nextLesson && router.push(`/my/lesson/${nextLesson.id}?course=${courseId}`);
@@ -152,9 +202,9 @@ function LessonInner() {
       </Center>
     );
   } else if (hlsOk) {
-    videoArea = <HlsPlayer key={lessonId} lessonId={lessonId} onTimeUpdate={onTime} onEnded={() => setEnded(true)} onFail={() => setHlsFailed(true)} />;
+    videoArea = <HlsPlayer key={lessonId} lessonId={lessonId} onTimeUpdate={onTime} onEnded={() => setEnded(true)} onFail={() => setHlsFailed(true)} onQualityChange={setQuality} settingsSlot={settingsSlot} />;
   } else if (mp4) {
-    videoArea = <Mp4Player original={mp4} qualities={play?.qualityUrls || {}} onTime={onTime} onEnded={() => setEnded(true)} />;
+    videoArea = <Mp4Player original={mp4} qualities={play?.qualityUrls || {}} onTime={onTime} onEnded={() => setEnded(true)} slot={settingsSlot} />;
   } else {
     videoArea = (
       <Center>
@@ -166,51 +216,75 @@ function LessonInner() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl pt-2">
-      <div className="mb-3">
-        <Link href={courseId ? `/my/courses/${courseId}` : "/my/courses"} className="text-sm font-semibold text-white/60 hover:text-white">← {course?.title || "Course"}</Link>
-        <h1 className="mt-1 text-xl font-extrabold md:text-2xl">{lesson?.title || play?.title || "Lesson"}</h1>
-        <div className="text-xs text-white/50">{mod?.title}{lesson && durationToSeconds(lesson.duration) > 0 ? ` · ${prettyDuration(durationToSeconds(lesson.duration))}` : ""}</div>
-      </div>
-      <div className="mb-4 h-1 overflow-hidden rounded-full bg-white/10"><div className="h-full bg-gradient-to-r from-violet-500 to-pink-500" style={{ width: `${pct}%` }} /></div>
+    <div>
+      {/* Lesson title sits in the top bar (left of coins/bell) — no separate row */}
+      {topSlot && createPortal(
+        <>
+          <Link href={courseId ? `/my/courses/${courseId}` : "/my/courses"} className="shrink-0 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-bold text-white/70 hover:bg-white/10 hover:text-white">← {course?.title || "Course"}</Link>
+          <div className="min-w-0">
+            <h1 className="truncate text-base font-extrabold leading-normal md:text-lg">{lesson?.title || play?.title || "Lesson"}</h1>
+            <div className="truncate text-[11px] leading-normal text-white/50">{mod?.title}{lesson && durationToSeconds(lesson.duration) > 0 ? ` · ${prettyDuration(durationToSeconds(lesson.duration))}` : ""}</div>
+          </div>
+        </>,
+        topSlot,
+      )}
 
-      <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
+      <div className="grid gap-4 pt-1 lg:grid-cols-[1fr_380px]">
         <div className="min-w-0">
           <div className="relative aspect-video overflow-hidden rounded-2xl border border-white/10 bg-black">{videoArea}</div>
 
-          {/* Engagement bar: like / dislike / views, then Save, Download, Leaderboard, Subscribe */}
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button onClick={() => sendReaction("like")} className={`inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm font-semibold ${react.userReaction === "like" ? "border-emerald-400 bg-emerald-400/20" : "border-white/10 bg-white/5 hover:border-emerald-400/40"}`}>
-              <ThumbsUp size={14} /> {react.likes}
+          {/* Engagement bar — one line: reactions · views · quality | Save · Download · Leaderboard · Subscribe · Next */}
+          <div className="relative z-10 mt-3 flex flex-wrap items-center gap-1.5 rounded-2xl border border-white/[0.07] bg-gradient-to-r from-[#1a1530] via-[#161626] to-[#1a1530] p-1.5 xl:flex-nowrap">
+            <button onClick={() => sendReaction("like")} title="I like this lesson"
+              className={`${pill} ${react.userReaction === "like" ? "border-emerald-400 bg-emerald-500/25 text-emerald-200 shadow-[0_0_12px_rgba(16,185,129,0.35)]" : "border-emerald-400/25 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"}`}>
+              <ThumbsUp size={15} className={react.userReaction === "like" ? "fill-emerald-300/40" : ""} /> {react.likes}
             </button>
-            <button onClick={() => sendReaction("dislike")} className={`inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm font-semibold ${react.userReaction === "dislike" ? "border-red-400 bg-red-400/20" : "border-white/10 bg-white/5 hover:border-red-400/40"}`}>
-              <ThumbsDown size={14} /> {react.dislikes}
+            <button onClick={() => sendReaction("dislike")} title="Not for me"
+              className={`${pill} ${react.userReaction === "dislike" ? "border-rose-400 bg-rose-500/25 text-rose-200" : "border-rose-400/25 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20"}`}>
+              <ThumbsDown size={15} /> {react.dislikes}
             </button>
-            <span className="inline-flex items-center gap-1.5 px-2 text-sm text-white/60"><Eye size={14} /> {react.views} views</span>
-            <div className="flex-1" />
+            <span title={`${react.views} views`} className={`${pill} cursor-default border-sky-400/20 bg-sky-500/10 text-sky-300 hover:translate-y-0`}>
+              <Eye size={15} /> {react.views}
+            </span>
+            {/* Quality & speed (portal from the player) — not on the video */}
+            <span ref={setSettingsSlot} className="inline-flex shrink-0" />
+
+            <span className="min-w-2 flex-1" />
+
             <button onClick={() => setSaved(toggleSaved(who, { lessonId, courseId, title: lesson?.title || play?.title || "Lesson", courseTitle: course?.title || "" }))}
-              className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3.5 py-1.5 text-sm font-semibold hover:bg-white/5">
-              {saved ? <BookmarkCheck size={14} className="text-violet-300" /> : <Bookmark size={14} />} {saved ? "Saved" : "Save"}
+              title={saved ? "Saved to your Watchlist" : "Save to Watchlist"}
+              className={`${pill} ${saved ? "border-violet-400 bg-violet-500/25 text-violet-100" : "border-violet-400/30 bg-violet-500/10 text-violet-200 hover:bg-violet-500/20"}`}>
+              {saved ? <BookmarkCheck size={15} className="fill-violet-300/40" /> : <Bookmark size={15} />} {saved ? "Saved" : "Save"}
             </button>
-            <Link href="/download" title="Offline lesson downloads are protected and work in the CodingKida app"
-              className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-violet-600 to-pink-500 px-3.5 py-1.5 text-sm font-bold">
-              <Download size={14} /> Download Lesson
-            </Link>
-            <button onClick={() => setBoardOpen(true)} title="Lesson leaderboard" className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/30 bg-amber-400/10 px-3.5 py-1.5 text-sm font-semibold text-amber-300 hover:bg-amber-400/20">
-              <Trophy size={14} /> Leaderboard
+            {dl.state === "done" ? (
+              <Link href="/my/downloads" title="Saved in this browser for offline watching"
+                className={`${pill} border-emerald-400/40 bg-emerald-500 text-white shadow-[0_3px_12px_rgba(16,185,129,0.4)] hover:bg-emerald-400`}>
+                <CheckCircle2 size={15} /> Downloaded
+              </Link>
+            ) : (
+              <button onClick={downloadVideo} disabled={dl.state === "busy" || !hlsOk}
+                title={hlsOk ? `Save this lesson in this browser for ${EXPIRY_DAYS} days (${quality || "Auto → smallest"} quality)` : "This video can't be downloaded yet"}
+                className={`${pill} border-transparent bg-gradient-to-r from-violet-600 to-pink-500 text-white shadow-[0_3px_12px_rgba(168,85,247,0.4)] disabled:cursor-not-allowed disabled:opacity-60`}>
+                <Download size={15} /> {dl.state === "busy" ? `${dl.pct}%` : "Download"}
+              </button>
+            )}
+            <button onClick={() => setBoardOpen(true)} title="Lesson leaderboard"
+              className={`${pill} border-amber-400/40 bg-gradient-to-r from-amber-400/20 to-orange-500/20 text-amber-200 hover:from-amber-400/30 hover:to-orange-500/30`}>
+              <Trophy size={15} className="text-amber-300" /> Leaderboard
             </button>
-            <a href="https://youtube.com/@codingkida4u" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-full bg-red-600 px-3.5 py-1.5 text-sm font-bold hover:bg-red-500">
-              <PlayCircle size={14} /> Subscribe
+            <a href="https://youtube.com/@codingkida4u" target="_blank" rel="noopener noreferrer" title="Subscribe on YouTube"
+              className={`${pill} border-transparent bg-gradient-to-r from-red-600 to-rose-500 text-white shadow-[0_3px_12px_rgba(239,68,68,0.4)]`}>
+              <PlayCircle size={15} /> Subscribe
             </a>
+            {(ended || (nextLesson && done.has(lessonId))) && nextLesson && (
+              <button onClick={goNext} title={`Next lesson: ${nextLesson.title}`}
+                className={`${pill} border-transparent bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-[0_3px_12px_rgba(16,185,129,0.45)]`}>
+                Next <ChevronRight size={16} />
+              </button>
+            )}
           </div>
           {boardOpen && <LessonBoardModal lessonId={lessonId} onClose={() => setBoardOpen(false)} />}
           {pdfOpen && notesUrl && <PdfViewer url={notesUrl} title={`${mod?.title || "Module"} — PPT`} onClose={() => setPdfOpen(false)} />}
-
-          {(ended || (nextLesson && done.has(lessonId))) && nextLesson && (
-            <button onClick={goNext} className="mt-3 inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-extrabold hover:bg-emerald-400">
-              <CheckCircle2 size={16} /> Next lesson: {nextLesson.title} →
-            </button>
-          )}
 
           <div className="mt-5 flex gap-1 overflow-x-auto border-b border-white/10">
             {[...TABS.slice(0, 3), ...(homework.length ? [{ key: "homework" as const, label: "🏠 Homework" }] : []), TABS[3], ...(streak ? [{ key: "streak" as const, label: "🔥 Streak" }] : []), TABS[4]].map((t) => (
@@ -227,6 +301,15 @@ function LessonInner() {
                   <button onClick={() => setPdfOpen(true)} className="mt-4 inline-flex items-center gap-2 rounded-xl border border-white/20 px-5 py-2.5 text-sm font-bold hover:bg-white/5">
                     <FileText size={16} className="text-red-400" /> View PPT
                   </button>
+                ) : null}
+                {notesUrl ? (
+                  pdfDl === "done" ? (
+                    <Link href="/my/downloads" className="ml-2 mt-4 inline-flex items-center gap-2 rounded-xl bg-emerald-500/15 px-5 py-2.5 text-sm font-bold text-emerald-300 hover:bg-emerald-500/25"><CheckCircle2 size={16} /> Downloaded</Link>
+                  ) : (
+                    <button onClick={downloadNotes} disabled={pdfDl === "busy"} className="ml-2 mt-4 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-pink-500 px-5 py-2.5 text-sm font-bold disabled:opacity-60">
+                      <Download size={16} /> {pdfDl === "busy" ? "Downloading…" : "Download PPT"}
+                    </button>
+                  )
                 ) : (
                   <div className="py-6 text-center text-sm text-white/50">No PPT available for this module yet.</div>
                 )}
@@ -277,7 +360,7 @@ function LessonInner() {
 }
 
 /** MP4 player with the apps' quality menu (Auto = original upload) and speed; keeps position when switching. */
-function Mp4Player({ original, qualities, onTime, onEnded }: { original: string; qualities: Record<string, string>; onTime: (c: number, d: number) => void; onEnded: () => void }) {
+function Mp4Player({ original, qualities, onTime, onEnded, slot }: { original: string; qualities: Record<string, string>; onTime: (c: number, d: number) => void; onEnded: () => void; slot: HTMLElement | null }) {
   // Highest first: 1080p, 720p, 480p, 360p…
   const keys = Object.keys(qualities).sort((a, b) => (parseInt(b, 10) || 0) - (parseInt(a, 10) || 0));
   const [q, setQ] = useState("auto");
@@ -295,20 +378,28 @@ function Mp4Player({ original, qualities, onTime, onEnded }: { original: string;
   const row = "flex w-full items-center justify-between gap-6 px-4 py-2 text-left text-sm hover:bg-white/10";
   return (
     <div className="relative h-full w-full bg-black">
-      <button onClick={() => setOpen((o) => !o)} className="absolute right-2 top-2 z-20 rounded-lg border border-white/20 bg-black/60 px-2.5 py-1 text-xs font-bold text-white backdrop-blur hover:bg-black/80">
-        ⚙ {q === "auto" ? "Auto" : q}{speed !== 1 ? ` · ${speed}x` : ""}
-      </button>
-      {open && (
-        <div className="absolute right-2 top-11 z-30 min-w-44 overflow-hidden rounded-xl border border-white/15 bg-[#1a1a2e]/95 py-1 text-white shadow-2xl">
-          <div className="px-4 pb-1 pt-2 text-[11px] font-bold uppercase text-white/50">Quality</div>
-          {["auto", ...keys].map((k) => <button key={k} className={row} onClick={() => pick(k)}><span>{k === "auto" ? "Auto" : k}</span>{q === k && <span className="text-violet-300">✓</span>}</button>)}
-          <div className="px-4 pb-1 pt-2 text-[11px] font-bold uppercase text-white/50">Speed</div>
-          {[0.5, 0.75, 1, 1.25, 1.5, 2].map((s) => (
-            <button key={s} className={row} onClick={() => { setSpeed(s); if (ref.current) ref.current.playbackRate = s; setOpen(false); }}>
-              <span>{s === 1 ? "Normal" : `${s}x`}</span>{speed === s && <span className="text-violet-300">✓</span>}
-            </button>
-          ))}
-        </div>
+      {slot && createPortal(
+        <span className="relative inline-flex">
+          <button onClick={() => setOpen((o) => !o)} title="Quality & speed" className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-[13px] font-bold text-cyan-200 transition hover:-translate-y-0.5 hover:bg-cyan-500/20">
+            <Settings2 size={15} /> {q === "auto" ? "Auto" : q}{speed !== 1 ? ` · ${speed}x` : ""}
+          </button>
+          {open && (
+            <>
+              <span className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+              <span className="absolute left-0 top-full z-50 mt-1.5 block min-w-44 overflow-hidden rounded-xl border border-white/15 bg-[#1a1a2e] py-1 text-white shadow-2xl">
+                <span className="block px-4 pb-1 pt-2 text-[11px] font-bold uppercase text-white/50">Quality</span>
+                {["auto", ...keys].map((k) => <button key={k} className={row} onClick={() => pick(k)}><span>{k === "auto" ? "Auto" : k}</span>{q === k && <span className="text-violet-300">✓</span>}</button>)}
+                <span className="block px-4 pb-1 pt-2 text-[11px] font-bold uppercase text-white/50">Speed</span>
+                {[0.5, 0.75, 1, 1.25, 1.5, 2].map((s) => (
+                  <button key={s} className={row} onClick={() => { setSpeed(s); if (ref.current) ref.current.playbackRate = s; setOpen(false); }}>
+                    <span>{s === 1 ? "Normal" : `${s}x`}</span>{speed === s && <span className="text-violet-300">✓</span>}
+                  </button>
+                ))}
+              </span>
+            </>
+          )}
+        </span>,
+        slot,
       )}
       <video
         key={src} ref={ref} src={src} controls playsInline controlsList="nodownload" onContextMenu={(e) => e.preventDefault()}

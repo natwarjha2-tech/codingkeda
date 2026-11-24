@@ -88,13 +88,18 @@ function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** Email remembered by "Remember me" (passwords are left to the browser's password manager). */
+const REMEMBER_KEY = "ck_remember_email";
+
 /* ── Desktop Auth Modal ── */
 interface DesktopAuthModalProps {
   isOpen: boolean;
   onClose: () => void;
+  /** Open on the Sign-up form (used by "Get Started"). */
+  startInSignup?: boolean;
 }
 
-export default function DesktopAuthModal({ isOpen, onClose }: DesktopAuthModalProps) {
+export default function DesktopAuthModal({ isOpen, onClose, startInSignup = false }: DesktopAuthModalProps) {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
 
@@ -125,10 +130,21 @@ export default function DesktopAuthModal({ isOpen, onClose }: DesktopAuthModalPr
   const [notice, setNotice] = useState("");
   const [signupField, setSignupField] = useState<SignupField>(null);
   const [signupStatus, setSignupStatus] = useState(0);
+  const [remember, setRemember] = useState(true);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Each time it opens: pick Login or Sign-up, and pre-fill the remembered email.
+  useEffect(() => {
+    if (!isOpen) return;
+    setIsSignup(startInSignup);
+    try {
+      const saved = localStorage.getItem(REMEMBER_KEY);
+      if (saved) { setEmail((e) => e || saved); setRemember(true); }
+    } catch { /* ignore */ }
+  }, [isOpen, startInSignup]);
 
   // Lock body scroll when modal is open
   useEffect(() => {
@@ -153,9 +169,11 @@ export default function DesktopAuthModal({ isOpen, onClose }: DesktopAuthModalPr
       localStorage.setItem("userEmail", email);
       localStorage.setItem("user", JSON.stringify({ email, role: "user" }));
       localStorage.setItem("ck_token", data.token);
+      // Remember me: keep the email for next time (the browser offers to save the password itself).
+      try { if (remember) localStorage.setItem(REMEMBER_KEY, email.trim()); else localStorage.removeItem(REMEMBER_KEY); } catch { /* ignore */ }
       onClose();
       // Under 18 and the parent isn't verified yet (deadline passed): finish that first.
-      router.replace((await consentBlocked(data.token)) ? "/parent-consent" : "/dashboard");
+      router.replace((await consentBlocked(data.token)) ? "/parent-consent" : "/my/dashboard");
     } catch (err) { setError(err instanceof Error ? err.message : "Something went wrong!"); }
     finally { setLoading(false); }
   };
@@ -321,7 +339,7 @@ export default function DesktopAuthModal({ isOpen, onClose }: DesktopAuthModalPr
                             <label className="text-sm font-semibold text-slate-700 block mb-1.5">Email</label>
                             <div className="relative">
                               <Mail size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                              <input type="email" placeholder="Enter your email" value={email} onChange={e => setEmail(e.target.value)}
+                              <input type="email" name="email" id="ck-login-email" autoComplete="username" placeholder="Enter your email" value={email} onChange={e => setEmail(e.target.value)}
                                 className={`w-full bg-slate-50 border ${error && !email ? "border-red-400" : "border-slate-200"} focus:border-purple-500 rounded-xl pl-11 pr-4 py-3.5 text-slate-900 text-sm outline-none transition-colors placeholder:text-slate-400`} />
                             </div>
                           </div>
@@ -332,13 +350,17 @@ export default function DesktopAuthModal({ isOpen, onClose }: DesktopAuthModalPr
                             </label>
                             <div className="relative">
                               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                              <input type={showPassword ? "text" : "password"} placeholder="Enter your password" value={password} onChange={e => setPassword(e.target.value)}
+                              <input type={showPassword ? "text" : "password"} name="password" id="ck-login-password" autoComplete="current-password" placeholder="Enter your password" value={password} onChange={e => setPassword(e.target.value)}
                                 className={`w-full bg-slate-50 border ${error && !password ? "border-red-400" : "border-slate-200"} focus:border-purple-500 rounded-xl pl-11 pr-11 py-3.5 text-slate-900 text-sm outline-none transition-colors placeholder:text-slate-400`} />
                               <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-purple-600 transition-colors">
                                 {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                               </button>
                             </div>
                           </div>
+                          <label className="flex cursor-pointer select-none items-center gap-2 text-sm text-slate-600">
+                            <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="h-4 w-4 accent-purple-600" />
+                            Remember me
+                          </label>
                           <motion.button type="submit" disabled={loading}
                             whileHover={!loading ? { scale: 1.02 } : {}} whileTap={!loading ? { scale: 0.97 } : {}}
                             className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-white text-sm transition-all duration-200 disabled:opacity-50 bg-purple-600 hover:bg-purple-700 shadow-lg shadow-purple-200">

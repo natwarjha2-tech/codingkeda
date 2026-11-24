@@ -1,5 +1,5 @@
 "use client";
-import { useState, Suspense } from "react";
+import { useEffect, useState, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -100,6 +100,13 @@ function LoginForm() {
   const [showForgot, setShowForgot] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [isSignup, setIsSignup] = useState(searchParams.get("mode") === "signup");
+  const [remember, setRemember] = useState(true);
+  // Pre-fill the remembered email; follow ?mode=signup even when already on this page.
+  useEffect(() => {
+    try { const saved = localStorage.getItem("ck_remember_email"); if (saved) setEmail((e) => e || saved); } catch { /* ignore */ }
+  }, []);
+  const modeParam = searchParams.get("mode");
+  useEffect(() => { if (modeParam === "signup") setIsSignup(true); }, [modeParam]);
   const [showSignupPassword, setShowSignupPassword] = useState(false);
 
   // Signup state
@@ -147,6 +154,8 @@ function LoginForm() {
       saveToken(data.token);
       localStorage.setItem("userEmail", email);
       localStorage.setItem("user", JSON.stringify({ email, role: "user" }));
+      // Remember me: keep the email (the browser's password manager offers to save the password).
+      try { if (remember) localStorage.setItem("ck_remember_email", email.trim()); else localStorage.removeItem("ck_remember_email"); } catch { /* ignore */ }
 
       const isNewUser = localStorage.getItem("isNewUser");
       const surveyDone = localStorage.getItem("surveyCompleted");
@@ -300,7 +309,7 @@ function LoginForm() {
                           <label className="text-sm font-semibold text-slate-700 block mb-1.5">Email</label>
                           <div className="relative">
                             <Mail size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                            <input type="email" placeholder="Enter your email" value={email} onChange={e => setEmail(e.target.value)}
+                            <input type="email" name="email" autoComplete="username" placeholder="Enter your email" value={email} onChange={e => setEmail(e.target.value)}
                               className={`w-full bg-slate-50 border ${error && !email ? "border-red-400" : "border-slate-200"} focus:border-purple-500 rounded-xl pl-11 pr-4 py-3.5 text-slate-900 text-sm outline-none transition-colors placeholder:text-slate-400`} />
                           </div>
                         </div>
@@ -311,13 +320,17 @@ function LoginForm() {
                           </label>
                           <div className="relative">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                            <input type={showPassword ? "text" : "password"} placeholder="Enter your password" value={password} onChange={e => setPassword(e.target.value)}
+                            <input type={showPassword ? "text" : "password"} name="password" autoComplete="current-password" placeholder="Enter your password" value={password} onChange={e => setPassword(e.target.value)}
                               className={`w-full bg-slate-50 border ${error && !password ? "border-red-400" : "border-slate-200"} focus:border-purple-500 rounded-xl pl-11 pr-11 py-3.5 text-slate-900 text-sm outline-none transition-colors placeholder:text-slate-400`} />
                             <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-purple-600 transition-colors">
                               {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                             </button>
                           </div>
                         </div>
+                        <label className="flex cursor-pointer select-none items-center gap-2 text-sm text-slate-600">
+                          <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="h-4 w-4 accent-purple-600" />
+                          Remember me
+                        </label>
                         <motion.button type="submit" disabled={loading}
                           whileHover={!loading ? { scale: 1.02 } : {}} whileTap={!loading ? { scale: 0.97 } : {}}
                           className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-white text-sm transition-all duration-200 disabled:opacity-50 bg-purple-600 hover:bg-purple-700 shadow-lg shadow-purple-200">

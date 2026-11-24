@@ -37,15 +37,30 @@ function CodeEditor() {
   useEffect(() => { setTheme((localStorage.getItem("ck_ce_theme") as "dark" | "light") || "dark"); }, []);
   const toggleTheme = () => setTheme((t) => { const n = t === "dark" ? "light" : "dark"; localStorage.setItem("ck_ce_theme", n); return n; });
   const L = theme === "light";
+  // Palette copied from the desktop app's --ce-* variables (global.css).
   const c = {
-    bg: L ? "bg-[#f8fafc]" : "bg-[#0b0b14]",
-    panel: L ? "bg-white" : "bg-[#11111c]",
-    card: L ? "bg-slate-50 border-slate-200" : "bg-white/[0.03] border-white/10",
-    text: L ? "text-slate-800" : "text-white",
-    muted: L ? "text-slate-500" : "text-white/50",
-    border: L ? "border-slate-200" : "border-white/10",
-    btn: L ? "bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200" : "bg-white/5 border-white/10 text-white/80 hover:bg-white/10",
-    input: L ? "bg-white border-slate-300 text-slate-800" : "bg-[#1a1a2e] border-white/10 text-white",
+    bg: L ? "bg-white" : "bg-black",
+    panel: L ? "bg-white" : "bg-black",
+    bar: L ? "bg-[#f1f3f5] border-[#dee2e6]" : "bg-white/5 border-white/10",
+    head: L ? "bg-[#e9ecef]" : "bg-black/40",
+    card: L ? "bg-[#f8f9fa] border-[#e9ecef]" : "bg-white/[0.03] border-white/[0.06]",
+    text: L ? "text-[#212529]" : "text-[#e2e8f0]",
+    muted: L ? "text-[#6c757d]" : "text-[#94a3b8]",
+    border: L ? "border-[#dee2e6]" : "border-white/10",
+    btn: L ? "bg-[#e9ecef] border-[#ced4da] text-[#495057] hover:bg-[#dee2e6]" : "bg-white/[0.08] border-white/15 text-[#94a3b8] hover:bg-white/[0.12]",
+    input: L ? "bg-[#e9ecef] border-[#ced4da] text-[#212529]" : "bg-white/[0.08] border-white/15 text-[#e2e8f0]",
+  };
+  // Desktop toolbar buttons: .coding-toolbar-btn--problems / desc / format / ai / panel / mode, plus run & submit.
+  const TB = {
+    base: "inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border px-3 py-[7px] text-[0.78rem] font-semibold leading-none transition hover:-translate-y-px hover:shadow-lg",
+    problems: L ? "border-[rgba(37,99,235,0.25)] bg-[rgba(37,99,235,0.08)] text-[#2563eb] hover:bg-[rgba(37,99,235,0.15)]" : "border-[rgba(96,165,250,0.3)] bg-[rgba(96,165,250,0.12)] text-[#60a5fa] hover:bg-[rgba(96,165,250,0.22)] hover:text-[#93c5fd]",
+    desc: L ? "border-[rgba(13,148,136,0.25)] bg-[rgba(13,148,136,0.08)] text-[#0d9488] hover:bg-[rgba(13,148,136,0.15)]" : "border-[rgba(45,212,191,0.3)] bg-[rgba(45,212,191,0.12)] text-[#2dd4bf] hover:bg-[rgba(45,212,191,0.22)] hover:text-[#5eead4]",
+    format: L ? "border-[rgba(22,163,74,0.25)] bg-[rgba(22,163,74,0.08)] text-[#16a34a] hover:bg-[rgba(22,163,74,0.15)]" : "border-[rgba(34,197,94,0.3)] bg-[rgba(34,197,94,0.12)] text-[#22c55e] hover:bg-[rgba(34,197,94,0.22)] hover:text-[#4ade80]",
+    ai: L ? "border-[rgba(108,71,255,0.25)] bg-[rgba(108,71,255,0.08)] text-[#6c47ff] hover:bg-[rgba(108,71,255,0.15)]" : "border-[rgba(108,71,255,0.3)] bg-[rgba(108,71,255,0.12)] text-[#a78bfa] hover:bg-[rgba(108,71,255,0.22)] hover:text-[#c4b5fd]",
+    panel: L ? "border-[rgba(79,70,229,0.25)] bg-[rgba(79,70,229,0.08)] text-[#4f46e5] hover:bg-[rgba(79,70,229,0.15)]" : "border-[rgba(129,140,248,0.3)] bg-[rgba(129,140,248,0.12)] text-[#818cf8] hover:bg-[rgba(129,140,248,0.22)] hover:text-[#a5b4fc]",
+    mode: L ? "border-[rgba(217,119,6,0.25)] bg-[rgba(217,119,6,0.08)] text-[#d97706] hover:bg-[rgba(217,119,6,0.15)]" : "border-[rgba(245,158,11,0.3)] bg-[rgba(245,158,11,0.12)] text-[#fbbf24] hover:bg-[rgba(245,158,11,0.22)] hover:text-[#fcd34d]",
+    run: L ? "border-[rgba(34,197,94,0.3)] bg-[rgba(34,197,94,0.1)] text-[#15803d] hover:bg-[rgba(34,197,94,0.2)]" : "border-[rgba(34,197,94,0.3)] bg-[rgba(34,197,94,0.15)] text-[#22c55e] hover:bg-[rgba(34,197,94,0.25)]",
+    submit: "border-transparent bg-gradient-to-br from-[#6c47ff] to-[#b251ff] font-bold text-white hover:from-[#7c5aff] hover:to-[#c060ff]",
   };
 
   // problems
@@ -401,7 +416,7 @@ function CodeEditor() {
   const p = active;
   const langLocked = !!p && (p.category === "Course Exercise" || !!p.lockedLanguage) && !!p.defaultLanguage;
   const langs = langLocked ? CODING_LANGUAGES.filter((l) => l.id === p!.defaultLanguage) : CODING_LANGUAGES;
-  const tbBtn = `inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${c.btn}`;
+  const tbBtn = `${TB.base} ${c.btn}`;
 
   return (
     <div className={`-mx-4 md:-mx-6 flex h-[calc(100vh-48px)] overflow-hidden ${c.bg} ${c.text}`}>
@@ -466,7 +481,7 @@ function CodeEditor() {
         {!p ? (
           <div className="flex flex-1 items-center justify-center">
             <div className="px-10 py-16 text-center">
-              {!leftOpen && <button onClick={toggleLeft} className={`${tbBtn} mb-4`}><Menu size={13} /> Problems</button>}
+              {!leftOpen && <button onClick={toggleLeft} className="mb-4 inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-xs font-semibold text-white/80 hover:text-white"><Menu size={13} /> Problems</button>}
               <div className="mb-4 text-5xl">🖥️</div>
               <h2 className="mb-2 text-2xl font-extrabold">Select a Problem</h2>
               <p className={`text-sm leading-relaxed ${c.muted}`}>Choose a problem from the left panel to start coding.<br />Practice makes perfect!</p>
@@ -483,7 +498,7 @@ function CodeEditor() {
                     <DiffPill d={p.difficulty} />
                     <span className={`rounded-md border px-2 py-0.5 text-[11px] ${c.card} ${c.muted}`}>{p.category}</span>
                   </div>
-                  <div className="mb-3 whitespace-pre-wrap text-sm leading-relaxed opacity-90">{p.description}</div>
+                  <div className={`mb-3 whitespace-pre-wrap rounded-xl border p-4 text-sm leading-[1.7] ${c.card}`}>{p.description}</div>
                   {(p.inputFormat || p.outputFormat) && (
                     <div className="mb-3 flex gap-2.5">
                       {p.inputFormat && <FmtBox label="Input Format" text={p.inputFormat} c={c} />}
@@ -496,17 +511,17 @@ function CodeEditor() {
                       <div className="space-y-2 p-3">
                         {(p.testCases || []).filter((t) => !t.isHidden).map((t, i) => (
                           <div key={i}>
-                            <div className={`mb-1 text-[11px] font-bold ${c.muted}`}>Sample {i + 1}</div>
+                            <div className="mb-1 text-[11px] font-bold uppercase tracking-wide text-[#a78bfa]">Sample {i + 1}</div>
                             <div className="grid grid-cols-2 gap-2">
-                              <div><div className={`text-[10px] uppercase ${c.muted}`}>Input</div><pre className="whitespace-pre-wrap rounded-md bg-black/40 p-2 font-mono text-xs text-white/90">{t.input}</pre></div>
-                              <div><div className={`text-[10px] uppercase ${c.muted}`}>Expected</div><pre className="whitespace-pre-wrap rounded-md bg-black/40 p-2 font-mono text-xs text-white/90">{t.expectedOutput}</pre></div>
+                              <div><div className={`text-[10px] uppercase ${c.muted}`}>Input</div><pre className={`whitespace-pre-wrap rounded-md border p-2 font-mono text-xs ${L ? "border-[#e9ecef] bg-[#e9ecef] text-[#5b21b6]" : "border-white/[0.06] bg-black/30 text-[#c4b5fd]"}`}>{t.input}</pre></div>
+                              <div><div className={`text-[10px] uppercase ${c.muted}`}>Expected</div><pre className={`whitespace-pre-wrap rounded-md border p-2 font-mono text-xs ${L ? "border-[#e9ecef] bg-[#e9ecef] text-[#5b21b6]" : "border-white/[0.06] bg-black/30 text-[#c4b5fd]"}`}>{t.expectedOutput}</pre></div>
                             </div>
                           </div>
                         ))}
                       </div>
                     </div>
                   )}
-                  {!!p.hints?.length && <div className="mb-3 flex gap-2 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3 text-sm"><Lightbulb size={15} className="mt-0.5 shrink-0 text-amber-400" /><span>{p.hints.join(" | ")}</span></div>}
+                  {!!p.hints?.length && <div className="mb-3 flex gap-2 rounded-xl border border-[rgba(245,158,11,0.15)] bg-[rgba(245,158,11,0.06)] px-4 py-3 text-[0.82rem] text-[#fbbf24]"><Lightbulb size={15} className="mt-0.5 shrink-0 text-[#fbbf24]" /><span>{p.hints.join(" | ")}</span></div>}
                   {p.explanation && <div className="mb-3 rounded-xl border border-emerald-400/15 bg-emerald-400/5 p-3 text-sm"><div className="mb-1 text-[11px] font-bold uppercase tracking-wide text-emerald-400">Explanation</div><div className="opacity-85">{p.explanation}</div></div>}
                   {!!p.tags?.length && <div className="mb-3 flex flex-wrap gap-1.5">{p.tags.map((t) => <span key={t} className={`rounded-md border px-2 py-0.5 text-[11px] font-semibold ${c.card} ${c.muted}`}>#{t}</span>)}</div>}
                   {(p.constraints || p.timeComplexity || p.spaceComplexity) && (
@@ -528,19 +543,23 @@ function CodeEditor() {
             {/* Editor side */}
             <div className="flex min-w-0 flex-1 flex-col overflow-hidden pl-1">
               {/* Toolbar */}
-              <div className={`flex flex-wrap items-center justify-between gap-2 border-b px-2 py-1.5 ${c.border}`}>
+              <div className={`m-2 mb-0 flex flex-wrap items-center justify-between gap-2 rounded-t-xl border border-b-0 px-3 py-2 ${c.bar}`}>
                 <div className="flex flex-wrap items-center gap-1.5">
                   {(!leftOpen || !descOpen) && <button onClick={restoreLast} className={tbBtn} title="Show hidden panel"><ArrowLeft size={13} /></button>}
-                  <button onClick={toggleLeft} className={tbBtn} title="Toggle Problem List"><Menu size={13} /> Problems</button>
-                  <button onClick={toggleDesc} className={tbBtn} title="Toggle Description Panel"><FileText size={13} /> Desc</button>
-                  <select value={lang} onChange={(e) => changeLang(e.target.value)} className={`rounded-lg border px-2 py-1.5 text-xs font-semibold outline-none ${c.input}`}>
+                  <button onClick={toggleLeft} className={`${TB.base} ${TB.problems}`} title="Toggle Problem List"><Menu size={13} /> Problems</button>
+                  <button onClick={toggleDesc} className={`${TB.base} ${TB.desc}`} title="Toggle Description Panel"><FileText size={13} /> Desc</button>
+                  <select value={lang} onChange={(e) => changeLang(e.target.value)} className={`min-w-[100px] max-w-[160px] cursor-pointer rounded-lg border px-3 py-[7px] text-[0.78rem] font-semibold outline-none ${c.input}`}>
                     {langs.map((l) => <option key={l.id} value={l.id}>{l.icon} {l.label}</option>)}
                   </select>
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <button onClick={format} className={tbBtn} title="Format Code"><Sparkles size={13} /> Format</button>
+                  {/* Format — green outline like desktop */}
+                  <button onClick={format} className={`${TB.base} ${TB.format}`} title="Format Code"><Sparkles size={13} /> Format</button>
+                  {/* AI — violet glow button with dropdown */}
                   <div className="relative">
-                    <button onClick={() => setAiMenu((m) => !m)} className={`${tbBtn} border-violet-400/30 text-violet-300`} title="AI Assist (Hints, Algorithm, Solution)"><Bot size={13} /> AI ▾</button>
+                    <button onClick={() => setAiMenu((m) => !m)} className={`${TB.base} ${TB.ai}`} title="AI Assist">
+                      <Bot size={13} /> AI ▾
+                    </button>
                     {aiMenu && (
                       <>
                         <div className="fixed inset-0 z-40" onClick={() => setAiMenu(false)} />
@@ -552,12 +571,20 @@ function CodeEditor() {
                       </>
                     )}
                   </div>
-                  <button onClick={() => { setBottomOpen((b) => !b); setTimeout(() => editor.current?.layout(), 60); }} className={tbBtn} title="Toggle Bottom Panel">
+                  <button onClick={() => { setBottomOpen((b) => !b); setTimeout(() => editor.current?.layout(), 60); }} className={`${TB.base} ${TB.panel}`} title="Toggle Bottom Panel">
                     {bottomOpen ? <ChevronDown size={13} /> : <ChevronUp size={13} />} {bottomOpen ? "Hide Panel" : "Show Panel"}
                   </button>
-                  <button onClick={toggleTheme} className={tbBtn} title="Toggle Dark/Light Mode">{L ? <Sun size={13} /> : <Moon size={13} />} {L ? "Light" : "Dark"}</button>
-                  <button onClick={run} disabled={!!busy} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-60"><Play size={12} /> {busy === "run" ? "Running..." : "Run"}</button>
-                  <button onClick={submit} disabled={!!busy} className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-violet-500 disabled:opacity-60"><Send size={12} /> {busy === "submit" ? "Testing..." : "Submit"}</button>
+                  <button onClick={toggleTheme} className={`${TB.base} ${TB.mode}`} title="Toggle Dark/Light Mode">{L ? <Sun size={13} /> : <Moon size={13} />} {L ? "Light" : "Dark"}</button>
+                  {/* Run — green gradient exactly like desktop */}
+                  <button onClick={run} disabled={!!busy}
+                    className={`${TB.base} ${TB.run} font-bold disabled:opacity-60`}>
+                    <Play size={12} fill="currentColor" /> {busy === "run" ? "Running..." : "Run"}
+                  </button>
+                  {/* Submit — violet gradient exactly like desktop */}
+                  <button onClick={submit} disabled={!!busy}
+                    className={`${TB.base} ${TB.submit} disabled:opacity-60`}>
+                    <Send size={12} /> {busy === "submit" ? "Testing..." : "Submit"}
+                  </button>
                 </div>
               </div>
 
@@ -570,10 +597,10 @@ function CodeEditor() {
               )}
 
               {/* Monaco */}
-              <div className="flex min-h-0 flex-1 flex-col">
-                <div className={`flex items-center justify-between border-b px-3 py-1 text-xs ${c.border} ${c.muted}`}>
-                  <span className="flex items-center gap-1.5"><Code2 size={12} /> {filenameFromTitle(p.title, langOf(lang).extension)}</span>
-                  <span>{cursor}</span>
+              <div className={`m-2 mt-0 flex min-h-0 flex-1 flex-col overflow-hidden rounded-b-xl border ${L ? "border-[#dee2e6]" : "border-white/10"}`}>
+                <div className={`flex items-center justify-between border-b px-3.5 py-2 ${c.head} ${c.border}`}>
+                  <span className={`flex items-center gap-1.5 text-xs font-semibold ${c.muted}`}><Code2 size={12} /> {filenameFromTitle(p.title, langOf(lang).extension)}</span>
+                  <span className={`text-[0.72rem] opacity-60 ${c.muted}`}>{cursor}</span>
                 </div>
                 <div className="min-h-0 flex-1">
                   <MonacoEditor ref={editor} value={docValue} resetKey={docKey} language={lang} theme={theme} onChange={onCode} onCursor={(l, col) => setCursor(`Ln ${l}, Col ${col}`)} />
@@ -582,13 +609,13 @@ function CodeEditor() {
 
               {/* Bottom panels */}
               {bottomOpen && (
-                <div className="max-h-[45%] min-h-[160px] flex-none space-y-2 overflow-y-auto p-2">
+                <div className="max-h-[45%] min-h-[160px] flex-none space-y-2 overflow-y-auto px-2 pb-2">
                   <div className={`overflow-hidden rounded-xl border ${c.card}`}>
                     <button onClick={() => setInputOpen((o) => !o)} className="flex w-full items-center justify-between px-3 py-2 text-xs font-bold"><span className="flex items-center gap-1.5"><Terminal size={12} /> Custom Input</span><span>{inputOpen ? "▼" : "▶"}</span></button>
                     {inputOpen && <textarea value={stdin} onChange={(e) => setStdin(e.target.value)} rows={3} placeholder="Enter all input in line by line before run" className={`w-full resize-y border-t bg-transparent p-3 font-mono text-xs outline-none ${c.border}`} />}
                   </div>
                   <div className={`overflow-hidden rounded-xl border ${c.card}`}>
-                    <div className={`flex items-center justify-between border-b px-3 py-2 text-xs font-bold ${c.border}`}><span className="flex items-center gap-1.5"><Terminal size={12} /> Output</span><button onClick={() => setOut([])} className={`text-xs ${c.muted} hover:text-violet-400`}>Clear</button></div>
+                    <div className={`flex items-center justify-between border-b px-3 py-2 text-xs font-bold ${c.border}`}><span className="flex items-center gap-1.5"><Terminal size={12} /> Output</span><button onClick={() => setOut([])} className="rounded-md border border-red-500/20 bg-red-500/10 px-2.5 py-[3px] text-[0.7rem] font-semibold text-red-500 hover:bg-red-500/20">Clear</button></div>
                     <div className="p-3 text-sm">
                       {out.length === 0 ? <span className={`italic ${c.muted}`}>Run your code to see output...</span> : out.map((l, i) => <OutLine key={i} l={l} />)}
                       {out.some((l) => l.kind === "node") && !busy && !p.id.startsWith("my-") && (
