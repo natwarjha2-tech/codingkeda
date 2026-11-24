@@ -1,6 +1,11 @@
 import type { NextConfig } from "next";
+import path from "path";
 
 const nextConfig: NextConfig = {
+  // Pin the project root. Without this, a stray package-lock.json in a parent
+  // folder (e.g. the server's home directory) makes Turbopack pick the wrong
+  // root and every next/font import fails to resolve during `next build`.
+  turbopack: { root: path.resolve(__dirname) },
   experimental: {
     serverActions: {
       bodySizeLimit: "600mb",
