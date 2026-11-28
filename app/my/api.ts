@@ -1,4 +1,4 @@
-import { getToken, logoutUser } from "@/services/auth";
+import { getToken, isGuestSession, logoutUser } from "@/services/auth";
 
 /** Error from the backend; carries HTTP status and the backend's `code`. */
 export class ApiError extends Error {
@@ -218,8 +218,23 @@ export function cachePrefetchAll() {
  * ApiError on a non-2xx answer. A 401 means the login is no longer valid, so the
  * student is sent to the login page and brought back here afterwards.
  */
+// Identical GETs already on their way (e.g. the page and the after-login prefetch
+// both asking for /api/coins): the second caller shares the first request.
+const inflight = new Map<string, Promise<unknown>>();
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function api<T = any>(path: string, init: Init = {}): Promise<T> {
+  const plainGet = (init.method || "GET").toUpperCase() === "GET" && init.json === undefined && init.body === undefined && !init.signal;
+  if (!plainGet) return request<T>(path, init);
+  const key = `${tokenTag(getToken())}|${path}`; // never share between two logins
+  const running = inflight.get(key);
+  if (running) return running as Promise<T>;
+  const p = request<T>(path, init).finally(() => inflight.delete(key));
+  inflight.set(key, p);
+  return p;
+}
+
+async function request<T>(path: string, init: Init): Promise<T> {
   const { json, headers, ...rest } = init;
   const h: Record<string, string> = { ...(headers as Record<string, string>) };
   if (json !== undefined) h["Content-Type"] = "application/json";
@@ -237,9 +252,11 @@ export async function api<T = any>(path: string, init: Init = {}): Promise<T> {
   if (!res.ok) {
     if (typeof window !== "undefined") {
       if (res.status === 401) {
+        const wasGuest = isGuestSession();
         logoutUser();
         localStorage.removeItem("ck_token");
-        window.location.replace(`/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+        // A guest's 4 hours are over: back to the free lessons, not a login form.
+        window.location.replace(wasGuest ? "/free-learning" : `/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`);
       } else if (res.status === 403 && data.code === "PARENT_CONSENT_REQUIRED") {
         window.location.replace("/parent-consent");
       }

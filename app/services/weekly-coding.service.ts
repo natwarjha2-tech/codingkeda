@@ -12,6 +12,7 @@
 import { createHash } from "crypto";
 import { prisma } from "@/app/lib/prisma";
 import { weeklyMedal } from "@/app/lib/medals";
+import { NOT_GUEST_USER, realUsersOr } from "@/app/lib/guest";
 
 /** Coins for the first solver (shown as "up to 15 coins"); see awardWeekly for the medals. */
 export const WEEKLY_CODE_COINS = 15;
@@ -88,7 +89,8 @@ export async function awardWeekly(userId: string, weekKey: string, exerciseTitle
     });
     if (already) return null;
     const before = await tx.coinTransaction.findMany({
-      where: { type: "EARNED", reason: { startsWith: reasonPrefix(weekKey) } },
+      // Guests don't take solve places from real students.
+      where: { type: "EARNED", reason: { startsWith: reasonPrefix(weekKey) }, ...NOT_GUEST_USER },
       distinct: ["userId"],
       select: { userId: true },
     });
@@ -113,7 +115,8 @@ export async function awardWeekly(userId: string, weekKey: string, exerciseTitle
 /** Who solved the challenge this week (first solver first) + how many weeks each has solved in total. */
 export async function weeklyLeaderboard(weekKey: string, currentUserId: string | null) {
   const rows = await prisma.coinTransaction.findMany({
-    where: { type: "EARNED", reason: { startsWith: reasonPrefix(weekKey) } },
+    // Guests are hidden from everyone else (a guest still sees their own row).
+    where: { type: "EARNED", reason: { startsWith: reasonPrefix(weekKey) }, ...realUsersOr(currentUserId) },
     select: { userId: true, createdAt: true },
     orderBy: { createdAt: "asc" },
   });

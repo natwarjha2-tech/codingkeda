@@ -25,7 +25,7 @@ jest.mock("@/app/lib/prisma", () => ({
     lesson: { findMany: jest.fn(), findUnique: jest.fn() },
     user: { findMany: jest.fn(), findUnique: jest.fn() },
     quizAttempt: { findMany: jest.fn(), create: jest.fn() },
-    userCoins: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
+    userCoins: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn(), upsert: jest.fn() },
     coinTransaction: { findMany: jest.fn(), create: jest.fn() },
     course: { findMany: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn() },
     quiz: { findMany: jest.fn(), findUnique: jest.fn() },
@@ -86,7 +86,7 @@ const mUserFindUnique = prisma.user.findUnique as jest.MockedFunction<typeof pri
 const mAttemptFindMany = prisma.quizAttempt.findMany as jest.MockedFunction<typeof prisma.quizAttempt.findMany>;
 const mAttemptCreate = prisma.quizAttempt.create as jest.MockedFunction<typeof prisma.quizAttempt.create>;
 const mCoinsFind = prisma.userCoins.findUnique as jest.MockedFunction<typeof prisma.userCoins.findUnique>;
-const mCoinsCreate = prisma.userCoins.create as jest.MockedFunction<typeof prisma.userCoins.create>;
+const mCoinsUpsert = prisma.userCoins.upsert as jest.MockedFunction<typeof prisma.userCoins.upsert>;
 const mTxFindMany = prisma.coinTransaction.findMany as jest.MockedFunction<typeof prisma.coinTransaction.findMany>;
 const mCourseFindUnique = prisma.course.findUnique as jest.MockedFunction<typeof prisma.course.findUnique>;
 const mCourseFindFirst = prisma.course.findFirst as jest.MockedFunction<typeof prisma.course.findFirst>;
@@ -209,14 +209,14 @@ describe("GET /api/coins", () => {
 
   it("auto-creates a UserCoins record on first access", async () => {
     mCoinsFind.mockResolvedValue(null as never);
-    mCoinsCreate.mockResolvedValue({ userId: "user-1", totalCoins: 0 } as never);
+    mCoinsUpsert.mockResolvedValue({ userId: "user-1", totalCoins: 0 } as never);
     mTxFindMany.mockResolvedValue([] as never);
     mAchFindMany.mockResolvedValue([] as never);
 
     const res = await getCoins(makeReq({ token: USER }));
     const body = await readJson(res);
     expect(res.status).toBe(200);
-    expect(mCoinsCreate).toHaveBeenCalled();
+    expect(mCoinsUpsert).toHaveBeenCalled();
     expect(body.totalCoins).toBe(0);
   });
 

@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { Menu, X, ChevronDown, User, ShieldCheck, LogOut, Search, BookOpen, Settings } from "lucide-react";
-import { getToken, logoutUser } from "@/services/auth";
+import { getToken, isGuestSession, logoutUser } from "@/services/auth";
 import SearchBar from "@/components/SearchBar";
 import { useAuthModal } from "@/context/AuthModalContext";
 import DesktopAuthModal from "@/components/DesktopAuthModal";
@@ -45,7 +45,8 @@ export default function Navbar() {
   const [adminAuthOpen, setAdminAuthOpen] = useState(false);
 
   useEffect(() => {
-    const token = getToken();
+    // A guest (try-a-free-lesson) session is not a real login: show Login / Sign up.
+    const token = isGuestSession() ? null : getToken();
     setLoggedIn(!!token);
     if (token) {
       const email = localStorage.getItem("userEmail") || "";

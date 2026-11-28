@@ -29,6 +29,7 @@ import { isMinorDob, ageFromDob } from "@/app/lib/age";
 import { isDryRun, isTestMode, otpConfigured, normalizeWhatsAppNumber } from "@/app/lib/whatsapp";
 import { validateName } from "@/app/lib/name";
 import type { JwtPayload } from "@/app/lib/auth";
+import { isGuestRole } from "@/app/lib/guest";
 import {
   CODE_TTL_MS, MAX_ATTEMPTS, MAX_SENDS_PER_DAY, MAX_SENDS_PER_PHONE_PER_DAY, RESEND_COOLDOWN_MS,
   codesMatch, generateCode, hashCode, isSixDigits, istDay,
@@ -311,6 +312,9 @@ export function forgetConsent(userId: string): void {
 /** 403 when the student must verify a parent first; null when fine (or when we can't tell). */
 export async function checkParentConsent(user: JwtPayload | null | undefined): Promise<NextResponse | null> {
   if (!user || !isStudentRole(user.role)) return null;
+  // Guests are temporary visitors with no parent details (and are blocked from
+  // the parent endpoints) — never ask, and never create a consent row for them.
+  if (isGuestRole(user.role)) return null;
   const now = Date.now();
   const hit = okCache.get(user.userId);
   if (hit && now - hit < OK_MS) return null;

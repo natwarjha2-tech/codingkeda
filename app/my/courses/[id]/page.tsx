@@ -10,6 +10,7 @@ import { useMy } from "../../MyContext";
 import { downloadPdf, getOffline, offlineKey } from "../../offline";
 import FinalTestCard from "@/components/my/FinalTestCard";
 import PdfViewer from "@/components/my/PdfViewer";
+import { isGuestSession } from "@/services/auth";
 
 type Lesson = { id: string; title: string; duration?: string | null; isFree: boolean; hasVideo?: boolean };
 type Material = { id: string; title: string; fileUrl: string; fileType?: string | null };
@@ -118,7 +119,12 @@ export default function CourseDetail() {
     setOpenMod(next);
     if (next >= 0) try { localStorage.setItem(`ck_last_mod_${course.id}`, String(next)); } catch { /* ignore */ }
   };
-  const goLesson = (l: Lesson) => router.push(canOpen(l) ? `/my/lesson/${l.id}?course=${course.id}` : `/payment?courseId=${course.id}`);
+  const goLesson = (l: Lesson) => {
+    if (canOpen(l)) { router.push(`/my/lesson/${l.id}?course=${course.id}`); return; }
+    // A guest leaving for payment goes through the classroom's "Are you leaving?" check (it listens to link clicks).
+    if (isGuestSession()) { const a = document.createElement("a"); a.href = "/signup"; document.body.appendChild(a); a.click(); a.remove(); return; }
+    router.push(`/payment?courseId=${course.id}`);
+  };
 
   const viewMaterial = (m: Material) => {
     const isPdf = (m.fileType || "pdf") === "pdf" || /\.pdf(\?|$)/i.test(m.fileUrl);

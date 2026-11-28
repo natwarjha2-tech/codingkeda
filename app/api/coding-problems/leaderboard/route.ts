@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/app/lib/prisma";
-import { requireAuth } from "@/app/lib/middleware";
+import { extractUser, requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
+import { realUsersOr } from "@/app/lib/guest";
 import { awardSolveCoins } from "@/app/services/exercise-coins.service";
 import { logger } from "@/app/lib/logger";
 
@@ -28,6 +29,7 @@ export async function GET(req: NextRequest) {
       where: {
         reason: { contains: `Coding:${problemId}` },
         type: "EARNED",
+        ...realUsersOr(extractUser(req)?.userId), // guests hidden from others
       },
       orderBy: { createdAt: "asc" },
       select: {

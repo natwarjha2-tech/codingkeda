@@ -17,6 +17,7 @@ import { prisma } from "@/app/lib/prisma";
 import { notifyCodingMedal } from "@/app/lib/notification";
 import { logger } from "@/app/lib/logger";
 import { codingMedal, type MedalInfo } from "@/app/lib/medals";
+import { NOT_GUEST_USER } from "@/app/lib/guest";
 
 export interface SolveReward {
   alreadyRanked: boolean;
@@ -60,7 +61,8 @@ export async function awardSolveCoins(opts: {
     });
     if (existing) return { alreadyRanked: true, rank: null, coinsAwarded: 0, medal: null } as SolveReward;
 
-    const before = await tx.coinTransaction.count({ where: { type: "EARNED", reason: { contains: tag } } });
+    // Guests don't count: a visitor trying a lesson must never push a real student down a rank.
+    const before = await tx.coinTransaction.count({ where: { type: "EARNED", reason: { contains: tag }, ...NOT_GUEST_USER } });
     const rank = before + 1;
     medal = codingMedal(rank);
     const coins = medal?.coins ?? 0;

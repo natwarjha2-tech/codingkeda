@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { getToken, logoutUser } from "@/services/auth";
+import { clearLocalSession, getToken, isExpiredGuest, isGuestSession, logoutUser } from "@/services/auth";
 
 const INACTIVITY_TIMEOUT = 2 * 60 * 60 * 1000; // 2 hours
 
@@ -17,6 +17,12 @@ export default function SessionGuard() {
   useEffect(() => {
     const token = getToken();
     if (!token) return;
+    // Guest sessions are managed by the classroom (leave = delete). An expired
+    // guest login is just forgotten — no "please log in" page for a visitor.
+    if (isGuestSession(token)) {
+      if (isExpiredGuest(token)) clearLocalSession();
+      return;
+    }
 
     const doLogout = () => {
       logoutUser();

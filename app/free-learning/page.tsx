@@ -5,6 +5,7 @@ import { connection } from "next/server";
 import KidsPage, { PageHeader } from "@/components/site/KidsPage";
 import CourseIcon from "@/components/site/CourseIcon";
 import { getFreeLessons } from "@/app/services/free-learning.service";
+import FreeCodingQuestions from "@/components/site/FreeCodingQuestions";
 import { LANGUAGES } from "@/app/lib/tutorials";
 
 export const metadata: Metadata = {
@@ -59,7 +60,7 @@ async function FreeLessons({ searchParams }: Props) {
                 </div>
                 <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
                   {g.map((l) => (
-                    <Link key={l.id} href={`/free-learning/${l.id}`} className="flex items-center gap-3 rounded-2xl bg-[#FAFAFF] px-4 py-3 hover:bg-[#F5F3FF] transition-colors">
+                    <Link key={l.id} href={`/try/${l.id}?course=${encodeURIComponent(l.courseId)}`} prefetch={false} className="flex items-center gap-3 rounded-2xl bg-[#FAFAFF] px-4 py-3 hover:bg-[#F5F3FF] transition-colors">
                       <span className="w-10 h-10 shrink-0 rounded-full bg-[#22C55E] text-white flex items-center justify-center font-black">▶</span>
                       <span className="flex-1 min-w-0">
                         <span className="block font-black truncate">{l.title}</span>
@@ -99,6 +100,10 @@ export default function FreeLearningPage(props: Props) {
 
       <Suspense fallback={<div className="max-w-6xl mx-auto px-5 py-12"><div className="h-64 rounded-[28px] bg-[#F3F0FF] animate-pulse" /></div>}>
         <FreeLessons {...props} />
+      </Suspense>
+
+      <Suspense fallback={null}>
+        <FreeCodingQuestions />
       </Suspense>
 
       <section className="px-5 pb-16">

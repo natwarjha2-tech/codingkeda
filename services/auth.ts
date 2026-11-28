@@ -50,3 +50,29 @@ export function logoutUser(): void {
 export function isLoggedIn(): boolean {
   return !!getToken();
 }
+
+/** Role/expiry from the stored login (decoded locally, for display only — the server checks the signature). */
+export function tokenClaims(token: string | null = getToken()): { role?: string; exp?: number } | null {
+  try {
+    const part = token?.split(".")[1];
+    if (!part) return null;
+    return JSON.parse(atob(part.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(part.length / 4) * 4, "=")));
+  } catch { return null; }
+}
+
+/** True when the stored login is a temporary guest (try-before-sign-up) session. */
+export function isGuestSession(token: string | null = getToken()): boolean {
+  return tokenClaims(token)?.role === "guest";
+}
+
+/** A guest login whose 4 hours are over (the server rejects it). */
+export function isExpiredGuest(token: string | null = getToken()): boolean {
+  const c = tokenClaims(token);
+  return c?.role === "guest" && !!c.exp && c.exp * 1000 <= Date.now();
+}
+
+/** Forget the login on this browser (all keys the site uses). */
+export function clearLocalSession(): void {
+  logoutUser();
+  for (const k of ["ck_token", "user", "userEmail", "ck_my_user"]) localStorage.removeItem(k);
+}

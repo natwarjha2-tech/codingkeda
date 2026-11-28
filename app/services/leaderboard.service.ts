@@ -2,6 +2,7 @@ import { prisma } from "@/app/lib/prisma";
 import { activeEnrollment } from "@/app/lib/access";
 import { aggregateStudentProgress } from "@/app/services/student-progress.service";
 import { rankLessonQuiz } from "@/app/services/quiz-leaderboard.service";
+import { realUsersOr } from "@/app/lib/guest";
 
 /**
  * Leaderboards.
@@ -183,7 +184,7 @@ export async function courseLeaderboard(courseId: string, currentUserId: string 
 // ── Lesson boards ──────────────────────────────────────────────────────────
 
 export async function lessonQuizLeaderboard(lessonId: string, currentUserId: string | null): Promise<Board & { totalQuestions: number }> {
-  const { ranked, questionCount } = await rankLessonQuiz(lessonId);
+  const { ranked, questionCount } = await rankLessonQuiz(lessonId, currentUserId);
   const names = await namesFor(ranked.slice(0, TOP).map((e) => e.userId));
   const board = finish(ranked, currentUserId, names, (e) => ({
     correctCount: e.correctCount,
@@ -199,7 +200,7 @@ export async function lessonExerciseLeaderboard(lessonId: string, currentUserId:
   if (total === 0) return { leaderboard: [], currentUserRank: null, totalStudents: 0, totalExercises: 0 };
 
   const subs = await prisma.exerciseSubmission.findMany({
-    where: { exerciseId: { in: exercises.map((e) => e.id) } },
+    where: { exerciseId: { in: exercises.map((e) => e.id) }, ...realUsersOr(currentUserId) },
     select: { userId: true, exerciseId: true, passed: true, createdAt: true },
     orderBy: { createdAt: "asc" },
   });

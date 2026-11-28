@@ -15,6 +15,7 @@ import {
   formatIndent, getMyProblems, getScore, getSubmissions, restoreCode, saveCode, saveMyProblems, timeAgo,
   type Problem, type Submission,
 } from "./logic";
+import { exampleFor } from "@/app/lib/tutorials";
 
 type Tab = "all" | "my" | "score";
 type Line = { kind: "info" | "ok" | "err" | "warn" | "pre" | "errpre" | "node"; text?: string; node?: React.ReactNode };
@@ -162,6 +163,21 @@ function CodeEditor() {
         });
       } catch { /* ignore */ }
     })();
+  }, [params, openProblem]);
+
+  // Opened from a tutorial's "Try it" (via /playground or /try/editor): /my/code?example=python/loops
+  // The example is a practice item with no test cases, so Submit just runs it (no coins, no leaderboard).
+  useEffect(() => {
+    const ex = exampleFor(params.get("example"));
+    if (!ex) return;
+    openProblem({
+      id: `example-${params.get("example")!.replace(/[^a-z0-9]+/gi, "-")}`,
+      title: `Try it: ${ex.title}`,
+      description: `This is the example from the "${ex.title}" tutorial. Press Run to see what it does, then change the code and run it again.`,
+      category: "Tutorial", difficulty: "easy", defaultLanguage: ex.lang,
+      inputFormat: "", outputFormat: "", constraints: "", explanation: "", tags: [], timeComplexity: "", spaceComplexity: "",
+      starterCode: { [ex.lang]: ex.code }, testCases: [], hints: [], bestSolution: null,
+    });
   }, [params, openProblem]);
 
   const list = useMemo(() => {

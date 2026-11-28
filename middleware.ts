@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { guestBlocked, isGuestRole, unverifiedRole } from "@/app/lib/guest";
 
 /**
  * Next.js Edge Middleware — API Request Logger + Correlation ID
@@ -17,6 +18,15 @@ export function middleware(req: NextRequest) {
   const requestId = req.headers.get("x-request-id") || crypto.randomUUID();
   const method = req.method;
   const path = req.nextUrl.pathname;
+
+  // Guest (try-before-sign-up) sessions can't use account, money, referral,
+  // parent, live or public-review endpoints. See app/lib/guest.ts.
+  if (isGuestRole(unverifiedRole(req.headers.get("authorization"))) && guestBlocked(path, method)) {
+    return NextResponse.json(
+      { success: false, code: "GUEST_NOT_ALLOWED", message: "Sign up for free to use this. Guest mode is only for trying lessons." },
+      { status: 403, headers: { "x-request-id": requestId } },
+    );
+  }
 
   // Log entry with correlation ID
   console.log(

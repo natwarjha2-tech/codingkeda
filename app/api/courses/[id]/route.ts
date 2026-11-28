@@ -5,6 +5,7 @@ import { priceFor, ACCESS_DAYS } from "@/app/lib/pricing";
 import { extractUser } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { getSignedFileUrlFromUrl, getS3KeyFromUrl } from "@/app/lib/s3";
+import { isGuestRole } from "@/app/lib/guest";
 
 export async function GET(
   req: NextRequest,
@@ -136,7 +137,9 @@ export async function GET(
     if (signed) {
       await Promise.all(
         signedCourse.modules.map(async (mod: any) => {
-          if (!isEnrolled && !isAdminUser) {
+          // Guests (try-before-sign-up) also get the PPT/PDF of modules that have a free lesson.
+          const guestFreeModule = isGuestRole(authUser?.role) && (mod.lessons ?? []).some((l: any) => l.isFree);
+          if (!isEnrolled && !isAdminUser && !guestFreeModule) {
             // Not enrolled (and not an admin) → don't expose any material URLs.
             mod.materials = [];
             return;

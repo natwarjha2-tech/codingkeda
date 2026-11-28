@@ -49,6 +49,16 @@ export default async function FreeLessonPage({ params }: Props) {
             />
           </div>
 
+          <Link href={`/try/${l.id}?course=${encodeURIComponent(l.courseId)}`} prefetch={false}
+            className="mt-6 flex flex-col items-center gap-3 rounded-[24px] bg-gradient-to-r from-[#7C3AED] to-[#EC4899] p-5 text-white sm:flex-row hover:-translate-y-0.5 transition-transform">
+            <span className="text-4xl">🎒</span>
+            <span className="flex-1 text-center sm:text-left">
+              <span className="block text-lg font-black">Open this lesson in My Classroom</span>
+              <span className="block text-sm text-white/85">Take the quiz, solve the exercise, earn coins and badges. No sign-up needed.</span>
+            </span>
+            <span className="rounded-2xl bg-[#FFD84D] px-5 py-3 font-black text-[#7C2D12]">Try it free →</span>
+          </Link>
+
           <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4">
             <Link href={`/courses/${l.courseId}`} className="rounded-[20px] bg-white border-2 border-[#EDE9FE] p-5 font-black hover:-translate-y-0.5 transition-transform">📚 See the full course →</Link>
             {next ? (

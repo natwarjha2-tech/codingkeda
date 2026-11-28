@@ -3,6 +3,7 @@ import { prisma } from "@/app/lib/prisma";
 import { extractUser } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { courseLeaderboard } from "@/app/services/leaderboard.service";
+import { realUsersOr } from "@/app/lib/guest";
 
 /**
  * GET /api/leaderboard?courseId=xxx&lessonId=yyy
@@ -26,10 +27,9 @@ export async function GET(req: NextRequest) {
       return apiSuccess(await courseLeaderboard(courseId, currentUserId));
     }
 
-    // Build query filter
-    const whereClause: Record<string, string | undefined> = {};
-    if (lessonId) whereClause.lessonId = lessonId;
-    else if (courseId) whereClause.courseId = courseId;
+    // Build query filter (guests hidden from everyone else; a guest sees their own row)
+    const people = realUsersOr(currentUserId);
+    const whereClause = lessonId ? { lessonId, ...people } : { courseId: courseId!, ...people };
 
     let allAttempts = await prisma.quizAttempt.findMany({
       where: whereClause,
@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
       const quizIds = (await prisma.quiz.findMany({ where: { lessonId }, select: { id: true } })).map(q => q.id);
       if (quizIds.length > 0) {
         allAttempts = await prisma.quizAttempt.findMany({
-          where: { quizId: { in: quizIds } },
+          where: { quizId: { in: quizIds }, ...people },
           select: { userId: true, correct: true, createdAt: true, timeTaken: true },
         });
       }

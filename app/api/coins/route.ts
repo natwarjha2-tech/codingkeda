@@ -19,8 +19,13 @@ export async function GET(req: NextRequest) {
     });
 
     if (!userCoins) {
-      userCoins = await prisma.userCoins.create({
-        data: { userId: user!.userId, totalCoins: 0 },
+      // Upsert, not create: the classroom can ask for coins twice at the same
+      // moment for a brand-new student, and two creates would hit the unique
+      // userId ("Unique constraint failed"). Never changes an existing balance.
+      userCoins = await prisma.userCoins.upsert({
+        where: { userId: user!.userId },
+        update: {},
+        create: { userId: user!.userId, totalCoins: 0 },
       });
     }
 

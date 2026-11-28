@@ -1,10 +1,10 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { BarChart3, Bookmark, BookOpen, Code2, Download, Globe, Gift, GraduationCap, Home, Info, Receipt, Star, Store, LogOut, Menu, RefreshCw, Trophy, User, Video, X } from "lucide-react";
 import { CoinsModal, LeaderboardModal, NotificationBell } from "@/components/my/Panels";
-import { getToken, logoutUser } from "@/services/auth";
+import { clearLocalSession, getToken, isGuestSession, logoutUser } from "@/services/auth";
 import { apiCached, cacheClearUser, cacheDetectUserChange, cachePrefetchAll, cacheSet, tokenTag } from "./api";
 import { MyContext, type MyUser } from "./MyContext";
 import { useLearningTime } from "./useLearningTime";
@@ -38,6 +38,9 @@ const NAV_GROUPS = [
   },
 ];
 
+/** Pages a guest can't use (they need a real account): hidden from the sidebar. */
+const GUEST_HIDDEN = new Set(["/my/live"]);
+
 export default function MyLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -49,6 +52,11 @@ export default function MyLayout({ children }: { children: React.ReactNode }) {
   const [panel, setPanel] = useState<null | "coins" | "board">(null);
   const [drop, setDrop] = useState<string | null>(null);
   const [xp, setXp] = useState<{ level: number; title: string; xp: number; progressPct: number } | null>(null);
+  // Guest (try-a-free-lesson) session: leaving the classroom deletes everything.
+  const [guest, setGuest] = useState(false);
+  const [leaveTo, setLeaveTo] = useState<string | null>(null);
+  const [leaving, setLeaving] = useState(false);
+  const leavingRef = useRef(false);
 
   const refreshCoins = useCallback(() => {
     // After a reward the coins entry was just invalidated, so this fetches fresh.
@@ -61,6 +69,7 @@ export default function MyLayout({ children }: { children: React.ReactNode }) {
       router.replace(`/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`);
       return;
     }
+    setGuest(isGuestSession(token));
     let prefetched = false;
     // Cached profile → classroom opens instantly; the fresh copy follows silently.
     apiCached("/api/student", (d) => {
@@ -93,7 +102,49 @@ export default function MyLayout({ children }: { children: React.ReactNode }) {
   const refreshAll = () => { cacheClearUser(); window.location.reload(); };
   useLearningTime(user?.id || "", pathname);
 
+  // ── Guest: ask before leaving the classroom; "yes" deletes the guest account ──
+  const endGuest = useCallback(async (to: string) => {
+    leavingRef.current = true;
+    setLeaving(true);
+    const token = getToken();
+    try {
+      await fetch("/api/guest/end", { method: "POST", keepalive: true, headers: { Authorization: `Bearer ${token}` } });
+    } catch { /* the daily cleanup removes it anyway */ }
+    cacheClearUser();
+    clearLocalSession();
+    window.location.href = to;
+  }, []);
+
+  useEffect(() => {
+    if (!guest) return;
+    // Any link that goes outside /my (website pages, other sites) asks first.
+    const onClick = (e: MouseEvent) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const a = (e.target as HTMLElement | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
+      if (!a || a.target === "_blank" || a.hasAttribute("download")) return;
+      const url = new URL(a.href, window.location.href);
+      if (url.protocol !== "http:" && url.protocol !== "https:") return; // mailto:, tel:, whatsapp
+      if (url.origin === window.location.origin && (url.pathname === "/my" || url.pathname.startsWith("/my/"))) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setLeaveTo(url.origin === window.location.origin ? url.pathname + url.search + url.hash : url.href);
+    };
+    // Closing the tab / typing another address: the browser shows its own "Leave site?" box.
+    const onUnload = (e: BeforeUnloadEvent) => {
+      if (leavingRef.current) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    document.addEventListener("click", onClick, true);
+    window.addEventListener("beforeunload", onUnload);
+    return () => {
+      document.removeEventListener("click", onClick, true);
+      window.removeEventListener("beforeunload", onUnload);
+    };
+  }, [guest]);
+
   const logout = () => {
+    if (guest) { setMenu(false); setLeaveTo("/"); return; }
     cacheClearUser();
     logoutUser();
     localStorage.removeItem("ck_token");
@@ -122,7 +173,7 @@ export default function MyLayout({ children }: { children: React.ReactNode }) {
               <span>{g.emoji}</span>{g.title}
             </div>
             <div className="space-y-1">
-              {g.items.map((n) => {
+              {g.items.filter((n) => !(guest && GUEST_HIDDEN.has(n.href))).map((n) => {
                 const active = pathname === n.href || (n.href.startsWith("/my/") && pathname.startsWith(n.href));
                 const Icon = n.icon;
                 return (
@@ -195,12 +246,17 @@ export default function MyLayout({ children }: { children: React.ReactNode }) {
               </button>
 
               {/* Rewards: Refer & Earn + CK Mall — next to coins, where kids spend/earn them */}
-              <Drop id="rewards" open={drop} setOpen={setDrop} title="Rewards"
+              {!guest && <Drop id="rewards" open={drop} setOpen={setDrop} title="Rewards"
                 trigger={<Gift size={16} className="text-pink-300" />} triggerCls="hover:bg-pink-500/15"
                 head={<><b className="text-sm">🎁 Rewards</b><span className="text-[11px] text-slate-400">Earn and spend your coins</span></>}>
                 <MenuItem href="/my/mall" icon={<Store size={16} />} tint="#fbbf24" label="CK Mall" sub="Spend coins on cool stuff" />
                 <MenuItem href="/my/referral" icon={<Gift size={16} />} tint="#f472b6" label="Refer & Earn" sub="Invite friends, win coins" />
-              </Drop>
+              </Drop>}
+              {guest && (
+                <Link href="/signup" className="hidden h-9 items-center rounded-full bg-gradient-to-r from-amber-400 to-pink-500 px-3.5 text-[13px] font-extrabold text-[#1a1a2e] transition hover:-translate-y-px sm:flex">
+                  ✨ Sign up free
+                </Link>
+              )}
 
               <button onClick={() => setPanel("board")} title="Leaderboard" className={iconBtn + " hover:bg-amber-400/15"}>
                 <Trophy size={16} className="text-amber-400" />
@@ -233,7 +289,7 @@ export default function MyLayout({ children }: { children: React.ReactNode }) {
                           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-fuchsia-500 to-pink-500 text-lg font-extrabold ring-2 ring-white/20">{initial}</div>
                           <div className="min-w-0">
                             <div className="truncate font-extrabold">{user?.name}</div>
-                            <div className="truncate text-xs text-slate-300">{user?.email}</div>
+                            <div className="truncate text-xs text-slate-300">{guest ? "Temporary guest account" : user?.email}</div>
                           </div>
                         </div>
                         {xp && (
@@ -244,15 +300,15 @@ export default function MyLayout({ children }: { children: React.ReactNode }) {
                         )}
                       </div>
                       <div className="p-1.5">
-                        <MenuItem href="/my/profile" icon={<User size={16} />} tint="#a78bfa" label="My Profile" />
-                        <MenuItem href="/my/orders" icon={<Receipt size={16} />} tint="#2dd4bf" label="My Orders" />
+                        {!guest && <MenuItem href="/my/profile" icon={<User size={16} />} tint="#a78bfa" label="My Profile" />}
+                        {!guest && <MenuItem href="/my/orders" icon={<Receipt size={16} />} tint="#2dd4bf" label="My Orders" />}
                         <MenuItem href="/my/rate" icon={<Star size={16} />} tint="#22c55e" label="Rate Us" />
                         <MenuItem href="/my/about" icon={<Info size={16} />} tint="#22d3ee" label="About CodingKida" />
                       </div>
                       <div className="border-t border-white/10 p-1.5">
                         <MenuItem href="/" icon={<Globe size={16} />} tint="#60a5fa" label="Go to CodingKida Website" />
                         <button onClick={logout} className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-400 hover:bg-red-500/10">
-                          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-500/10"><LogOut size={16} /></span> Logout
+                          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-500/10"><LogOut size={16} /></span> {guest ? "Leave guest mode" : "Logout"}
                         </button>
                       </div>
                     </div>
@@ -261,10 +317,41 @@ export default function MyLayout({ children }: { children: React.ReactNode }) {
               </div>
             </div>
           </header>
+          {guest && (
+            <div className="mx-4 mb-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-2xl border border-amber-400/30 bg-gradient-to-r from-amber-500/15 via-pink-500/10 to-violet-500/10 px-4 py-2.5 text-sm md:mx-6">
+              <span className="text-lg">👋</span>
+              <span className="min-w-0 flex-1 font-semibold text-amber-100">
+                You&apos;re trying CodingKida as a <b>guest</b>. Quizzes, coins and badges all work, but they&apos;re deleted when you leave.
+              </span>
+              <Link href="/signup" className="rounded-full bg-gradient-to-r from-amber-400 to-pink-500 px-3.5 py-1.5 text-xs font-extrabold text-[#1a1a2e]">Sign up free to keep learning</Link>
+            </div>
+          )}
           <main className={`min-w-0 flex-1 px-4 md:px-6 ${pathname.startsWith("/my/code") || /^\/my\/live\/.+/.test(pathname) || pathname === "/my/ai" ? "" : "pb-10"}`}>{children}</main>
         </div>
         {panel === "coins" && <CoinsModal onClose={() => setPanel(null)} />}
         {panel === "board" && <LeaderboardModal onClose={() => setPanel(null)} />}
+        {leaveTo && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 px-4" onClick={() => !leaving && setLeaveTo(null)}>
+            <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-[#1a1a2e] p-6 text-center shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <div className="text-5xl">🚪</div>
+              <h2 className="mt-3 text-xl font-extrabold">Are you leaving?</h2>
+              <p className="mt-2 text-sm text-slate-300">
+                You&apos;re in guest mode. If you leave My Classroom, your coins, badges, quiz answers and progress will be <b className="text-pink-300">deleted</b>.
+              </p>
+              <p className="mt-2 text-xs text-slate-400">Sign up for free to keep everything next time.</p>
+              <div className="mt-5 flex flex-col gap-2">
+                <button onClick={() => setLeaveTo(null)} disabled={leaving}
+                  className="rounded-xl bg-gradient-to-r from-violet-600 to-pink-500 px-5 py-2.5 text-sm font-extrabold disabled:opacity-60">
+                  Stay and keep learning
+                </button>
+                <button onClick={() => endGuest(leaveTo)} disabled={leaving}
+                  className="rounded-xl border border-red-400/30 px-5 py-2.5 text-sm font-bold text-red-300 hover:bg-red-500/10 disabled:opacity-60">
+                  {leaving ? "Deleting guest data…" : "Yes, leave and delete"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </MyContext.Provider>
   );

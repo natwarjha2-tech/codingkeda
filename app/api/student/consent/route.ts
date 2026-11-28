@@ -3,6 +3,7 @@ import { requireAuth } from "@/app/lib/middleware";
 import { apiSuccess, apiError } from "@/app/lib/response";
 import { logger } from "@/app/lib/logger";
 import { getConsentState } from "@/app/services/parent-consent.service";
+import { isGuestRole } from "@/app/lib/guest";
 
 /**
  * GET /api/student/consent
@@ -14,7 +15,7 @@ export async function GET(req: NextRequest) {
   try {
     const { error, user } = requireAuth(req);
     if (error) return error;
-    if (user!.role === "admin" || user!.role === "super-admin") {
+    if (user!.role === "admin" || user!.role === "super-admin" || isGuestRole(user!.role)) {
       return apiSuccess({ consent: { enabled: false, required: false, verified: true, blocked: false, profile: { verified: true, missing: [] } } });
     }
     return apiSuccess({ consent: await getConsentState(user!.userId) });

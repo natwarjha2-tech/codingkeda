@@ -1,5 +1,6 @@
 import { prisma } from "@/app/lib/prisma";
 import { notifyAchievement, notifyBadgeLost } from "@/app/lib/notification";
+import { NOT_GUEST_USER, isGuestRole, realUsersOr } from "@/app/lib/guest";
 
 /**
  * Quiz Leaderboard Service
@@ -46,7 +47,7 @@ export interface LeaderboardResult {
  */
 async function syncOtherBadges(skipUserId: string, lessonId: string, courseId: string, rankedUserIds: string[]) {
   const existing = await prisma.achievement.findMany({
-    where: { lessonId },
+    where: { lessonId, ...NOT_GUEST_USER }, // guests' badges are theirs alone; leave them
     select: { userId: true, badgeType: true, title: true },
   });
   const existingByUser = new Map(existing.map((a) => [a.userId, a]));
@@ -100,13 +101,14 @@ export interface LessonQuizEntry {
  *  - The score is out of ALL questions in the lesson quiz.
  *  - Order: score, then correct answers, then total time (faster), then earliest.
  */
-export async function rankLessonQuiz(lessonId: string): Promise<{ ranked: LessonQuizEntry[]; questionCount: number }> {
+export async function rankLessonQuiz(lessonId: string, viewerId?: string | null): Promise<{ ranked: LessonQuizEntry[]; questionCount: number }> {
   const quizIds = (await prisma.quiz.findMany({ where: { lessonId }, select: { id: true } })).map((q) => q.id);
   const questionCount = quizIds.length;
   if (questionCount === 0) return { ranked: [], questionCount: 0 };
 
   const attempts = await prisma.quizAttempt.findMany({
-    where: { quizId: { in: quizIds } },
+    // Real students only, plus the viewer (so a guest sees their own place).
+    where: { quizId: { in: quizIds }, ...realUsersOr(viewerId) },
     select: { userId: true, quizId: true, correct: true, createdAt: true, timeTaken: true },
     orderBy: { createdAt: "asc" },
   });
@@ -151,7 +153,11 @@ export async function recalculateAndAwardCoins(
   courseId: string
 ): Promise<LeaderboardResult> {
   try {
-    const { ranked: everyone } = await rankLessonQuiz(lessonId);
+    const me = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+    const guest = isGuestRole(me?.role);
+    // A guest is ranked against real students (to get their own medal/coins);
+    // real students are ranked without any guests.
+    const { ranked: everyone } = await rankLessonQuiz(lessonId, guest ? userId : null);
     if (everyone.length === 0) return { rank: null, coinsAwarded: 0, badge: null };
     // Only students who score at least the pass mark can win a medal.
     const ranked = everyone.filter((e) => e.score >= QUIZ_PASS_PERCENT);
@@ -160,7 +166,8 @@ export async function recalculateAndAwardCoins(
     // ── KEEP EVERYONE ELSE'S BADGE CURRENT ──
     // When a new student takes first place, the student who held it moves down.
     // Fix their badge now (not only when they next open the quiz).
-    await syncOtherBadges(userId, lessonId, courseId, ranked.map((e) => e.userId));
+    // A guest never changes anyone else's badge.
+    if (!guest) await syncOtherBadges(userId, lessonId, courseId, ranked.map((e) => e.userId));
 
     const userIndex = ranked.findIndex((e) => e.userId === userId);
     if (userIndex === -1) {

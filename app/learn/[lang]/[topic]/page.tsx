@@ -79,10 +79,13 @@ export default async function TopicPage({ params }: Props) {
           <div className="mt-8 rounded-[28px] bg-[#EDE9FE] border-2 border-[#C4B5FD] border-b-8 p-6 flex flex-col md:flex-row md:items-center gap-4">
             <div className="flex-1">
               <h2 className="text-xl font-black">✏️ Your turn</h2>
-              <p className="text-[#4B5563]">Open this example in the playground, change it and run it.</p>
+              <p className="text-[#4B5563]">Open this example in the code editor, change it and run it. It opens in a new tab, so this lesson stays open.</p>
             </div>
             <Link
-              href={`/playground?example=${l.id}/${t.slug}`}
+              href={`/try/editor?example=${l.id}/${t.slug}`}
+              target="_blank"
+              rel="noopener"
+              prefetch={false}
               className="rounded-2xl bg-[#7C3AED] px-6 py-4 text-center font-black text-white border-b-[6px] border-[#5B21B6] hover:brightness-110"
             >
               ▶ Try it yourself
